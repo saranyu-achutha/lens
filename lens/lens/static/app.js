@@ -206,7 +206,10 @@ async function loadOverview() {
   const lead = labs.slice().sort((a, b) => (b.views || 0) - (a.views || 0))[0];
   const pct = (n, d) => (d ? Math.round((100 * (n || 0)) / d) : 0);
   const rise = ov.risers[0];
-  const tiles = [["Fastest riser", rise ? rise.title : "–", rise ? `+${compact(rise.yt_delta)} views in the last day${rise.music_label ? ` · ${rise.music_label}` : ""}` : "shown after the next daily reading"],
+  const on = k.on_platform || {};
+  const tiles = [["Total songs", fmt(k.songs), [["youtube", "YouTube"], ["spotify", "Spotify"], ["apple", "Apple Music"], ["deezer", "Deezer"]]
+      .map(([p, l]) => `${l} ${fmt(on[p] || 0)}`).join(" · ")],
+    ["Fastest riser", rise ? rise.title : "–", rise ? `+${compact(rise.yt_delta)} views in the last day${rise.music_label ? ` · ${rise.music_label}` : ""}` : "shown after the next daily reading"],
     ["Total YouTube views", compact(k.views), `about ${compact(k.songs ? k.views / k.songs : 0)} per song`],
     ["Views in the last day", k.views_delta ? `+${compact(k.views_delta)}` : "–",
       k.views_delta ? `${fmt(k.growing)} songs still growing` : "shown after the next daily reading"],

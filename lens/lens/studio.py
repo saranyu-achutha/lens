@@ -89,6 +89,10 @@ def api_overview(conn, _):
                                  (SELECT count(*) FROM platform_item WHERE platform IN ('youtube','spotify')
                                     AND review_state='pending') review""")[0])
     kpi["since"], kpi["until"] = since, until
+    kpi["on_platform"] = {r["platform"]: r["songs"] for r in q(conn, f"""
+        SELECT pi.platform, count(DISTINCT pi.track_id) songs FROM platform_item pi
+        WHERE pi.track_id IN (SELECT id FROM ({W})) AND pi.review_state IN ('auto','approved','song')
+          AND pi.platform IN ('youtube','spotify','apple','deezer') GROUP BY pi.platform""", a)}
     kpi.update(q(conn, f"""SELECT """ + ", ".join(f"sum(yt_views_{t}) views_{t}" for t in
                                                   ("video", "lyric", "audio", "short", "teaser", "other")) + f" FROM ({W})", a)[0])
     by_day = q(conn, f"""SELECT song_date day, count(*) songs, sum(release_status='new') new FROM ({W})
