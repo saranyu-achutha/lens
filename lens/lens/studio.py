@@ -82,7 +82,8 @@ def api_overview(conn, _):
     kpi = q(conn, f"""SELECT count(*) songs, sum(release_status='new') new, sum(release_status='catalogue') catalogue,
                              sum(release_status='not_on_spotify') not_on_spotify, sum(release_status='pending') spotify_pending, sum(release_status='unchecked') unchecked,
                              sum(yt_views) views, sum(yt_delta) views_delta, sum(yt_likes) likes, sum(yt_comments) comments,
-                             sum(isrc IS NOT NULL) with_isrc, sum(deezer_rank IS NOT NULL) on_deezer
+                             sum(isrc IS NOT NULL) with_isrc, sum(deezer_rank IS NOT NULL) on_deezer,
+                             sum(yt_views >= 1000000) hits, sum(yt_delta > 0) growing
                       FROM ({W})""", a)[0]
     kpi.update(q(conn, """SELECT (SELECT max(capture_date) FROM snapshot) as_of,
                                  (SELECT count(*) FROM platform_item WHERE platform IN ('youtube','spotify')

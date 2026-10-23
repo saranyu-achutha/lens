@@ -2,7 +2,7 @@
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const fmt = (n) => (n == null ? "–" : Number(n).toLocaleString("en-IN"));
-const compact = (n) => n == null ? "–" : Math.abs(n) >= 1e7 ? `${(n / 1e6).toFixed(0)}M` : Math.abs(n) >= 1e6 ? `${(n / 1e6).toFixed(1)}M`
+const compact = (n) => n == null ? "–" : Math.abs(n) >= 1e9 ? `${(n / 1e9).toFixed(2)}B` : Math.abs(n) >= 1e7 ? `${(n / 1e6).toFixed(0)}M` : Math.abs(n) >= 1e6 ? `${(n / 1e6).toFixed(1)}M`
   : Math.abs(n) >= 1e4 ? `${(n / 1e3).toFixed(0)}K` : Math.abs(n) >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : String(Math.round(n));
 const dur = (ms) => { if (!ms) return "–"; const t = Math.round(ms / 1000); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`; };
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -200,12 +200,17 @@ async function loadOverview() {
   $("#ov-empty").style.display = empty ? "block" : "none";
   $("#ov-body").style.display = empty ? "none" : "block";
   if (empty) return;
-  const tiles = [["Songs", fmt(k.songs), `on YouTube since ${k.since}`],
-    ["New releases", fmt(k.new), `${fmt(k.catalogue)} older songs (on Spotify 30+ days before)`],
-    ["On Spotify", `${k.songs ? Math.round((100 * (k.new + k.catalogue)) / k.songs) : 0}%`, `${fmt(k.not_on_spotify)} not found · ${fmt(k.spotify_pending)} in review${k.unchecked ? ` · ${fmt(k.unchecked)} not looked up yet` : ""}`],
-    ["YouTube views", compact(k.views), `${compact(k.likes)} likes · ${compact(k.comments)} comments · ` +
-      VTYPES.filter(([t]) => k[`views_${t}`]).map(([t, l]) => `${l.toLowerCase()} ${compact(k[`views_${t}`])}`).join(", ")],
-    ["Awaiting review", fmt(k.review), k.review ? "open the Review page" : "nothing to review"]];
+  // Client-facing headline numbers: output, reach, momentum, hits and the leading label.
+  const dmy = (d) => new Date(d + "T00:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+  const labs = ov.labels.filter((l) => l.label && !l.label.startsWith("("));
+  const lead = labs.slice().sort((a, b) => (b.views || 0) - (a.views || 0))[0];
+  const pct = (n, d) => (d ? Math.round((100 * (n || 0)) / d) : 0);
+  const tiles = [["Songs released", fmt(k.songs), `${labs.length} labels · ${dmy(k.since)} – ${dmy(k.until)}`],
+    ["Total YouTube views", compact(k.views), `about ${compact(k.songs ? k.views / k.songs : 0)} per song`],
+    ["Views in the last day", k.views_delta ? `+${compact(k.views_delta)}` : "–",
+      k.views_delta ? `${fmt(k.growing)} songs still growing` : "shown after the next daily reading"],
+    ["Songs with 1M+ views", fmt(k.hits), `${pct(k.hits, k.songs)}% of all songs`],
+    ["Top label", lead ? lead.label : "–", lead ? `${pct(lead.views, k.views)}% of all views · ${fmt(lead.songs)} songs` : ""]];
   $("#ov-kpis").innerHTML = tiles.map(([l, v, x]) => `<div class="card kpi"><div class="label">${l}</div><div class="value">${esc(v)}</div><div class="sub">${esc(x)}</div></div>`).join("");
   barChart($("#ov-month"), ov.by_day.map((d) => ({ label: d.day.slice(5), value: d.songs, day: d.day, new: d.new })), {
     tip: (d) => `<b>${esc(d.day)}</b><br>${fmt(d.value)} songs · ${fmt(d.new)} new releases`,
