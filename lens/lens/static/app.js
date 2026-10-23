@@ -215,6 +215,7 @@ async function loadOverview() {
   $("#ov-kpis").innerHTML = tiles.map(([l, v, x], i) => `<div class="card kpi${i === 0 && rise ? " kpi-song click" : ""}"${i === 0 && rise ? ` data-id="${rise.id}" title="Play ${esc(rise.title)}"` : ""}><div class="label">${l}</div><div class="value">${esc(v)}</div><div class="sub">${esc(x)}</div></div>`).join("");
   const rt = $("#ov-kpis .kpi-song");
   if (rt) rt.onclick = () => { openTrack(rise.id); if (rise.yt_video_id) play("youtube", rise.yt_video_id, rise.title); };
+  $("#ov-total").textContent = `${fmt(k.songs)} songs in total`;
   barChart($("#ov-month"), ov.by_day.map((d) => ({ label: d.day.slice(5), value: d.songs, day: d.day, new: d.new })), {
     tip: (d) => `<b>${esc(d.day)}</b><br>${fmt(d.value)} songs · ${fmt(d.new)} new releases`,
     onClick: (d) => { Object.assign(CAT, { day: d.day, status: "", channel: "", label: "", offset: 0 }); location.hash = "#catalogue"; },
