@@ -317,3 +317,6 @@ a.mchip:hover { border-color: var(--accent); text-decoration: none; }
 .ev { color: var(--text-muted); font-size: 12px; }
 .bench { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 14px; }
 .bench .pill { font-size: 12px; }
+.kpi-song { cursor: pointer; }
+.kpi-song .value { font-size: 20px; line-height: 34px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kpi-song:hover .value { color: var(--accent, inherit); }

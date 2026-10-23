@@ -205,13 +205,16 @@ async function loadOverview() {
   const labs = ov.labels.filter((l) => l.label && !l.label.startsWith("("));
   const lead = labs.slice().sort((a, b) => (b.views || 0) - (a.views || 0))[0];
   const pct = (n, d) => (d ? Math.round((100 * (n || 0)) / d) : 0);
-  const tiles = [["Songs released", fmt(k.songs), `${labs.length} labels · ${dmy(k.since)} – ${dmy(k.until)}`],
+  const rise = ov.risers[0];
+  const tiles = [["Fastest riser", rise ? rise.title : "–", rise ? `+${compact(rise.yt_delta)} views in the last day${rise.music_label ? ` · ${rise.music_label}` : ""}` : "shown after the next daily reading"],
     ["Total YouTube views", compact(k.views), `about ${compact(k.songs ? k.views / k.songs : 0)} per song`],
     ["Views in the last day", k.views_delta ? `+${compact(k.views_delta)}` : "–",
       k.views_delta ? `${fmt(k.growing)} songs still growing` : "shown after the next daily reading"],
     ["Songs with 1M+ views", fmt(k.hits), `${pct(k.hits, k.songs)}% of all songs`],
     ["Top label", lead ? lead.label : "–", lead ? `${pct(lead.views, k.views)}% of all views · ${fmt(lead.songs)} songs` : ""]];
-  $("#ov-kpis").innerHTML = tiles.map(([l, v, x]) => `<div class="card kpi"><div class="label">${l}</div><div class="value">${esc(v)}</div><div class="sub">${esc(x)}</div></div>`).join("");
+  $("#ov-kpis").innerHTML = tiles.map(([l, v, x], i) => `<div class="card kpi${i === 0 && rise ? " kpi-song click" : ""}"${i === 0 && rise ? ` data-id="${rise.id}" title="Play ${esc(rise.title)}"` : ""}><div class="label">${l}</div><div class="value">${esc(v)}</div><div class="sub">${esc(x)}</div></div>`).join("");
+  const rt = $("#ov-kpis .kpi-song");
+  if (rt) rt.onclick = () => { openTrack(rise.id); if (rise.yt_video_id) play("youtube", rise.yt_video_id, rise.title); };
   barChart($("#ov-month"), ov.by_day.map((d) => ({ label: d.day.slice(5), value: d.songs, day: d.day, new: d.new })), {
     tip: (d) => `<b>${esc(d.day)}</b><br>${fmt(d.value)} songs · ${fmt(d.new)} new releases`,
     onClick: (d) => { Object.assign(CAT, { day: d.day, status: "", channel: "", label: "", offset: 0 }); location.hash = "#catalogue"; },
