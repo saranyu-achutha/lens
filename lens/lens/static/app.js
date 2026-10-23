@@ -917,7 +917,7 @@ $("#yt-label-add").onclick = async () => {
 };
 
 /* ---------- Review ---------- */
-const REV = { state: "spotify_pending", q: "", offset: 0, limit: 50 };
+const REV = { state: "spotify_pending", q: "", offset: 0, limit: 50, picked: false };
 async function loadHistory() {
   const { decisions } = await api("/api/review/decisions");
   document.querySelectorAll("#rev-tabs .tab").forEach((b) => b.classList.toggle("active", b.dataset.state === "history"));
@@ -993,6 +993,8 @@ async function loadReview() {
   }
   const d = await api(`/api/matching?${new URLSearchParams({ state: REV.state, q: REV.q, offset: REV.offset, limit: REV.limit })}`);
   const s = d.summary, ov = (await api("/api/overview")).kpi;
+  // Nothing on the default Spotify tab but videos waiting: open the tab the yellow badge counts.
+  if (!REV.picked && REV.state === "spotify_pending" && !s.spotify_pending && s.pending) { REV.state = "pending"; return loadReview(); }
   const linked = ov.new + ov.catalogue, decided = linked + ov.spotify_pending + ov.not_on_spotify;
   const share = linked + ov.spotify_pending ? Math.round((100 * ov.spotify_pending) / (linked + ov.spotify_pending)) : 0;
   $("#rev-kpis").innerHTML = [["Songs matched on Spotify", `${decided ? Math.round((100 * linked) / decided) : 0}%`, `${fmt(linked)} of ${fmt(decided)} songs · target ≥ 90%`],
@@ -1037,7 +1039,7 @@ async function loadReview() {
   $("#rev-count").textContent = d.total ? `${fmt(REV.offset + 1)}–${fmt(Math.min(REV.offset + REV.limit, d.total))} of ${fmt(d.total)}` : "0";
   $("#rev-prev").disabled = REV.offset === 0; $("#rev-next").disabled = REV.offset + REV.limit >= d.total;
 }
-document.querySelectorAll("#rev-tabs .tab").forEach((b) => (b.onclick = () => { REV.state = b.dataset.state; REV.offset = 0; loadReview(); }));
+document.querySelectorAll("#rev-tabs .tab").forEach((b) => (b.onclick = () => { REV.state = b.dataset.state; REV.offset = 0; REV.picked = true; loadReview(); }));
 let revTimer;
 $("#rev-q").addEventListener("input", (e) => { clearTimeout(revTimer); revTimer = setTimeout(() => { REV.q = e.target.value; REV.offset = 0; loadReview(); }, 250); });
 $("#rev-prev").onclick = () => { REV.offset = Math.max(0, REV.offset - REV.limit); loadReview(); };
@@ -1091,7 +1093,7 @@ function showTab(t) {
   $("#out-raw").style.display = t === "raw" ? "block" : "none";
   if (t === "raw") loadRaw(); else loadFiles();
 }
-document.querySelectorAll(".tab").forEach((b) => (b.onclick = () => showTab(b.dataset.tab)));
+document.querySelectorAll(".tab[data-tab]").forEach((b) => (b.onclick = () => showTab(b.dataset.tab)));  // Outputs tabs only
 async function loadOutputs() {
   if (!STATUS) await refreshStatus();
   const p = hashParams();
