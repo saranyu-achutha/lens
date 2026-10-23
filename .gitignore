@@ -1,0 +1,9 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+.vscode/
+# Local database, backups and generated run outputs
+**/data/*
+!**/data/ai_assist.json
+**/out/

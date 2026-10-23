@@ -1,0 +1,2 @@
+# Spotify artist IDs of Sony Music India artists, one per line (second discovery path).
+# Example: 4YRxDV8wJFPHPTeXepOstw  # Arijit Singh

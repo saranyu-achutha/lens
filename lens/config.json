@@ -1,0 +1,473 @@
+{
+  "discovery": {
+    "since": "2026-09-15",
+    "until": "2026-10-15",
+    "market": "IN",
+    "label_queries": [
+      "Sony Music India",
+      "Sony Music Entertainment India"
+    ],
+    "label_regex": "sony\\s+music\\s+(entertainment\\s+)?india",
+    "use_track_search": true,
+    "use_artist_seeds": true,
+    "store_raw": true,
+    "refresh_existing": false,
+    "max_calls_per_run": 900,
+    "isrc_lookups_per_run": 400
+  },
+  "schedule": {
+    "enabled": false,
+    "time": "06:00"
+  },
+  "youtube": {
+    "enabled": true,
+    "every_hours": 6,
+    "fresh_days": 7,
+    "lookback_days": 31,
+    "labels": [
+      {
+        "name": "Sony Music India",
+        "enabled": true
+      },
+      {
+        "name": "Aditya Music",
+        "enabled": true
+      },
+      {
+        "name": "Saregama",
+        "enabled": true
+      },
+      {
+        "name": "Think Music",
+        "enabled": true
+      },
+      {
+        "name": "T-Series",
+        "enabled": true
+      },
+      {
+        "name": "Zee Music Company",
+        "enabled": true
+      }
+    ],
+    "channels": [
+      {
+        "id": "UC56gTxNs4f9xZ7Pa2i5xNzg",
+        "title": "Sony Music India",
+        "label": "Sony Music India"
+      },
+      {
+        "id": "UC3MLnJtqc_phABBriLRhtgQ",
+        "title": "SonyMusicIndiaVEVO",
+        "label": "Sony Music India"
+      },
+      {
+        "id": "UCTNtRdBAiZtHP9w7JinzfUg",
+        "title": "SonyMusicSouthVEVO",
+        "label": "Sony Music India"
+      },
+      {
+        "id": "UCn4rEMqKtwBQ6-oEwbd4PcA",
+        "title": "Sony Music South",
+        "label": "Sony Music India"
+      },
+      {
+        "id": "UCpJmCkjsJbqIBdvTRx2zt-w",
+        "title": "Sony Music Malayalam",
+        "label": "Sony Music India"
+      },
+      {
+        "id": "UCc052CoYw9cF27quifoL_mg",
+        "title": "Sony Music Bangla",
+        "label": "Sony Music India"
+      },
+      {
+        "id": "UCbq-ZyyqIPOAvQGfYvkr75Q",
+        "title": "Sony Music Bhakti",
+        "label": "Sony Music India"
+      },
+      {
+        "id": "UCT5VwjyDpD5m5qMNagy6Gjw",
+        "title": "Sony Music India Classical",
+        "label": "Sony Music India"
+      },
+      {
+        "id": "UCNApqoVYJbYSrni4YsbXzyQ",
+        "title": "Aditya Music",
+        "label": "Aditya Music"
+      },
+      {
+        "id": "UCOuNTPwea_j7l808I9DvLRQ",
+        "title": "Aditya Music Hindi",
+        "label": "Aditya Music"
+      },
+      {
+        "id": "UCo_iDY0qQ4d4ad3zRAZtPsg",
+        "title": "Aditya Music Tamil",
+        "label": "Aditya Music"
+      },
+      {
+        "id": "UCFfg3ORryhlm-i4ltTFe_RA",
+        "title": "Aditya Music Kannada",
+        "label": "Aditya Music"
+      },
+      {
+        "id": "UCixgDUHkyH7GWePqeuNmx1g",
+        "title": "Aditya Music Malayalam",
+        "label": "Aditya Music"
+      },
+      {
+        "id": "UCZQ3VR0OxbRVVy5uzfGomUg",
+        "title": "Aditya Bhakthi",
+        "label": "Aditya Music"
+      },
+      {
+        "id": "UCpz5rqSZuEDbE2UTUiy9Glg",
+        "title": "Aditya Bhakthi Hindi",
+        "label": "Aditya Music"
+      },
+      {
+        "id": "UC_A7K2dXFsTMAciGmnNxy-Q",
+        "title": "Saregama Music",
+        "label": "Saregama"
+      },
+      {
+        "id": "UCzee67JnEcuvjErRyWP3GpQ",
+        "title": "Saregama Tamil",
+        "label": "Saregama"
+      },
+      {
+        "id": "UC68nKdrLbLL0Vj7ilVkLmmg",
+        "title": "Saregama Telugu",
+        "label": "Saregama"
+      },
+      {
+        "id": "UCoRF8GByEjmM_yHwUGIDGyQ",
+        "title": "Saregama Malayalam",
+        "label": "Saregama"
+      },
+      {
+        "id": "UCKFnbjBQDzzh002TMJcyuZA",
+        "title": "Saregama Kannada",
+        "label": "Saregama"
+      },
+      {
+        "id": "UCRh-4WUJx8M86gUYL2pyKSQ",
+        "title": "Saregama Bengali",
+        "label": "Saregama"
+      },
+      {
+        "id": "UCJSX0gNr2U5lawLXE6IjRmA",
+        "title": "Saregama Marathi",
+        "label": "Saregama"
+      },
+      {
+        "id": "UCvrD1eyGgo8O9JcTraCvYBg",
+        "title": "Saregama Gujarati",
+        "label": "Saregama"
+      },
+      {
+        "id": "UCSdWkYk9pk3DHTXbof_R7XQ",
+        "title": "Saregama Punjabi",
+        "label": "Saregama"
+      },
+      {
+        "id": "UC0J8BQahplvTY6LjlnLf_NQ",
+        "title": "Saregama Hum Bhojpuri",
+        "label": "Saregama"
+      },
+      {
+        "id": "UCbZYeJWwQgGl9Iea4EeiVmA",
+        "title": "Saregama Odia",
+        "label": "Saregama"
+      },
+      {
+        "id": "UCkQXxEAF-Sxb2r5ca040fng",
+        "title": "Saregama Chhattisgarhi",
+        "label": "Saregama"
+      },
+      {
+        "id": "UC9qKSI1o2icugvobZfVJjXQ",
+        "title": "Mharo Rajasthan",
+        "label": "Saregama"
+      },
+      {
+        "id": "UC6vQRTCxutg6fJLUGkDKynQ",
+        "title": "Saregama Bhakti",
+        "label": "Saregama"
+      },
+      {
+        "id": "UCdPc54sruYz59yz9iYEHFYQ",
+        "title": "Saregama South Devotional",
+        "label": "Saregama"
+      },
+      {
+        "id": "UCcfQ2IQNVoAb7znCP2dlIqw",
+        "title": "Saregama Ghazal",
+        "label": "Saregama"
+      },
+      {
+        "id": "UC76TspUE4-LJgLN-7JCcUvg",
+        "title": "Saregama Sufi",
+        "label": "Saregama"
+      },
+      {
+        "id": "UC6-4EXwd60J6cfJPttOHd3A",
+        "title": "Saregama Carnatic Classical",
+        "label": "Saregama"
+      },
+      {
+        "id": "UCjm_2mMYXUEjWzSVsA6Wshg",
+        "title": "Saregama Hindustani Classical",
+        "label": "Saregama"
+      },
+      {
+        "id": "UCLbdVvreihwZRL6kwuEUYsA",
+        "title": "Think Music India",
+        "label": "Think Music"
+      },
+      {
+        "id": "UCWO7fKdX8VDcVjacgMUfI0g",
+        "title": "Think Music Telugu",
+        "label": "Think Music"
+      },
+      {
+        "id": "UCAtehwA95bgdVT4c4Ukdbow",
+        "title": "Think Music Malayalam",
+        "label": "Think Music"
+      },
+      {
+        "id": "UCOq0PoxzxZTYf3l65dkvmmA",
+        "title": "Think Indie Collective",
+        "label": "Think Music"
+      },
+      {
+        "id": "UCBsyaEpqowt2GhrRucjWIOA",
+        "title": "Think Divine",
+        "label": "Think Music"
+      },
+      {
+        "id": "UCq-Fj5jknLsUf-MWSy4_brA",
+        "title": "T-Series",
+        "label": "T-Series"
+      },
+      {
+        "id": "UCnJjcn5FrgrOEp5_N45ZLEQ",
+        "title": "T-Series Telugu",
+        "label": "T-Series"
+      },
+      {
+        "id": "UCAEv0ANkT221wXsTnxFnBsQ",
+        "title": "T-Series Tamil",
+        "label": "T-Series"
+      },
+      {
+        "id": "UCovxnbWKPCA5iJDxa9zbBew",
+        "title": "T-Series Kannada",
+        "label": "T-Series"
+      },
+      {
+        "id": "UCUoj77TIUy9DhLNe5EVmF-A",
+        "title": "T-Series Malayalam",
+        "label": "T-Series"
+      },
+      {
+        "id": "UCCo_LMj-m3iGSSuytYq9n6Q",
+        "title": "T-Series Marathi",
+        "label": "T-Series"
+      },
+      {
+        "id": "UCev6abkwjdHj_dB3rquFfbQ",
+        "title": "T-Series Gujarati",
+        "label": "T-Series"
+      },
+      {
+        "id": "UCPH9W_9ZDQ1gemcCaIxOvCw",
+        "title": "T-Series Bangla",
+        "label": "T-Series"
+      },
+      {
+        "id": "UCcvNYxWXR_5TjVK7cSCdW-g",
+        "title": "T-Series Apna Punjab",
+        "label": "T-Series"
+      },
+      {
+        "id": "UCpN-WGQgGsOrXm7nHXDdTDA",
+        "title": "T-Series Hamaar Bhojpuri",
+        "label": "T-Series"
+      },
+      {
+        "id": "UC3Zva7aW8lJUFZQYnC-XyHg",
+        "title": "T-SERIES HARYANVI",
+        "label": "T-Series"
+      },
+      {
+        "id": "UCkPipkv-8UZ2saO2TjE8AWA",
+        "title": "T-Series Rajasthani",
+        "label": "T-Series"
+      },
+      {
+        "id": "UC6rzGFfqiyOTxIGhx7MDJYA",
+        "title": "T-Series Himachali",
+        "label": "T-Series"
+      },
+      {
+        "id": "UCJKd5H8WR_w0wN-Or1-MJyQ",
+        "title": "T-Series Bhavageethegalu & Folk",
+        "label": "T-Series"
+      },
+      {
+        "id": "UCy2fvV-mH_4AcIgqnLg9uDw",
+        "title": "T-Series Regional",
+        "label": "T-Series"
+      },
+      {
+        "id": "UCaayLD9i5x4MmIoVZxXSv_g",
+        "title": "T-Series Bhakti Sagar",
+        "label": "T-Series"
+      },
+      {
+        "id": "UCjA7qIB2IetzeolMd_Hwa0w",
+        "title": "T-Series Bhakti Sagar Telugu",
+        "label": "T-Series"
+      },
+      {
+        "id": "UCg5bqGqi_ROdCPV4eHF575g",
+        "title": "T-Series Bhakti Sagar Tamil",
+        "label": "T-Series"
+      },
+      {
+        "id": "UCQX4SV8Fg0cD98K1VRBVPEw",
+        "title": "T-Series Bhakti Sagar Kannada",
+        "label": "T-Series"
+      },
+      {
+        "id": "UCG-dSI2eRCBzxzPUfXjxHQw",
+        "title": "T-Series Bhakti Sagar Malayalam",
+        "label": "T-Series"
+      },
+      {
+        "id": "UCR4_gSSeup7YpBfsOWN_oRA",
+        "title": "T-Series Bhakti Marathi",
+        "label": "T-Series"
+      },
+      {
+        "id": "UCnYiYUwP6zj3YrVMzOwJFnQ",
+        "title": "T-Series Prarthana | The Sound Of Sanatan",
+        "label": "T-Series"
+      },
+      {
+        "id": "UC884UDwNldmpdEiS1mgtijA",
+        "title": "Shabad Gurbani",
+        "label": "T-Series"
+      },
+      {
+        "id": "UCVkXfARLNI0vf7gajoDDjlw",
+        "title": "T-Series Islamic Music",
+        "label": "T-Series"
+      },
+      {
+        "id": "UCH_dFsLe_I0ftAFP8XzJkTQ",
+        "title": "T-Series Classical",
+        "label": "T-Series"
+      },
+      {
+        "id": "UCFFbwnve3yF62-tVXkTyHqg",
+        "title": "Zee Music Company",
+        "label": "Zee Music Company"
+      },
+      {
+        "id": "UCLsSLka8jODBozvi5VTQeaQ",
+        "title": "Zee Music South",
+        "label": "Zee Music Company"
+      },
+      {
+        "id": "UCf40kH47yvowumzzK9LVKKg",
+        "title": "Zee Music Marathi",
+        "label": "Zee Music Company"
+      },
+      {
+        "id": "UCWpuUYOAmHPYDrmcQLJsmwQ",
+        "title": "Zee Music Bangla",
+        "label": "Zee Music Company"
+      },
+      {
+        "id": "UC3mMTXPmOZS89QtTbg7ckog",
+        "title": "Zee Music Bhojpuri",
+        "label": "Zee Music Company"
+      },
+      {
+        "id": "UCd2_NzMcO5f7oicL8d1hIBw",
+        "title": "Zee Music Haryanvi",
+        "label": "Zee Music Company"
+      },
+      {
+        "id": "UCi01cfaeov0CgsTziFdkiSQ",
+        "title": "Zee Music Chhattisgarhi",
+        "label": "Zee Music Company"
+      },
+      {
+        "id": "UC6wE1QldDPmYWwGyuudy3Tg",
+        "title": "Zee Music Gujarati",
+        "label": "Zee Music Company"
+      },
+      {
+        "id": "UCb_PYu8bTraFfiZQEZNDbGA",
+        "title": "Zee Music Odia",
+        "label": "Zee Music Company"
+      },
+      {
+        "id": "UCOZ5IbmOelKjRoeDhQIOtDQ",
+        "title": "Zee Music Rajasthani",
+        "label": "Zee Music Company"
+      },
+      {
+        "id": "UCAxc94GxnW6mi1ACG_gElIQ",
+        "title": "Zee Music Devotional",
+        "label": "Zee Music Company"
+      },
+      {
+        "id": "UCMhbxWhyv3LWWVpBI1J6Esg",
+        "title": "Zee Music Ibadat",
+        "label": "Zee Music Company"
+      }
+    ]
+  },
+  "songs": {
+    "spotify_searches_per_run": 1100,
+    "spotify_recheck_days": 3
+  },
+  "merge": {
+    "across_labels": false,
+    "rules": {
+      "same_isrc": {
+        "enabled": true,
+        "action": "auto"
+      },
+      "spotify_same": {
+        "enabled": true,
+        "action": "suggest",
+        "max_days_apart": 60,
+        "max_length_diff_s": 5
+      },
+      "similar_name": {
+        "enabled": true,
+        "action": "suggest",
+        "min_similarity": 0.9,
+        "max_days_apart": 30,
+        "max_length_diff_s": 8
+      },
+      "name_contains": {
+        "enabled": true,
+        "action": "suggest",
+        "min_words": 2,
+        "max_days_apart": 14,
+        "max_length_diff_s": 8
+      }
+    }
+  },
+  "health": {
+    "recheck_minutes": 15,
+    "auto_run_on_recovery": true
+  }
+}

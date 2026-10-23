@@ -1,0 +1,691 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Market Lens API Samples</title><style>
+:root{--bg:#fff;--fg:#1d2330;--mut:#5d6677;--line:#e2e5ea;--code:#f5f6f8;--acc:#2f6fdb}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#12151b;--fg:#e4e7ec;--mut:#9aa3b2;--line:#2a2f3a;--code:#1a1e26;--acc:#6ea0ff}}
+:root[data-theme="dark"]{--bg:#12151b;--fg:#e4e7ec;--mut:#9aa3b2;--line:#2a2f3a;--code:#1a1e26;--acc:#6ea0ff}
+body{background:var(--bg);color:var(--fg);font:15px/1.55 system-ui,-apple-system,Segoe UI,sans-serif;margin:0}
+main{max-width:980px;margin:0 auto;padding:24px 16px 64px}
+h1{font-size:26px;margin:0 0 6px} h2{margin-top:40px;border-bottom:1px solid var(--line);padding-bottom:6px}
+h3{margin:28px 0 8px} h4{margin:14px 0 6px;font-size:14px;color:var(--mut)}
+p,dd{color:var(--fg)} .lead{color:var(--mut)} a{color:var(--acc);text-decoration:none}
+dl{display:grid;grid-template-columns:150px 1fr;gap:4px 12px;margin:0} dt{color:var(--mut)} dd{margin:0;overflow-wrap:anywhere}
+@media (max-width:640px){dl{grid-template-columns:1fr} dt{margin-top:6px}}
+code{background:var(--code);padding:1px 5px;border-radius:4px;font-size:13px;overflow-wrap:anywhere}
+pre{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:12px;overflow:auto;font-size:12.5px;max-height:520px}
+table{border-collapse:collapse;width:100%;font-size:14px} td,th{border:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}
+th{background:var(--code)} summary{cursor:pointer;color:var(--mut);margin:12px 0 4px}
+ul.toc{list-style:none;padding:0;columns:2;font-size:14px} ul.toc span{color:var(--mut);font-size:12px}
+@media (max-width:640px){ul.toc{columns:1}} footer{margin-top:48px;color:var(--mut);font-size:13px}
+</style></head><body><main>
+<h1>Market Lens: API sample responses</h1>
+<p class="lead">Real responses captured by the application (stored raw responses in the database, plus a few live calls on 2026-10-16).
+Long lists are cut to the first item and long text is truncated; nothing else is changed. API keys and tokens are masked.</p>
+<ul class="toc"><li><a href='#yt_channels'><span>YouTube Data API v3</span> channels: channel lookup</a></li><li><a href='#yt_playlistItems'><span>YouTube Data API v3</span> playlistItems: list a channel&#x27;s uploads</a></li><li><a href='#yt_videos'><span>YouTube Data API v3</span> videos: duration and statistics (the trend readings)</a></li><li><a href='#sp_token'><span>Spotify Web API</span> token: client-credentials access token</a></li><li><a href='#sp_search_track'><span>Spotify Web API</span> search (type=track): song metadata — the main call</a></li><li><a href='#sp_search_artist'><span>Spotify Web API</span> search (type=artist): artist picker</a></li><li><a href='#sp_search_album'><span>Spotify Web API</span> search (type=album): label crawl (manual, legacy)</a></li><li><a href='#sp_album'><span>Spotify Web API</span> albums/{id}: full album with tracklist</a></li><li><a href='#sp_track'><span>Spotify Web API</span> tracks/{id}: single track (ISRC)</a></li><li><a href='#sp_artist_albums'><span>Spotify Web API</span> artists/{id}/albums: seed artist releases</a></li><li><a href='#dz_track'><span>Deezer API</span> track/isrc:{ISRC}: Deezer rank</a></li><li><a href="#errors"><span>Errors</span> 429 / 403 / 400</a></li></ul>
+<h2>YouTube Data API v3</h2><p>Base URL https://www.googleapis.com/youtube/v3. Auth: API key (key= parameter; masked as *** in everything the app stores). Daily quota 10,000 units; the app uses about 30 units per sync.</p><section id="yt_channels"><h3>channels: channel lookup</h3>
+<dl><dt>When it is called</dt><dd>Sources page → “Add channel” (by channel ID or @handle). Called only when a user adds a channel.</dd><dt>Code</dt><dd>lens/youtube.py channels(), lens/studio.py /api/youtube/channel</dd>
+<dt>Cost</dt><dd>1 unit</dd><dt>Request</dt><dd><code>GET /channels?part=snippet,statistics,contentDetails&amp;id={channelId}  (or &amp;forHandle=@handle)</code></dd>
+<dt>Captured URL</dt><dd><code>https://www.googleapis.com/youtube/v3/channels?part=snippet%2Cstatistics%2CcontentDetails&amp;id=UC56gTxNs4f9xZ7Pa2i5xNzg&amp;key=***</code></dd>
+<dt>HTTP status</dt><dd>200</dd></dl>
+<h4>Fields the application uses</h4><table><tr><th>Field</th><th>Stored as / used for</th></tr><tr><td><code>items[].id</code></td><td>channel id saved in config.json → youtube.channels</td></tr><tr><td><code>snippet.title</code></td><td>channel name shown in the Console</td></tr><tr><td><code>statistics.subscriberCount / videoCount</code></td><td>shown when the channel is added</td></tr></table>
+<details open><summary>Sample response</summary><pre>{
+  &quot;kind&quot;: &quot;youtube#channelListResponse&quot;,
+  &quot;etag&quot;: &quot;UTsZssSO8xe_msm_q-DS7ynvXxU&quot;,
+  &quot;pageInfo&quot;: {
+    &quot;totalResults&quot;: 1,
+    &quot;resultsPerPage&quot;: 5
+  },
+  &quot;items&quot;: [
+    {
+      &quot;kind&quot;: &quot;youtube#channel&quot;,
+      &quot;etag&quot;: &quot;5Z6Lad1y1j1JgARmz4MFOnIhvlU&quot;,
+      &quot;id&quot;: &quot;UC56gTxNs4f9xZ7Pa2i5xNzg&quot;,
+      &quot;snippet&quot;: {
+        &quot;title&quot;: &quot;Sony Music India&quot;,
+        &quot;description&quot;: &quot;Welcome to Sony Music India&#x27;s official YouTube channel, the ultimate destination for music enthusiasts and fans of the Indian music scene. Immerse yourself in a world of melodies, rhythms, and harmonies as we proudly pre… (truncated)&quot;,
+        &quot;customUrl&quot;: &quot;@sonymusicindia&quot;,
+        &quot;publishedAt&quot;: &quot;2009-09-02T23:16:22Z&quot;,
+        &quot;thumbnails&quot;: {
+          &quot;default&quot;: {
+            &quot;url&quot;: &quot;https://yt3.ggpht.com/42o3XIW1j5zmzsFeZs3ND4QwaXXrnpK9vqftcEuEdbgNhPbltXRktcSmyJ12-gSRqKch93Ir=s88-c-k-c0x00ffffff-no-rj&quot;,
+            &quot;width&quot;: 88,
+            &quot;height&quot;: 88
+          },
+          &quot;medium&quot;: {
+            &quot;url&quot;: &quot;https://yt3.ggpht.com/42o3XIW1j5zmzsFeZs3ND4QwaXXrnpK9vqftcEuEdbgNhPbltXRktcSmyJ12-gSRqKch93Ir=s240-c-k-c0x00ffffff-no-rj&quot;,
+            &quot;width&quot;: 240,
+            &quot;height&quot;: 240
+          },
+          &quot;high&quot;: {
+            &quot;url&quot;: &quot;https://yt3.ggpht.com/42o3XIW1j5zmzsFeZs3ND4QwaXXrnpK9vqftcEuEdbgNhPbltXRktcSmyJ12-gSRqKch93Ir=s800-c-k-c0x00ffffff-no-rj&quot;,
+            &quot;width&quot;: 800,
+            &quot;height&quot;: 800
+          }
+        },
+        &quot;localized&quot;: {
+          &quot;title&quot;: &quot;Sony Music India&quot;,
+          &quot;description&quot;: &quot;Welcome to Sony Music India&#x27;s official YouTube channel, the ultimate destination for music enthusiasts and fans of the Indian music scene. Immerse yourself in a world of melodies, rhythms, and harmonies as we proudly pre… (truncated)&quot;
+        },
+        &quot;country&quot;: &quot;IN&quot;
+      },
+      &quot;contentDetails&quot;: {
+        &quot;relatedPlaylists&quot;: {
+          &quot;likes&quot;: &quot;&quot;,
+          &quot;uploads&quot;: &quot;UU56gTxNs4f9xZ7Pa2i5xNzg&quot;
+        }
+      },
+      &quot;statistics&quot;: {
+        &quot;viewCount&quot;: &quot;86970097391&quot;,
+        &quot;subscriberCount&quot;: &quot;73300000&quot;,
+        &quot;hiddenSubscriberCount&quot;: false,
+        &quot;videoCount&quot;: &quot;12656&quot;
+      }
+    }
+  ]
+}</pre></details></section><section id="yt_playlistItems"><h3>playlistItems: list a channel&#x27;s uploads</h3>
+<dl><dt>When it is called</dt><dd>Every YouTube sync (every 6 h). Reads each channel&#x27;s “uploads” playlist (UU… = UC… id) newest first, 50 per page, and stops at the first page older than the window; incremental after the first run.</dd><dt>Code</dt><dd>lens/youtube.py uploads(), lens/sync_youtube.py collect_uploads()</dd>
+<dt>Cost</dt><dd>1 unit per page of 50</dd><dt>Request</dt><dd><code>GET /playlistItems?part=snippet,contentDetails&amp;playlistId=UU{channel}&amp;maxResults=50[&amp;pageToken=…]</code></dd>
+<dt>Captured URL</dt><dd><code>https://www.googleapis.com/youtube/v3/playlistItems?part=snippet%2CcontentDetails&amp;playlistId=UUT5VwjyDpD5m5qMNagy6Gjw&amp;maxResults=50&amp;pageToken=EAAaHlBUOkNHUWlFRVZGUlROR1JFRTRSa1pGTmpkRU1qRQ&amp;key=***</code></dd>
+<dt>HTTP status</dt><dd>200</dd></dl>
+<h4>Fields the application uses</h4><table><tr><th>Field</th><th>Stored as / used for</th></tr><tr><td><code>contentDetails.videoId</code></td><td>platform_item.platform_id (platform = youtube)</td></tr><tr><td><code>contentDetails.videoPublishedAt</code></td><td>platform_item.published_at (release date of the video)</td></tr><tr><td><code>snippet.title</code></td><td>platform_item.title; parsed into song / film / artist for grouping and matching</td></tr><tr><td><code>snippet.description</code></td><td>platform_item.description (credits, used as a matching signal)</td></tr><tr><td><code>(channel name from config)</code></td><td>platform_item.channel</td></tr><tr><td><code>nextPageToken</code></td><td>paging</td></tr></table>
+<details open><summary>Sample response</summary><pre>{
+  &quot;kind&quot;: &quot;youtube#playlistItemListResponse&quot;,
+  &quot;etag&quot;: &quot;DQSUSWIc_6hEnb5AjaqfgdLkBEE&quot;,
+  &quot;nextPageToken&quot;: &quot;EAAaH1BUOkNKWUJJaEJET1RGRU1FVkZORU0xTUVOR016RTE&quot;,
+  &quot;prevPageToken&quot;: &quot;EAEaHlBUOkNHUWlFRVZGUlROR1JFRTRSa1pGTmpkRU1qRQ&quot;,
+  &quot;items&quot;: [
+    {
+      &quot;kind&quot;: &quot;youtube#playlistItem&quot;,
+      &quot;etag&quot;: &quot;jn4s0w0q03PNN_ZexMMLnKnWKNc&quot;,
+      &quot;id&quot;: &quot;VVVUNVZ3anlEcEQ1bTVxTU5hZ3k2R2p3LksyLVZUVVdBemdz&quot;,
+      &quot;snippet&quot;: {
+        &quot;publishedAt&quot;: &quot;2026-07-04T01:30:30Z&quot;,
+        &quot;channelId&quot;: &quot;UCT5VwjyDpD5m5qMNagy6Gjw&quot;,
+        &quot;title&quot;: &quot;Thumri - Kaun Gali Gaye Shyam  | Ras Rang: Evolution of Thumri, Vol. 2  | Longing for Shyam&quot;,
+        &quot;description&quot;: &quot;Immerse yourself in the timeless beauty of \&quot;Kaun Gali Gaye Shyam\&quot;, a soulful Thumri from Ras Rang: Evolution of Thumri, Vol. 2. Experience the rich emotions of love and longing through this elegant Hindustani classical m… (truncated)&quot;,
+        &quot;thumbnails&quot;: {
+          &quot;default&quot;: {
+            &quot;url&quot;: &quot;https://i.ytimg.com/vi/K2-VTUWAzgs/default.jpg&quot;,
+            &quot;width&quot;: 120,
+            &quot;height&quot;: 90
+          },
+          &quot;medium&quot;: {
+            &quot;url&quot;: &quot;https://i.ytimg.com/vi/K2-VTUWAzgs/mqdefault.jpg&quot;,
+            &quot;width&quot;: 320,
+            &quot;height&quot;: 180
+          },
+          &quot;high&quot;: {
+            &quot;url&quot;: &quot;https://i.ytimg.com/vi/K2-VTUWAzgs/hqdefault.jpg&quot;,
+            &quot;width&quot;: 480,
+            &quot;height&quot;: 360
+          },
+          &quot;standard&quot;: {
+            &quot;url&quot;: &quot;https://i.ytimg.com/vi/K2-VTUWAzgs/sddefault.jpg&quot;,
+            &quot;width&quot;: 640,
+            &quot;height&quot;: 480
+          },
+          &quot;maxres&quot;: {
+            &quot;url&quot;: &quot;https://i.ytimg.com/vi/K2-VTUWAzgs/maxresdefault.jpg&quot;,
+            &quot;width&quot;: 1280,
+            &quot;height&quot;: 720
+          },
+          &quot;fhd&quot;: {
+            &quot;url&quot;: &quot;https://i.ytimg.com/vi/K2-VTUWAzgs/fhddefault.jpg&quot;,
+            &quot;width&quot;: 1920,
+            &quot;height&quot;: 1080
+          }
+        },
+        &quot;channelTitle&quot;: &quot;Sony Music India Classical&quot;,
+        &quot;playlistId&quot;: &quot;UUT5VwjyDpD5m5qMNagy6Gjw&quot;,
+        &quot;position&quot;: 100,
+        &quot;resourceId&quot;: {
+          &quot;kind&quot;: &quot;youtube#video&quot;,
+          &quot;videoId&quot;: &quot;K2-VTUWAzgs&quot;
+        },
+        &quot;videoOwnerChannelTitle&quot;: &quot;Sony Music India Classical&quot;,
+        &quot;videoOwnerChannelId&quot;: &quot;UCT5VwjyDpD5m5qMNagy6Gjw&quot;
+      },
+      &quot;contentDetails&quot;: {
+        &quot;videoId&quot;: &quot;K2-VTUWAzgs&quot;,
+        &quot;videoPublishedAt&quot;: &quot;2026-07-04T01:30:30Z&quot;
+      }
+    },
+    &quot;… 49 more item(s) omitted&quot;
+  ],
+  &quot;pageInfo&quot;: {
+    &quot;totalResults&quot;: 515,
+    &quot;resultsPerPage&quot;: 50
+  }
+}</pre></details></section><section id="yt_videos"><h3>videos: duration and statistics (the trend readings)</h3>
+<dl><dt>When it is called</dt><dd>Every sync for videos under 7 days old, otherwise once a day, for every video in the window or linked to a song. Up to 50 ids per call.</dd><dt>Code</dt><dd>lens/youtube.py videos(), lens/sync_youtube.py take_readings()</dd>
+<dt>Cost</dt><dd>1 unit per 50 videos</dd><dt>Request</dt><dd><code>GET /videos?part=contentDetails,statistics&amp;id={id1,id2,…up to 50}&amp;maxResults=50</code></dd>
+<dt>Captured URL</dt><dd><code>https://www.googleapis.com/youtube/v3/videos?part=contentDetails%2Cstatistics&amp;id=zRlPdykmbM8%2CzSlofT7Tqug%2CzT9L3If-ZJA%2CzUGV2NR9aAM%2CzXa5aHOcSLY%2CzXkuYcz0kKQ%2CzYnL5PmYbW0%2CzZWmhBKECnI%2Cz_8EHOYde-E%2Cz_dtSJBRxbI%2CzavM_Lkidvk%2CzeOnDMO9oW8%2CzeSWNskOkmo%2CzeysFMKgnE0%2CzfFUYg83nW0%2CzhJVxi8CyYo%2CzhY_Xmuv-qo%2CzkXXhh3ZFME%2CzlYHlR19Tzw%2Czlb5oKGFQRc%2CzluCin4zJHM%2CzmMNECpZ160%2CznYPZ21ETEA%2CznxCLzh9lAk%2CzoMeu7IiLmM%2CzovzhzRax4Y%2CzpRnpHrZ3qQ%2CzpY5VpuJSdg%2CzpwqFiMUs0s%2Czqjw1_J-4gI%2Czrvik9vwqXI%2CzslQ4zjRqH8%2Czt91Gp5OH1c%2CztNipEXXL_A%2CztpgbjepVLw%2CzwAVsYnPO8Q%2Czw_J1E5AWN8%2Czw_cl4nWbAA%2Czx-JC2Qm3nQ%2CzxIaKGF3iqo%2Czzho2spfBkU%2CzzrTPEtbuCQ&amp;maxResults=50&amp;key=***</code></dd>
+<dt>HTTP status</dt><dd>200</dd></dl>
+<h4>Fields the application uses</h4><table><tr><th>Field</th><th>Stored as / used for</th></tr><tr><td><code>contentDetails.duration</code></td><td>platform_item.duration_ms (ISO 8601 → ms); also used for asset type (short / jukebox)</td></tr><tr><td><code>statistics.viewCount</code></td><td>reading + snapshot, metric = views</td></tr><tr><td><code>statistics.likeCount</code></td><td>reading + snapshot, metric = likes</td></tr><tr><td><code>statistics.commentCount</code></td><td>reading + snapshot, metric = comments</td></tr></table>
+<details open><summary>Sample response</summary><pre>{
+  &quot;kind&quot;: &quot;youtube#videoListResponse&quot;,
+  &quot;etag&quot;: &quot;7BTs646E71MFhHQrIXYeDlK3AZs&quot;,
+  &quot;items&quot;: [
+    {
+      &quot;kind&quot;: &quot;youtube#video&quot;,
+      &quot;etag&quot;: &quot;8DjbHv7RFSvJ7QFFAyhvsrUQxi4&quot;,
+      &quot;id&quot;: &quot;zRlPdykmbM8&quot;,
+      &quot;contentDetails&quot;: {
+        &quot;duration&quot;: &quot;PT23M20S&quot;,
+        &quot;dimension&quot;: &quot;2d&quot;,
+        &quot;definition&quot;: &quot;hd&quot;,
+        &quot;caption&quot;: &quot;false&quot;,
+        &quot;licensedContent&quot;: true,
+        &quot;contentRating&quot;: {},
+        &quot;projection&quot;: &quot;rectangular&quot;
+      },
+      &quot;statistics&quot;: {
+        &quot;viewCount&quot;: &quot;302&quot;,
+        &quot;likeCount&quot;: &quot;4&quot;,
+        &quot;favoriteCount&quot;: &quot;0&quot;,
+        &quot;commentCount&quot;: &quot;0&quot;
+      }
+    },
+    &quot;… 41 more item(s) omitted&quot;
+  ],
+  &quot;pageInfo&quot;: {
+    &quot;totalResults&quot;: 42,
+    &quot;resultsPerPage&quot;: 42
+  }
+}</pre></details></section><h2>Spotify Web API</h2><p>Base URL https://api.spotify.com/v1. Auth: client credentials (no user login). The app is in Spotify development mode: search pages hold at most 10 results, batch endpoints return 403, and label, popularity, followers and genres are no longer returned.</p><section id="sp_token"><h3>token: client-credentials access token</h3>
+<dl><dt>When it is called</dt><dd>Before the first Spotify call of a run, and again when the token expires (1 hour). The token is never stored or shown.</dd><dt>Code</dt><dd>lens/spotify.py _fetch_token()</dd>
+<dt>Cost</dt><dd>not counted</dd><dt>Request</dt><dd><code>POST https://accounts.spotify.com/api/token  (Basic auth = client id:secret, body grant_type=client_credentials)</code></dd>
+<dt>Captured URL</dt><dd><code>POST https://accounts.spotify.com/api/token  (grant_type=client_credentials)</code></dd>
+<dt>HTTP status</dt><dd>200</dd></dl>
+<h4>Fields the application uses</h4><table><tr><th>Field</th><th>Stored as / used for</th></tr><tr><td><code>access_token</code></td><td>Bearer token for the calls below (kept in memory only)</td></tr><tr><td><code>expires_in</code></td><td>when to refresh</td></tr></table>
+<details open><summary>Sample response</summary><pre>{
+  &quot;access_token&quot;: &quot;BQD…(redacted)&quot;,
+  &quot;token_type&quot;: &quot;Bearer&quot;,
+  &quot;expires_in&quot;: 3600
+}</pre></details></section><section id="sp_search_track"><h3>search (type=track): song metadata — the main call</h3>
+<dl><dt>When it is called</dt><dd>Songs step of every pipeline run: one call per YouTube song without a Spotify link. A miss is rechecked after 3 days.</dd><dt>Code</dt><dd>lens/songs.py spotify_lookup()</dd>
+<dt>Cost</dt><dd>1 call per song</dd><dt>Request</dt><dd><code>GET /search?q=track:&quot;{song title}&quot;&amp;type=track&amp;market=IN&amp;limit=10&amp;offset=0</code></dd>
+<dt>Captured URL</dt><dd><code>https://api.spotify.com/v1/search?q=track%3A%22Kaal+Mulaitha+Poovae%22&amp;type=track&amp;market=IN&amp;limit=10&amp;offset=0</code></dd>
+<dt>HTTP status</dt><dd>200</dd></dl>
+<h4>Fields the application uses</h4><table><tr><th>Field</th><th>Stored as / used for</th></tr><tr><td><code>tracks.items[].id / external_urls.spotify</code></td><td>platform_item (platform = spotify) and the Spotify link</td></tr><tr><td><code>name</code></td><td>compared with the YouTube song title (deterministic score)</td></tr><tr><td><code>artists[].name / id</code></td><td>artist table, and the artist-match signal</td></tr><tr><td><code>duration_ms</code></td><td>duration-match signal</td></tr><tr><td><code>external_ids.isrc</code></td><td>track.isrc; also the key for the Deezer lookup</td></tr><tr><td><code>album.name / album_type / release_date / id</code></td><td>release table; release_date decides “new” vs “catalogue”</td></tr><tr><td><code>explicit</code></td><td>track.explicit</td></tr></table>
+<details open><summary>Sample response</summary><pre>{
+  &quot;tracks&quot;: {
+    &quot;href&quot;: &quot;https://api.spotify.com/v1/search?offset=0&amp;limit=10&amp;query=track%3A%22Kaal%20Mulaitha%20Poovae%22&amp;type=track&amp;market=IN&quot;,
+    &quot;limit&quot;: 10,
+    &quot;next&quot;: null,
+    &quot;offset&quot;: 0,
+    &quot;previous&quot;: null,
+    &quot;total&quot;: 4,
+    &quot;items&quot;: [
+      {
+        &quot;album&quot;: {
+          &quot;album_type&quot;: &quot;single&quot;,
+          &quot;artists&quot;: [
+            {
+              &quot;external_urls&quot;: {
+                &quot;spotify&quot;: &quot;https://open.spotify.com/artist/29aw5YCdIw2FEXYyAJZI8l&quot;
+              },
+              &quot;href&quot;: &quot;https://api.spotify.com/v1/artists/29aw5YCdIw2FEXYyAJZI8l&quot;,
+              &quot;id&quot;: &quot;29aw5YCdIw2FEXYyAJZI8l&quot;,
+              &quot;name&quot;: &quot;Harris Jayaraj&quot;,
+              &quot;type&quot;: &quot;artist&quot;,
+              &quot;uri&quot;: &quot;spotify:artist:29aw5YCdIw2FEXYyAJZI8l&quot;
+            }
+          ],
+          &quot;external_urls&quot;: {
+            &quot;spotify&quot;: &quot;https://open.spotify.com/album/5A2zbvLaMyRtmrdkudyfQl&quot;
+          },
+          &quot;href&quot;: &quot;https://api.spotify.com/v1/albums/5A2zbvLaMyRtmrdkudyfQl&quot;,
+          &quot;id&quot;: &quot;5A2zbvLaMyRtmrdkudyfQl&quot;,
+          &quot;images&quot;: [
+            {
+              &quot;height&quot;: 640,
+              &quot;width&quot;: 640,
+              &quot;url&quot;: &quot;https://i.scdn.co/image/ab67616d0000b273360b04bb0a79239fc91f2ffe&quot;
+            },
+            &quot;… 2 more item(s) omitted&quot;
+          ],
+          &quot;is_playable&quot;: true,
+          &quot;name&quot;: &quot;Maattrraan (Original Motion Picture Soundtrack)&quot;,
+          &quot;release_date&quot;: &quot;2012-08-10&quot;,
+          &quot;release_date_precision&quot;: &quot;day&quot;,
+          &quot;total_tracks&quot;: 5,
+          &quot;type&quot;: &quot;album&quot;,
+          &quot;uri&quot;: &quot;spotify:album:5A2zbvLaMyRtmrdkudyfQl&quot;
+        },
+        &quot;artists&quot;: [
+          {
+            &quot;external_urls&quot;: {
+              &quot;spotify&quot;: &quot;https://open.spotify.com/artist/29aw5YCdIw2FEXYyAJZI8l&quot;
+            },
+            &quot;href&quot;: &quot;https://api.spotify.com/v1/artists/29aw5YCdIw2FEXYyAJZI8l&quot;,
+            &quot;id&quot;: &quot;29aw5YCdIw2FEXYyAJZI8l&quot;,
+            &quot;name&quot;: &quot;Harris Jayaraj&quot;,
+            &quot;type&quot;: &quot;artist&quot;,
+            &quot;uri&quot;: &quot;spotify:artist:29aw5YCdIw2FEXYyAJZI8l&quot;
+          },
+          &quot;… 4 more item(s) omitted&quot;
+        ],
+        &quot;disc_number&quot;: 1,
+        &quot;duration_ms&quot;: 330320,
+        &quot;explicit&quot;: false,
+        &quot;external_ids&quot;: {
+          &quot;isrc&quot;: &quot;INS171200564&quot;
+        },
+        &quot;external_urls&quot;: {
+          &quot;spotify&quot;: &quot;https://open.spotify.com/track/1jR3y5I3SZ7ey8g4OKxodr&quot;
+        },
+        &quot;href&quot;: &quot;https://api.spotify.com/v1/tracks/1jR3y5I3SZ7ey8g4OKxodr&quot;,
+        &quot;id&quot;: &quot;1jR3y5I3SZ7ey8g4OKxodr&quot;,
+        &quot;is_local&quot;: false,
+        &quot;is_playable&quot;: true,
+        &quot;name&quot;: &quot;Kaal Mulaitha Poovae&quot;,
+        &quot;track_number&quot;: 5,
+        &quot;type&quot;: &quot;track&quot;,
+        &quot;uri&quot;: &quot;spotify:track:1jR3y5I3SZ7ey8g4OKxodr&quot;
+      },
+      &quot;… 3 more item(s) omitted&quot;
+    ]
+  }
+}</pre></details></section><section id="sp_search_artist"><h3>search (type=artist): artist picker</h3>
+<dl><dt>When it is called</dt><dd>Settings → seed artists: the type-ahead when a user adds a seed artist.</dd><dt>Code</dt><dd>lens/studio.py /api/artist_search</dd>
+<dt>Cost</dt><dd>1 call per search</dd><dt>Request</dt><dd><code>GET /search?q={text}&amp;type=artist&amp;market=IN&amp;limit=…</code></dd>
+<dt>Captured URL</dt><dd><code>https://api.spotify.com/v1/search</code> <code>{&quot;q&quot;: &quot;Arijit Singh&quot;, &quot;type&quot;: &quot;artist&quot;, &quot;market&quot;: &quot;IN&quot;, &quot;limit&quot;: 2}</code></dd>
+<dt>HTTP status</dt><dd>200</dd></dl>
+<h4>Fields the application uses</h4><table><tr><th>Field</th><th>Stored as / used for</th></tr><tr><td><code>artists.items[].id / name</code></td><td>saved to seeds/sony_india_artists.txt</td></tr><tr><td><code>images</code></td><td>thumbnail in the picker</td></tr></table>
+<details open><summary>Sample response</summary><pre>{
+  &quot;artists&quot;: {
+    &quot;href&quot;: &quot;https://api.spotify.com/v1/search?offset=0&amp;limit=2&amp;query=Arijit%20Singh&amp;type=artist&amp;market=IN&quot;,
+    &quot;limit&quot;: 2,
+    &quot;next&quot;: &quot;https://api.spotify.com/v1/search?offset=2&amp;limit=2&amp;query=Arijit%20Singh&amp;type=artist&amp;market=IN&quot;,
+    &quot;offset&quot;: 0,
+    &quot;previous&quot;: null,
+    &quot;total&quot;: 3,
+    &quot;items&quot;: [
+      {
+        &quot;external_urls&quot;: {
+          &quot;spotify&quot;: &quot;https://open.spotify.com/artist/4YRxDV8wJFPHPTeXepOstw&quot;
+        },
+        &quot;href&quot;: &quot;https://api.spotify.com/v1/artists/4YRxDV8wJFPHPTeXepOstw&quot;,
+        &quot;id&quot;: &quot;4YRxDV8wJFPHPTeXepOstw&quot;,
+        &quot;images&quot;: [
+          {
+            &quot;url&quot;: &quot;https://i.scdn.co/image/ab6761610000e5ebadfb0b2df04b77e43b5f7375&quot;,
+            &quot;height&quot;: 640,
+            &quot;width&quot;: 640
+          },
+          &quot;… 2 more item(s) omitted&quot;
+        ],
+        &quot;name&quot;: &quot;Arijit Singh&quot;,
+        &quot;type&quot;: &quot;artist&quot;,
+        &quot;uri&quot;: &quot;spotify:artist:4YRxDV8wJFPHPTeXepOstw&quot;
+      },
+      &quot;… 1 more item(s) omitted&quot;
+    ]
+  }
+}</pre></details></section><section id="sp_search_album"><h3>search (type=album): label crawl (manual, legacy)</h3>
+<dl><dt>When it is called</dt><dd>Only when the “Spotify discovery” job is started manually (the old label-first approach). Also the health probe (limit=1) every 15 minutes while Spotify is failing.</dd><dt>Code</dt><dd>lens/discover_spotify.py, lens/health.py check_spotify()</dd>
+<dt>Cost</dt><dd>1 call per page of 10</dd><dt>Request</dt><dd><code>GET /search?q=label:&quot;Sony Music Entertainment India&quot; year:2026&amp;type=album&amp;market=IN&amp;limit=10&amp;offset=…</code></dd>
+<dt>Captured URL</dt><dd><code>https://api.spotify.com/v1/search?q=label%3A%22Sony+Music+Entertainment+India%22+year%3A2026&amp;type=album&amp;market=IN&amp;limit=10&amp;offset=0</code></dd>
+<dt>HTTP status</dt><dd>200</dd></dl>
+<h4>Fields the application uses</h4><table><tr><th>Field</th><th>Stored as / used for</th></tr><tr><td><code>albums.items[].id</code></td><td>album to fetch in full (next section)</td></tr><tr><td><code>name / album_type / release_date / total_tracks</code></td><td>release table</td></tr></table>
+<details open><summary>Sample response</summary><pre>{
+  &quot;albums&quot;: {
+    &quot;href&quot;: &quot;https://api.spotify.com/v1/search?offset=0&amp;limit=10&amp;query=label%3A%22Sony%20Music%20Entertainment%20India%22%20year%3A2026&amp;type=album&amp;market=IN&quot;,
+    &quot;limit&quot;: 10,
+    &quot;next&quot;: null,
+    &quot;offset&quot;: 0,
+    &quot;previous&quot;: null,
+    &quot;total&quot;: 10,
+    &quot;items&quot;: [
+      {
+        &quot;album_type&quot;: &quot;compilation&quot;,
+        &quot;total_tracks&quot;: 25,
+        &quot;is_playable&quot;: true,
+        &quot;external_urls&quot;: {
+          &quot;spotify&quot;: &quot;https://open.spotify.com/album/3g56VcYTGjfAyGmLt0wiTY&quot;
+        },
+        &quot;href&quot;: &quot;https://api.spotify.com/v1/albums/3g56VcYTGjfAyGmLt0wiTY&quot;,
+        &quot;id&quot;: &quot;3g56VcYTGjfAyGmLt0wiTY&quot;,
+        &quot;images&quot;: [
+          {
+            &quot;height&quot;: 640,
+            &quot;url&quot;: &quot;https://i.scdn.co/image/ab67616d0000b273b4435ed5bd0ec3cc533359c2&quot;,
+            &quot;width&quot;: 640
+          },
+          &quot;… 2 more item(s) omitted&quot;
+        ],
+        &quot;name&quot;: &quot;Anirudh Certified Bangers&quot;,
+        &quot;release_date&quot;: &quot;2026-10-15&quot;,
+        &quot;release_date_precision&quot;: &quot;day&quot;,
+        &quot;type&quot;: &quot;album&quot;,
+        &quot;uri&quot;: &quot;spotify:album:3g56VcYTGjfAyGmLt0wiTY&quot;,
+        &quot;artists&quot;: [
+          {
+            &quot;external_urls&quot;: {
+              &quot;spotify&quot;: &quot;https://open.spotify.com/artist/4zCH9qm4R2DADamUHMCa6O&quot;
+            },
+            &quot;href&quot;: &quot;https://api.spotify.com/v1/artists/4zCH9qm4R2DADamUHMCa6O&quot;,
+            &quot;id&quot;: &quot;4zCH9qm4R2DADamUHMCa6O&quot;,
+            &quot;name&quot;: &quot;Anirudh Ravichander&quot;,
+            &quot;type&quot;: &quot;artist&quot;,
+            &quot;uri&quot;: &quot;spotify:artist:4zCH9qm4R2DADamUHMCa6O&quot;
+          }
+        ]
+      },
+      &quot;… 9 more item(s) omitted&quot;
+    ]
+  }
+}</pre></details></section><section id="sp_album"><h3>albums/{id}: full album with tracklist</h3>
+<dl><dt>When it is called</dt><dd>Label crawl only (manual). Blocked by Spotify&#x27;s daily quota at the moment (see errors).</dd><dt>Code</dt><dd>lens/spotify.py albums() (one id at a time), lens/discover_spotify.py</dd>
+<dt>Cost</dt><dd>1 call per album</dd><dt>Request</dt><dd><code>GET /albums/{id}?market=IN</code></dd>
+<dt>Captured URL</dt><dd><code>https://api.spotify.com/v1/albums/0ws4BhBlmjvbpnmseHCEP0?market=IN</code></dd>
+<dt>HTTP status</dt><dd>200</dd></dl>
+<h4>Fields the application uses</h4><table><tr><th>Field</th><th>Stored as / used for</th></tr><tr><td><code>copyrights[].text (℗ line)</code></td><td>label check (label field itself is removed in development mode)</td></tr><tr><td><code>external_ids.upc</code></td><td>release.upc</td></tr><tr><td><code>tracks.items[]</code></td><td>track table (title, duration, artists, track number); albums with more tracks than are embedded use /albums/{id}/tracks</td></tr></table>
+<details open><summary>Sample response</summary><pre>{
+  &quot;album_type&quot;: &quot;single&quot;,
+  &quot;total_tracks&quot;: 1,
+  &quot;is_playable&quot;: true,
+  &quot;external_urls&quot;: {
+    &quot;spotify&quot;: &quot;https://open.spotify.com/album/0ws4BhBlmjvbpnmseHCEP0&quot;
+  },
+  &quot;href&quot;: &quot;https://api.spotify.com/v1/albums/0ws4BhBlmjvbpnmseHCEP0?market=IN&quot;,
+  &quot;id&quot;: &quot;0ws4BhBlmjvbpnmseHCEP0&quot;,
+  &quot;images&quot;: [
+    {
+      &quot;url&quot;: &quot;https://i.scdn.co/image/ab67616d0000b273c6c88519c1620a2a14c0b680&quot;,
+      &quot;height&quot;: 640,
+      &quot;width&quot;: 640
+    },
+    &quot;… 2 more item(s) omitted&quot;
+  ],
+  &quot;name&quot;: &quot;In the Name of Blood (From \&quot;Karathey Babu\&quot;)&quot;,
+  &quot;release_date&quot;: &quot;2026-06-20&quot;,
+  &quot;release_date_precision&quot;: &quot;day&quot;,
+  &quot;type&quot;: &quot;album&quot;,
+  &quot;uri&quot;: &quot;spotify:album:0ws4BhBlmjvbpnmseHCEP0&quot;,
+  &quot;artists&quot;: [
+    {
+      &quot;external_urls&quot;: {
+        &quot;spotify&quot;: &quot;https://open.spotify.com/artist/5VAyiDhBinVfc6RM5RKnLa&quot;
+      },
+      &quot;href&quot;: &quot;https://api.spotify.com/v1/artists/5VAyiDhBinVfc6RM5RKnLa&quot;,
+      &quot;id&quot;: &quot;5VAyiDhBinVfc6RM5RKnLa&quot;,
+      &quot;name&quot;: &quot;Sam C.S.&quot;,
+      &quot;type&quot;: &quot;artist&quot;,
+      &quot;uri&quot;: &quot;spotify:artist:5VAyiDhBinVfc6RM5RKnLa&quot;
+    },
+    &quot;… 1 more item(s) omitted&quot;
+  ],
+  &quot;tracks&quot;: {
+    &quot;href&quot;: &quot;https://api.spotify.com/v1/albums/0ws4BhBlmjvbpnmseHCEP0/tracks?offset=0&amp;limit=50&amp;market=IN&quot;,
+    &quot;limit&quot;: 50,
+    &quot;next&quot;: null,
+    &quot;offset&quot;: 0,
+    &quot;previous&quot;: null,
+    &quot;total&quot;: 1,
+    &quot;items&quot;: [
+      {
+        &quot;artists&quot;: [
+          {
+            &quot;external_urls&quot;: {
+              &quot;spotify&quot;: &quot;https://open.spotify.com/artist/5VAyiDhBinVfc6RM5RKnLa&quot;
+            },
+            &quot;href&quot;: &quot;https://api.spotify.com/v1/artists/5VAyiDhBinVfc6RM5RKnLa&quot;,
+            &quot;id&quot;: &quot;5VAyiDhBinVfc6RM5RKnLa&quot;,
+            &quot;name&quot;: &quot;Sam C.S.&quot;,
+            &quot;type&quot;: &quot;artist&quot;,
+            &quot;uri&quot;: &quot;spotify:artist:5VAyiDhBinVfc6RM5RKnLa&quot;
+          },
+          &quot;… 1 more item(s) omitted&quot;
+        ],
+        &quot;disc_number&quot;: 1,
+        &quot;duration_ms&quot;: 124704,
+        &quot;explicit&quot;: false,
+        &quot;external_urls&quot;: {
+          &quot;spotify&quot;: &quot;https://open.spotify.com/track/4nRi7EYAtsMLjbOoOI70eB&quot;
+        },
+        &quot;href&quot;: &quot;https://api.spotify.com/v1/tracks/4nRi7EYAtsMLjbOoOI70eB&quot;,
+        &quot;id&quot;: &quot;4nRi7EYAtsMLjbOoOI70eB&quot;,
+        &quot;is_playable&quot;: true,
+        &quot;name&quot;: &quot;In the Name of Blood (From \&quot;Karathey Babu\&quot;)&quot;,
+        &quot;track_number&quot;: 1,
+        &quot;type&quot;: &quot;track&quot;,
+        &quot;uri&quot;: &quot;spotify:track:4nRi7EYAtsMLjbOoOI70eB&quot;,
+        &quot;is_local&quot;: false
+      }
+    ]
+  },
+  &quot;copyrights&quot;: [
+    {
+      &quot;text&quot;: &quot;(P) 2026 Sony Music Entertainment India Pvt. Ltd.&quot;,
+      &quot;type&quot;: &quot;P&quot;
+    }
+  ],
+  &quot;external_ids&quot;: {
+    &quot;upc&quot;: &quot;196874538616&quot;
+  },
+  &quot;genres&quot;: []
+}</pre></details></section><section id="sp_track"><h3>tracks/{id}: single track (ISRC)</h3>
+<dl><dt>When it is called</dt><dd>Label crawl only: the album tracklist has no ISRC, so each new track is looked up once (budget 400 per run).</dd><dt>Code</dt><dd>lens/discover_spotify.py set_isrc</dd>
+<dt>Cost</dt><dd>1 call per track</dd><dt>Request</dt><dd><code>GET /tracks/{id}?market=IN</code></dd>
+<dt>Captured URL</dt><dd><code>https://api.spotify.com/v1/tracks/4qnFfsCaMe2Nsg1VfFPxq9?market=IN</code></dd>
+<dt>HTTP status</dt><dd>200</dd></dl>
+<h4>Fields the application uses</h4><table><tr><th>Field</th><th>Stored as / used for</th></tr><tr><td><code>external_ids.isrc</code></td><td>track.isrc (and merging duplicate tracks)</td></tr></table>
+<details open><summary>Sample response</summary><pre>{
+  &quot;album&quot;: {
+    &quot;album_type&quot;: &quot;single&quot;,
+    &quot;artists&quot;: [
+      {
+        &quot;external_urls&quot;: {
+          &quot;spotify&quot;: &quot;https://open.spotify.com/artist/1wRPtKGflJrBx9BmLsSwlU&quot;
+        },
+        &quot;href&quot;: &quot;https://api.spotify.com/v1/artists/1wRPtKGflJrBx9BmLsSwlU&quot;,
+        &quot;id&quot;: &quot;1wRPtKGflJrBx9BmLsSwlU&quot;,
+        &quot;name&quot;: &quot;Pritam&quot;,
+        &quot;type&quot;: &quot;artist&quot;,
+        &quot;uri&quot;: &quot;spotify:artist:1wRPtKGflJrBx9BmLsSwlU&quot;
+      },
+      &quot;… 3 more item(s) omitted&quot;
+    ],
+    &quot;external_urls&quot;: {
+      &quot;spotify&quot;: &quot;https://open.spotify.com/album/5830mF41OEgnX3twGqEzSL&quot;
+    },
+    &quot;href&quot;: &quot;https://api.spotify.com/v1/albums/5830mF41OEgnX3twGqEzSL&quot;,
+    &quot;id&quot;: &quot;5830mF41OEgnX3twGqEzSL&quot;,
+    &quot;images&quot;: [
+      {
+        &quot;url&quot;: &quot;https://i.scdn.co/image/ab67616d0000b273f636f602313d09930701de59&quot;,
+        &quot;width&quot;: 640,
+        &quot;height&quot;: 640
+      },
+      &quot;… 2 more item(s) omitted&quot;
+    ],
+    &quot;is_playable&quot;: true,
+    &quot;name&quot;: &quot;Bandhu 2.0 (From \&quot;Cocktail 2\&quot;)&quot;,
+    &quot;release_date&quot;: &quot;2026-06-17&quot;,
+    &quot;release_date_precision&quot;: &quot;day&quot;,
+    &quot;total_tracks&quot;: 1,
+    &quot;type&quot;: &quot;album&quot;,
+    &quot;uri&quot;: &quot;spotify:album:5830mF41OEgnX3twGqEzSL&quot;
+  },
+  &quot;artists&quot;: [
+    {
+      &quot;external_urls&quot;: {
+        &quot;spotify&quot;: &quot;https://open.spotify.com/artist/1wRPtKGflJrBx9BmLsSwlU&quot;
+      },
+      &quot;href&quot;: &quot;https://api.spotify.com/v1/artists/1wRPtKGflJrBx9BmLsSwlU&quot;,
+      &quot;id&quot;: &quot;1wRPtKGflJrBx9BmLsSwlU&quot;,
+      &quot;name&quot;: &quot;Pritam&quot;,
+      &quot;type&quot;: &quot;artist&quot;,
+      &quot;uri&quot;: &quot;spotify:artist:1wRPtKGflJrBx9BmLsSwlU&quot;
+    },
+    &quot;… 3 more item(s) omitted&quot;
+  ],
+  &quot;disc_number&quot;: 1,
+  &quot;duration_ms&quot;: 221777,
+  &quot;explicit&quot;: false,
+  &quot;external_ids&quot;: {
+    &quot;isrc&quot;: &quot;INS172605214&quot;
+  },
+  &quot;external_urls&quot;: {
+    &quot;spotify&quot;: &quot;https://open.spotify.com/track/4qnFfsCaMe2Nsg1VfFPxq9&quot;
+  },
+  &quot;href&quot;: &quot;https://api.spotify.com/v1/tracks/4qnFfsCaMe2Nsg1VfFPxq9&quot;,
+  &quot;id&quot;: &quot;4qnFfsCaMe2Nsg1VfFPxq9&quot;,
+  &quot;is_local&quot;: false,
+  &quot;is_playable&quot;: true,
+  &quot;name&quot;: &quot;Bandhu 2.0 (From \&quot;Cocktail 2\&quot;)&quot;,
+  &quot;track_number&quot;: 1,
+  &quot;type&quot;: &quot;track&quot;,
+  &quot;uri&quot;: &quot;spotify:track:4qnFfsCaMe2Nsg1VfFPxq9&quot;
+}</pre></details></section><section id="sp_artist_albums"><h3>artists/{id}/albums: seed artist releases</h3>
+<dl><dt>When it is called</dt><dd>Label crawl only, for each seed artist.</dd><dt>Code</dt><dd>lens/spotify.py artist_albums()</dd>
+<dt>Cost</dt><dd>1 call per page</dd><dt>Request</dt><dd><code>GET /artists/{id}/albums?include_groups=album,single,compilation&amp;market=IN&amp;limit=…</code></dd>
+<dt>Captured URL</dt><dd><code>https://api.spotify.com/v1/artists/4YRxDV8wJFPHPTeXepOstw/albums</code> <code>{&quot;include_groups&quot;: &quot;album,single&quot;, &quot;market&quot;: &quot;IN&quot;, &quot;limit&quot;: 2}</code></dd>
+<dt>HTTP status</dt><dd>200</dd></dl>
+<h4>Fields the application uses</h4><table><tr><th>Field</th><th>Stored as / used for</th></tr><tr><td><code>items[].id / release_date</code></td><td>albums in the date window are fetched in full</td></tr></table>
+<details open><summary>Sample response</summary><pre>{
+  &quot;href&quot;: &quot;https://api.spotify.com/v1/artists/4YRxDV8wJFPHPTeXepOstw/albums?offset=0&amp;limit=2&amp;market=IN&amp;include_groups=album,single&quot;,
+  &quot;limit&quot;: 2,
+  &quot;next&quot;: &quot;https://api.spotify.com/v1/artists/4YRxDV8wJFPHPTeXepOstw/albums?offset=2&amp;limit=2&amp;market=IN&amp;include_groups=album,single&quot;,
+  &quot;offset&quot;: 0,
+  &quot;previous&quot;: null,
+  &quot;total&quot;: 757,
+  &quot;items&quot;: [
+    {
+      &quot;album_type&quot;: &quot;album&quot;,
+      &quot;total_tracks&quot;: 10,
+      &quot;is_playable&quot;: true,
+      &quot;external_urls&quot;: {
+        &quot;spotify&quot;: &quot;https://open.spotify.com/album/5Er818ARb7me75pPmqlhMK&quot;
+      },
+      &quot;href&quot;: &quot;https://api.spotify.com/v1/albums/5Er818ARb7me75pPmqlhMK&quot;,
+      &quot;id&quot;: &quot;5Er818ARb7me75pPmqlhMK&quot;,
+      &quot;images&quot;: [
+        {
+          &quot;url&quot;: &quot;https://i.scdn.co/image/ab67616d0000b273d48c4f0da042a2b884c3cfa7&quot;,
+          &quot;height&quot;: 640,
+          &quot;width&quot;: 640
+        },
+        &quot;… 2 more item(s) omitted&quot;
+      ],
+      &quot;name&quot;: &quot;Happy Vibes&quot;,
+      &quot;release_date&quot;: &quot;2026-07-30&quot;,
+      &quot;release_date_precision&quot;: &quot;day&quot;,
+      &quot;type&quot;: &quot;album&quot;,
+      &quot;uri&quot;: &quot;spotify:album:5Er818ARb7me75pPmqlhMK&quot;,
+      &quot;artists&quot;: [
+        {
+          &quot;external_urls&quot;: {
+            &quot;spotify&quot;: &quot;https://open.spotify.com/artist/0oOet2f43PA68X5RxKobEy&quot;
+          },
+          &quot;href&quot;: &quot;https://api.spotify.com/v1/artists/0oOet2f43PA68X5RxKobEy&quot;,
+          &quot;id&quot;: &quot;0oOet2f43PA68X5RxKobEy&quot;,
+          &quot;name&quot;: &quot;Shreya Ghoshal&quot;,
+          &quot;type&quot;: &quot;artist&quot;,
+          &quot;uri&quot;: &quot;spotify:artist:0oOet2f43PA68X5RxKobEy&quot;
+        },
+        &quot;… 3 more item(s) omitted&quot;
+      ]
+    },
+    &quot;… 1 more item(s) omitted&quot;
+  ]
+}</pre></details></section><h2>Deezer API (bonus trend source)</h2><p>Base URL https://api.deezer.com. Free, no key. Rate limit 50 requests per 5 seconds.</p><section id="dz_track"><h3>track/isrc:{ISRC}: Deezer rank</h3>
+<dl><dt>When it is called</dt><dd>Songs step, once a day for every song that has an ISRC.</dd><dt>Code</dt><dd>lens/songs.py deezer_readings()</dd>
+<dt>Cost</dt><dd>free</dd><dt>Request</dt><dd><code>GET https://api.deezer.com/track/isrc:{ISRC}</code></dd>
+<dt>Captured URL</dt><dd><code>https://api.deezer.com/track/isrc:INS171200515</code></dd>
+<dt>HTTP status</dt><dd>200</dd></dl>
+<h4>Fields the application uses</h4><table><tr><th>Field</th><th>Stored as / used for</th></tr><tr><td><code>id / link / title / duration / release_date</code></td><td>platform_item (platform = deezer, matched by ISRC)</td></tr><tr><td><code>rank</code></td><td>reading + snapshot, metric = rank (Deezer popularity score; higher = more popular; not a stream count)</td></tr></table>
+<details open><summary>Sample response</summary><pre>{
+  &quot;id&quot;: 565581542,
+  &quot;readable&quot;: false,
+  &quot;title&quot;: &quot;Onnum Puriyala (From \&quot;Kumki\&quot;)&quot;,
+  &quot;title_short&quot;: &quot;Onnum Puriyala (From \&quot;Kumki\&quot;)&quot;,
+  &quot;title_version&quot;: &quot;&quot;,
+  &quot;isrc&quot;: &quot;INS171200515&quot;,
+  &quot;link&quot;: &quot;https://www.deezer.com/track/565581542&quot;,
+  &quot;share&quot;: &quot;https://www.deezer.com/track/565581542?utm_source=deezer&amp;utm_content=track-565581542&amp;utm_term=0_1792117640&amp;utm_medium=web&quot;,
+  &quot;duration&quot;: 259,
+  &quot;track_position&quot;: 8,
+  &quot;disk_number&quot;: 1,
+  &quot;rank&quot;: 21370,
+  &quot;release_date&quot;: &quot;2018-10-12&quot;,
+  &quot;explicit_lyrics&quot;: false,
+  &quot;explicit_content_lyrics&quot;: 0,
+  &quot;explicit_content_cover&quot;: 2,
+  &quot;preview&quot;: &quot;&quot;,
+  &quot;bpm&quot;: 0,
+  &quot;gain&quot;: -8.6,
+  &quot;available_countries&quot;: [
+    &quot;AE&quot;,
+    &quot;AF&quot;,
+    &quot;AG&quot;,
+    &quot;… 188 more&quot;
+  ],
+  &quot;contributors&quot;: [
+    {
+      &quot;id&quot;: 298792,
+      &quot;name&quot;: &quot;D. Imman&quot;,
+      &quot;link&quot;: &quot;https://www.deezer.com/artist/298792&quot;,
+      &quot;share&quot;: &quot;https://www.deezer.com/artist/298792?utm_source=deezer&amp;utm_content=artist-298792&amp;utm_term=0_1792117640&amp;utm_medium=web&quot;,
+      &quot;picture&quot;: &quot;https://api.deezer.com/artist/298792/image&quot;,
+      &quot;picture_small&quot;: &quot;https://cdn-images.dzcdn.net/images/artist/b7f064e7e78b9bf3eb1ac62839c731cd/56x56-000000-80-0-0.jpg&quot;,
+      &quot;picture_medium&quot;: &quot;https://cdn-images.dzcdn.net/images/artist/b7f064e7e78b9bf3eb1ac62839c731cd/250x250-000000-80-0-0.jpg&quot;,
+      &quot;picture_big&quot;: &quot;https://cdn-images.dzcdn.net/images/artist/b7f064e7e78b9bf3eb1ac62839c731cd/500x500-000000-80-0-0.jpg&quot;,
+      &quot;picture_xl&quot;: &quot;https://cdn-images.dzcdn.net/images/artist/b7f064e7e78b9bf3eb1ac62839c731cd/1000x1000-000000-80-0-0.jpg&quot;,
+      &quot;radio&quot;: true,
+      &quot;tracklist&quot;: &quot;https://api.deezer.com/artist/298792/top?limit=50&quot;,
+      &quot;type&quot;: &quot;artist&quot;,
+      &quot;role&quot;: &quot;Main&quot;
+    },
+    &quot;… 1 more item(s) omitted&quot;
+  ],
+  &quot;md5_image&quot;: &quot;9d0a4444751a49e9b4b4cb5a848e9765&quot;,
+  &quot;track_token&quot;: &quot;AAAAAWrRi4hq0qTIvaEd3oYJAYv53H_EM_Us1tBYoQjYebwNGqmdTOaV8KGP9bWflGsHtpQocG45cq2ocEs_VvLGgDG_KbZwrvvuHBJaPM2WOmOfnl3Xd2NhSn-xQmxL-MtrDxTFABSCorNerDq3PdBX0A4bSwR7K4FYKRJxJFPJNa2X4g1aPGF73tcy3_cptzawcEMpq0UObiTAZxQisl51dH9i… (truncated)&quot;,
+  &quot;artist&quot;: {
+    &quot;id&quot;: 298792,
+    &quot;name&quot;: &quot;D. Imman&quot;,
+    &quot;link&quot;: &quot;https://www.deezer.com/artist/298792&quot;,
+    &quot;share&quot;: &quot;https://www.deezer.com/artist/298792?utm_source=deezer&amp;utm_content=artist-298792&amp;utm_term=0_1792117640&amp;utm_medium=web&quot;,
+    &quot;picture&quot;: &quot;https://api.deezer.com/artist/298792/image&quot;,
+    &quot;picture_small&quot;: &quot;https://cdn-images.dzcdn.net/images/artist/b7f064e7e78b9bf3eb1ac62839c731cd/56x56-000000-80-0-0.jpg&quot;,
+    &quot;picture_medium&quot;: &quot;https://cdn-images.dzcdn.net/images/artist/b7f064e7e78b9bf3eb1ac62839c731cd/250x250-000000-80-0-0.jpg&quot;,
+    &quot;picture_big&quot;: &quot;https://cdn-images.dzcdn.net/images/artist/b7f064e7e78b9bf3eb1ac62839c731cd/500x500-000000-80-0-0.jpg&quot;,
+    &quot;picture_xl&quot;: &quot;https://cdn-images.dzcdn.net/images/artist/b7f064e7e78b9bf3eb1ac62839c731cd/1000x1000-000000-80-0-0.jpg&quot;,
+    &quot;radio&quot;: true,
+    &quot;tracklist&quot;: &quot;https://api.deezer.com/artist/298792/top?limit=50&quot;,
+    &quot;type&quot;: &quot;artist&quot;
+  },
+  &quot;album&quot;: {
+    &quot;id&quot;: 75163312,
+    &quot;title&quot;: &quot;Mazhaiyum Naanum: Kondattam&quot;,
+    &quot;link&quot;: &quot;https://www.deezer.com/album/75163312&quot;,
+    &quot;cover&quot;: &quot;https://api.deezer.com/album/75163312/image&quot;,
+    &quot;cover_small&quot;: &quot;https://cdn-images.dzcdn.net/images/cover/9d0a4444751a49e9b4b4cb5a848e9765/56x56-000000-80-0-0.jpg&quot;,
+    &quot;cover_medium&quot;: &quot;https://cdn-images.dzcdn.net/images/cover/9d0a4444751a49e9b4b4cb5a848e9765/250x250-000000-80-0-0.jpg&quot;,
+    &quot;cover_big&quot;: &quot;https://cdn-images.dzcdn.net/images/cover/9d0a4444751a49e9b4b4cb5a848e9765/500x500-000000-80-0-0.jpg&quot;,
+    &quot;cover_xl&quot;: &quot;https://cdn-images.dzcdn.net/images/cover/9d0a4444751a49e9b4b4cb5a848e9765/1000x1000-000000-80-0-0.jpg&quot;,
+    &quot;md5_image&quot;: &quot;9d0a4444751a49e9b4b4cb5a848e9765&quot;,
+    &quot;release_date&quot;: &quot;2018-10-12&quot;,
+    &quot;tracklist&quot;: &quot;https://api.deezer.com/album/75163312/tracks&quot;,
+    &quot;type&quot;: &quot;album&quot;
+  },
+  &quot;type&quot;: &quot;track&quot;
+}</pre></details></section><h2 id="errors">Error responses the application handles</h2><section><h3>429 QUOTA_EXCEEDED: daily quota for an endpoint group</h3><p>Album and track lookups are currently blocked (Retry-After ≈ 23.6 h). Search keeps working. The app records the retry time on the Sources page and does not retry until then.</p><p><code>https://api.spotify.com/v1/albums/0ws4BhBlmjvbpnmseHCEP0/tracks</code></p><pre>{
+  &quot;error&quot;: {
+    &quot;status&quot;: 429,
+    &quot;message&quot;: &quot;Too many requests&quot;,
+    &quot;reason&quot;: &quot;QUOTA_EXCEEDED&quot;
+  }
+}</pre></section><section><h3>403 Forbidden: batch endpoints in development mode</h3><p>/albums?ids=… and /tracks?ids=… are refused for development-mode apps, so the app fetches one item at a time.</p><p><code>https://api.spotify.com/v1/albums?ids=45Q1OXnKdOS2B7TkinNudO%2C5830mF41OEgnX3twGqEzSL%2C5xahy2Tzi8r1KbjVeOM0fd%2C0GN8c8LKElLxzjr5gOams3%2C7xkNinsFBJgny5p4XZZfBS%2C6aGQLlNbYzOwTfjWDpqg58%2C1PBCVDJauHi37GO4NkboT2%2C05M6vAqjgC8YC7RV29AKqE%2C4o1kT6L2yEINJ1OR2o4phN%2C2WqjkiwpP8Ks3qMt41epWo%2C05jrzEkewvqM1WAWD07bKI%2C713AvxcNnVOUQnp4LRcc5G%2C1ptkIUrvlqwD2ToCjP3LoR%2C5TaLWTSvmek5AHglJXuecr%2C1ttzMgG7D1bPl2adfo1lbD%2C1amMxIOiRmuujw24rXrCq0%2C01UrMORJHZ5AUvPSdwNXhM%2C6jAXkfJWR7IJlWdjJ5V3lR%2C2V4mtnrcdJ2AnaxueHFlAb%2C6TTQVaiOWeUZIdnF1voJRJ&amp;market=IN</code></p><pre>{
+  &quot;error&quot;: {
+    &quot;status&quot;: 403,
+    &quot;message&quot;: &quot;Forbidden&quot;
+  }
+}</pre></section><section><h3>400 Invalid limit: search page size</h3><p>Development mode allows at most 10 results per search page. The app drops the page size from 50 to 10 automatically.</p><p><code>https://api.spotify.com/v1/search?q=label%3A%22Sony+Music+India%22+year%3A2026&amp;type=album&amp;market=IN&amp;limit=50&amp;offset=0</code></p><pre>{
+  &quot;error&quot;: {
+    &quot;status&quot;: 400,
+    &quot;message&quot;: &quot;Invalid limit&quot;
+  }
+}</pre></section>
+<footer>© 2026 Saranyu Technologies. All rights reserved.</footer></main></body></html>

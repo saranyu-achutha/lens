@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Market Lens · Console</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<nav class="side">
+  <div class="brand"><div class="logo"></div><div><b>Market Lens</b><small><span class="brand-tag">CONSOLE</span></small></div></div>
+  <a class="nav" href="#overview"><svg viewBox="0 0 24 24"><path d="M4 13h6V4H4zM14 20h6v-9h-6zM4 20h6v-4H4zM14 4v4h6V4z"/></svg>Overview</a>
+  <a class="nav" href="#catalogue"><svg viewBox="0 0 24 24"><circle cx="7" cy="17" r="3"/><path d="M10 17V5l10-2v12"/><circle cx="17" cy="15" r="3"/></svg>Songs</a>
+  <a class="nav" href="#explore"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6M11 8v6"/></svg>Explore</a>
+  <a class="nav" href="#insights"><svg viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>AI Insights</a>
+  <a class="nav" href="#review"><svg viewBox="0 0 24 24"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/></svg>Review<span class="nav-badge" id="review-badge" style="display:none"></span></a>
+  <a class="nav" href="#runs"><svg viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z"/></svg>Runs</a>
+  <a class="nav" href="#outputs"><svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg>Outputs</a>
+  <a class="nav" href="#sources"><svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.6 0l3-3a4 4 0 0 0-5.6-5.6l-1 1"/><path d="M14 10a4 4 0 0 0-5.6 0l-3 3a4 4 0 0 0 5.6 5.6l1-1"/></svg>Sources</a>
+  <a class="nav" href="#settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Settings</a>
+  <a class="nav" href="/docs/API_SAMPLES.html" target="_blank" rel="noopener"><svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/></svg>API samples</a>
+  <div class="side-foot">Labels: <b id="side-scope">–</b><br>Songs: YouTube · Metadata: Spotify<br><span id="side-asof"></span>
+    <div class="credit">© <span id="year">2026</span> Saranyu Technologies.<br>All rights reserved.</div></div>
+</nav>
+
+<main>
+  <header class="top">
+    <span id="job-pill" class="pill"><span class="dot"></span>Idle</span>
+    <span id="sched-pill" class="pill"></span>
+    <span class="spacer"></span>
+    <span class="muted" id="top-lastok"></span>
+    <button id="top-run" class="primary" title="Spotify discovery, then YouTube sync">▶ Run pipeline</button>
+  </header>
+
+  <!-- OVERVIEW -->
+  <section class="page" id="page-overview">
+    <div class="page-head"><div><h1>Overview</h1><p>Songs from the tracked labels' YouTube channels, <span id="ov-window"></span></p></div></div>
+    <div id="ov-empty" class="card empty" style="display:none">
+      No data yet. Add your Spotify credentials under <a href="#sources">Sources</a>, then run discovery.
+    </div>
+    <div id="ov-body">
+      <div class="grid g5" id="ov-kpis"></div>
+      <div class="grid g2" style="margin-top:16px">
+        <div class="card"><div class="card-head"><h2>Songs per day (first YouTube upload)</h2><span class="spacer"></span><span class="muted" style="font-size:12px">click a bar to list that day's songs</span></div><div class="chart" id="ov-month"></div></div>
+        <div class="card flush"><h2>Songs by label and channel</h2><div class="table-wrap" style="max-height:300px"><table id="ov-labels"></table></div></div>
+      </div>
+      <div class="grid g2" style="margin-top:16px">
+        <div class="card flush"><h2>Top 10 by YouTube views</h2><div class="table-wrap"><table id="ov-top"></table></div></div>
+        <div class="card flush"><h2>Biggest YouTube gainers (day on day)</h2><div class="table-wrap"><table id="ov-risers"></table></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CATALOGUE -->
+  <section class="page" id="page-catalogue">
+    <div class="page-head"><div><h1>Songs</h1><p>Songs from the tracked labels' YouTube channels, first uploaded since <span class="since"></span>, with Spotify metadata and trend readings</p></div>
+      <span class="spacer"></span><a class="btn" href="/api/export.csv">↓ Export CSV</a></div>
+    <div class="card flush">
+      <div class="row wrap" style="padding:14px 18px">
+        <input id="cat-q" placeholder="Search song, artist, album or ISRC…" style="flex:1;min-width:240px">
+        <select id="cat-status" style="width:190px"><option value="">All songs</option><option value="new">New releases</option>
+          <option value="catalogue">Older releases (re-uploads, new videos of older songs)</option><option value="not_on_spotify">Not on Spotify</option><option value="pending">Spotify match in review</option><option value="unchecked">Spotify lookup pending</option></select>
+        <select id="cat-label" style="width:170px"><option value="">All labels</option></select>
+        <select id="cat-language" style="width:150px"><option value="">All languages</option></select>
+        <select id="cat-category" style="width:170px"><option value="">All categories</option></select>
+        <select id="cat-channel" style="width:210px"><option value="">All channels</option></select>
+        <span class="row" style="gap:6px"><span class="muted">First upload</span><input type="date" id="cat-from" style="width:150px"><span class="muted">to</span><input type="date" id="cat-to" style="width:150px"></span>
+        <span id="cat-day-chip"></span>
+      </div>
+      <div class="selbar" id="cat-selbar" style="display:none">
+        <b id="cat-selcount"></b>
+        <button class="small primary" id="cat-merge" title="All their videos and Spotify versions become one song; can be undone">⇢ Merge into one song</button>
+        <button class="small" id="cat-notsame" title="Merge rules will never pair these songs again">Not the same song</button>
+        <button class="small" id="cat-selclear">Clear</button>
+        <span class="muted">Merges are recorded under Review → Decision history and can be undone.</span>
+      </div>
+      <div class="table-wrap"><table id="cat-table"></table></div>
+      <div class="pager"><span id="cat-count"></span><span class="spacer"></span>
+        <button class="small" id="cat-prev">← Prev</button><button class="small" id="cat-next">Next →</button></div>
+    </div>
+  </section>
+
+  <!-- EXPLORE -->
+  <section class="page" id="page-explore">
+    <div class="page-head"><div><h1>Explore</h1><p>Metrics for every piece of song metadata: who sang, composed and wrote the songs, films, cast, languages, categories, occasions and labels. Songs first uploaded <span id="ex-window"></span>.</p></div></div>
+    <div class="tabs" id="ex-tabs"></div>
+    <div class="card flush">
+      <div class="row wrap" style="padding:14px 18px">
+        <input id="ex-q" placeholder="Search names…" style="flex:1;min-width:220px">
+        <select id="ex-label" style="width:170px"><option value="">All labels</option></select>
+        <select id="ex-language" style="width:160px"><option value="">All languages</option></select>
+      </div>
+      <div class="table-wrap"><table id="ex-table"></table></div>
+      <div class="pager"><span id="ex-count"></span><span class="spacer"></span>
+        <button class="small" id="ex-prev">← Prev</button><button class="small" id="ex-next">Next →</button></div>
+    </div>
+  </section>
+
+  <!-- AI INSIGHTS -->
+  <section class="page" id="page-insights">
+    <div class="page-head"><div><h1>AI Insights</h1><p>What is trending, what could break out, and hidden opportunities across the labels, from public data. Rules compute every number; the ✨ AI assist notes explain them.</p></div></div>
+    <div class="card ai-note" id="ins-history"></div>
+    <div class="card ai-note" style="margin-top:16px">
+      <div class="row" style="justify-content:space-between"><h2 style="margin:0">✨ AI assist · briefing</h2><span class="muted" id="ai-meta"></span></div>
+      <div id="ai-briefing"></div>
+      <div class="ai-tools" id="ai-foot"></div>
+    </div>
+    <div class="card" style="margin-top:12px">
+      <div class="row" style="justify-content:space-between"><h3 style="margin:0">Ask Music AI</h3><span class="pill">Coming with the LLM integration</span></div>
+      <p class="muted" style="margin:8px 0 0;font-size:13px">Ask business questions across all labels, for example: "Which label has the fastest-growing songs this month?", "Which artists have several promising releases but no dominant hit?", "Compare Zee Music and Sony Music's recent releases fairly."</p>
+    </div>
+    <div class="tabs" id="ins-tabs" style="margin-top:20px">
+      <button class="tab active" data-p="emerging">Emerging hits</button>
+      <button class="tab" data-p="cross_label">Cross-label intelligence</button>
+      <button class="tab" data-p="catalog">Catalog opportunities</button>
+      <button class="tab" data-p="artists">Artist portfolio health</button>
+      <button class="tab" data-p="anomalies">Anomaly watch</button>
+    </div>
+    <div class="card ai-note" id="ins-ai" style="display:none"></div>
+    <div class="card flush">
+      <div class="row" style="padding:14px 18px;justify-content:space-between">
+        <span class="muted" id="ins-desc"></span>
+        <span class="row" style="gap:8px"><select id="ins-field" style="width:170px;display:none"><option value="singer">Singers</option><option value="music_director">Music directors</option></select>
+</span>
+      </div>
+      <div class="table-wrap"><table id="ins-table"></table></div>
+    </div>
+  </section>
+
+  <!-- REVIEW -->
+  <section class="page" id="page-review">
+    <div class="page-head"><div><h1>Review</h1><p>Spotify ↔ YouTube matches. Rules decide; you confirm the uncertain ones. Decisions are kept across runs.</p></div></div>
+    <div class="grid" style="grid-template-columns: repeat(4, minmax(0,1fr))" id="rev-kpis"></div>
+    <div class="tabs" id="rev-tabs" style="margin-top:16px">
+      <button class="tab active" data-state="spotify_pending">Spotify links to check <span class="muted"></span></button>
+      <button class="tab" data-state="duplicates">Duplicate songs <span class="muted"></span></button>
+      <button class="tab" data-state="spotify_linked">All Spotify links <span class="muted"></span></button>
+      <button class="tab" data-state="pending">Video matches to check <span class="muted"></span></button>
+      <button class="tab" data-state="unmatched_tracks">Tracks without video <span class="muted"></span></button>
+      <button class="tab" data-state="auto">Auto-matched <span class="muted"></span></button>
+      <button class="tab" data-state="approved">Approved <span class="muted"></span></button>
+      <button class="tab" data-state="unmatched_videos">Videos without track <span class="muted"></span></button>
+      <button class="tab" data-state="history">Decision history <span class="muted"></span></button>
+    </div>
+    <div id="dup-rules" class="grid" style="grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); margin-bottom:16px; display:none"></div>
+    <div class="card flush">
+      <div class="row" style="padding:14px 18px"><input id="rev-q" placeholder="Filter by track or video title…">
+        <span id="dup-bulk" style="display:none;flex-shrink:0;gap:8px" class="row"><button class="small primary" id="dup-merge-sel">Merge selected</button><button class="small" id="dup-reject-sel">Not the same (selected)</button></span></div>
+      <div class="table-wrap"><table id="rev-table"></table></div>
+      <div class="pager"><span id="rev-count"></span><span class="spacer"></span>
+        <button class="small" id="rev-prev">← Prev</button><button class="small" id="rev-next">Next →</button></div>
+    </div>
+  </section>
+
+  <!-- RUNS -->
+  <section class="page" id="page-runs">
+    <div class="page-head"><div><h1>Runs</h1><p>Start jobs, watch them live, review history</p></div></div>
+    <div class="grid" style="grid-template-columns: 320px 1fr">
+      <div class="card">
+        <h2>Run a job</h2>
+        <label class="field"><span>Job</span><select id="run-job"></select></label>
+        <label class="field"><span>From (override)</span><input id="run-since" type="date"><small>Blank = Settings value</small></label>
+        <label class="field"><span>To (override)</span><input id="run-until" type="date"><small>Blank = Settings value, or today</small></label>
+        <div class="row"><button class="primary" id="run-start">▶ Start</button><button class="danger" id="run-cancel" disabled>■ Cancel</button></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>Live console</h2><span class="spacer"></span><span id="run-console-title" class="muted mono"></span></div>
+        <div class="console" id="console"><span class="dim">No job has run since the studio started.</span></div>
+      </div>
+    </div>
+    <div class="card flush" style="margin-top:16px"><h2>History</h2><div class="table-wrap"><table id="runs-table"></table></div></div>
+  </section>
+
+  <!-- OUTPUTS -->
+  <section class="page" id="page-outputs">
+    <div class="page-head"><div><h1>Outputs</h1><p>Everything the pipeline produced: CSV files per run and every raw API response</p></div></div>
+    <div class="tabs"><button class="tab active" data-tab="files">Files</button><button class="tab" data-tab="raw">Raw API responses</button></div>
+    <div id="out-files" class="grid" style="grid-template-columns: 340px 1fr">
+      <div class="card flush"><h2>CSV files</h2><div id="out-list" class="file-list"></div></div>
+      <div class="card flush">
+        <div class="card-head" style="padding:16px 18px 0"><h2 id="out-title">Select a file</h2><span class="spacer"></span>
+          <input id="out-q" placeholder="Filter rows…" style="width:220px"><a class="btn" id="out-dl" style="display:none">↓ Download</a></div>
+        <div class="table-wrap" style="max-height:620px"><table id="out-table"></table></div>
+        <div class="pager"><span id="out-count"></span><span class="spacer"></span>
+          <button class="small" id="out-prev">← Prev</button><button class="small" id="out-next">Next →</button></div>
+      </div>
+    </div>
+    <div id="out-raw" style="display:none">
+      <div class="card flush">
+        <div class="row wrap" style="padding:14px 18px">
+          <select id="raw-run" style="width:220px"><option value="">All runs</option></select>
+          <select id="raw-result" style="width:160px"><option value="">All responses</option><option value="ok">Success (2xx)</option><option value="error">Errors</option></select>
+          <input id="raw-q" placeholder="Filter by URL (e.g. search, albums, tracks)…" style="flex:1;min-width:240px">
+        </div>
+        <div class="table-wrap" style="max-height:560px"><table id="raw-table"></table></div>
+        <div class="pager"><span id="raw-count"></span><span class="spacer"></span>
+          <button class="small" id="raw-prev">← Prev</button><button class="small" id="raw-next">Next →</button></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SOURCES -->
+  <section class="page" id="page-sources">
+    <div class="page-head"><div><h1>Sources</h1><p>Connectors and credentials. Secrets are stored in <span class="mono">.env</span> on the server and never sent back to the browser.</p></div></div>
+    <div class="grid g2">
+      <div class="card">
+        <div class="source-head"><div class="source-icon" style="background:#1db954">S</div>
+          <div><h2 style="margin:0">Spotify Web API</h2><div class="muted">Metadata and ISRC (no popularity or plays in development mode)</div></div>
+          <span class="spacer" style="flex:1"></span><span id="sp-pill" class="pill"></span></div>
+        <label class="field"><span>Client ID</span><input id="sp-id" autocomplete="off"><small id="sp-id-hint"></small></label>
+        <label class="field"><span>Client secret</span><input id="sp-secret" type="password" autocomplete="new-password" placeholder="leave blank to keep current"><small id="sp-secret-hint"></small></label>
+        <div class="row"><button class="primary" id="sp-save">Save</button><button id="sp-test">↻ Retry API status</button></div>
+        <div id="sp-test-msg" class="muted" style="margin-top:10px"></div>
+        <div class="health" id="sp-health"></div>
+      </div>
+      <div class="card">
+        <div class="source-head"><div class="source-icon" style="background:#e62117">▶</div>
+          <div><h2 style="margin:0">YouTube Data API v3</h2><div class="muted">Video matching, views, likes, comments</div></div>
+          <span class="spacer" style="flex:1"></span><span id="yt-pill" class="pill"></span></div>
+        <label class="field"><span>API keys</span><input id="yt-key" type="password" autocomplete="new-password" placeholder="paste one or more keys, separated by commas, to add them"><small id="yt-hint"></small></label>
+        <div class="row"><button class="primary" id="yt-save">Save</button></div>
+        <div id="yt-status"></div>
+        <div class="row" style="margin-top:12px"><button id="yt-sync">▶ Sync YouTube now</button></div>
+      </div>
+      <div class="card">
+        <div class="source-head"><div class="source-icon" style="background:#c96442">✨</div>
+          <div><h2 style="margin:0">LLM key (AI insights)</h2><div class="muted">Explains the insight panels and answers questions in Ask Music AI</div></div>
+          <span class="spacer" style="flex:1"></span><span id="ai-pill" class="pill"></span></div>
+        <p class="muted" style="font-size:13px">Planned. Today the AI Insights page shows a written AI-assist assessment of the rule-based panels. Live explanations and Ask Music AI will use an LLM once its key is added and the integration is switched on.</p>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px" id="coverage-card">
+      <div class="row" style="justify-content:space-between"><h2 style="margin:0">Data coverage &amp; gaps</h2><span class="muted" id="cov-window"></span></div>
+      <p class="muted" style="margin:6px 0 12px">What we have for the current window's songs, and what the APIs don't provide at all.</p>
+      <div class="grid g2">
+        <div><h3>Coverage of songs</h3><table id="cov-table"></table><div class="muted" id="cov-videos" style="font-size:12px;margin-top:8px"></div></div>
+        <div><h3>Not available from the APIs</h3><div id="gap-list"></div></div>
+      </div>
+    </div>
+    <div class="card flush" style="margin-top:16px"><h2>All data sources</h2>
+      <table>
+        <thead><tr><th>Platform</th><th>Access</th><th>Gives us</th><th>Does not give</th><th>Match key</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr><td><b>YouTube</b></td><td>Official API, 10,000 units/day per project</td><td>Songs, views, likes, comments, credits, audio language</td><td>Watch time, revenue, demographics, past daily views</td><td>Channel uploads</td><td><span class="pill ok"><span class="dot"></span>In use</span></td></tr>
+          <tr><td><b>Spotify</b></td><td>Official API, development mode (~600 searches, ~90 album lookups a day)</td><td>ISRC, album, release date, artists</td><td>Plays / streams, popularity, label, genres</td><td>Title, artist, length, date</td><td><span class="pill ok"><span class="dot"></span>In use</span></td></tr>
+          <tr><td><b>Apple Music</b></td><td>iTunes Search API, free (~20 requests/min)</td><td>Album, release date, artists, genre</td><td>ISRC, plays</td><td>Title, artist, length</td><td><span class="pill ok"><span class="dot"></span>In use</span></td></tr>
+          <tr><td><b>MusicBrainz</b></td><td>Open data (CC0), 1 request/second</td><td>ISRC, artists, first release</td><td>Most new Indian releases, popularity</td><td>Title, artist</td><td><span class="pill ok"><span class="dot"></span>In use</span></td></tr>
+          <tr><td><b>Deezer</b></td><td>Official, free (50 requests / 5 s)</td><td>Rank (popularity score) by ISRC</td><td>Search from India, stream counts</td><td>ISRC</td><td><span class="pill ok"><span class="dot"></span>In use</span></td></tr>
+          <tr><td>Spotify Charts</td><td>CSV download (login)</td><td>Real streams for India's top 200</td><td>Songs outside the top 200</td><td>Spotify track id</td><td><span class="pill"><span class="dot"></span>Planned (upload)</span></td></tr>
+          <tr><td>Last.fm</td><td>Official, free key</td><td>Listeners, play count (Last.fm users)</td><td>Platform streams</td><td>Title, artist</td><td><span class="pill"><span class="dot"></span>Planned</span></td></tr>
+          <tr><td>JioSaavn</td><td>No official API</td><td>Play counts on some tracks</td><td>Official access</td><td>Title, artist, duration</td><td><span class="pill"><span class="dot"></span>Needs terms sign-off</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- SETTINGS -->
+  <section class="page" id="page-settings">
+    <div class="page-head"><div><h1>Settings</h1><p>What counts as a Sony Music India release, and when the pipeline runs</p></div>
+      <span class="spacer"></span><button class="primary" id="set-save">Save settings</button></div>
+    <div class="grid g2">
+      <div class="card">
+        <h2>Discovery</h2>
+        <div class="row" style="align-items:flex-start">
+          <label class="field" style="flex:1"><span>Release window from</span><input id="set-since" type="date"></label>
+          <label class="field" style="flex:1"><span>to</span><input id="set-until" type="date"><small>Blank = run date</small></label>
+          <label class="field" style="width:90px"><span>Market</span><input id="set-market" maxlength="2"></label>
+        </div>
+        <label class="field"><span>Label search phrases (one per line)</span><textarea id="set-queries" rows="3"></textarea>
+          <small>Each is sent to Spotify as <span class="mono">label:"…" year:YYYY</span>. Spotify matches loosely; the rule below decides.</small></label>
+        <label class="field"><span>Sony Music India match rule (regular expression, case-insensitive)</span><input id="set-regex" class="mono">
+          <small>A release is kept if its label <i>or</i> its ℗/© line matches.</small></label>
+        <label class="check"><input type="checkbox" id="set-track">Also search tracks (finds albums the album search misses)</label>
+        <label class="check"><input type="checkbox" id="set-seeds">Use seed artists</label>
+        <label class="check"><input type="checkbox" id="set-raw">Store raw API responses (audit / reprocessing)</label>
+        <div class="row" style="align-items:flex-start">
+          <label class="field" style="flex:1"><span>Spotify call budget per run</span><input id="set-budget" type="number" min="50">
+            <small>Development mode allows roughly 1,000–1,500 calls a day.</small></label>
+          <label class="field" style="flex:1"><span>ISRC lookups per run</span><input id="set-isrc" type="number" min="0">
+            <small>One call per track, newest releases first.</small></label>
+        </div>
+        <label class="check"><input type="checkbox" id="set-refresh">Re-fetch already-stored releases on every run (slow; only useful if Spotify returns popularity)</label>
+      </div>
+      <div class="grid" style="align-content:start">
+        <div class="card">
+          <h2>Schedule</h2>
+          <label class="check"><input type="checkbox" id="set-sched">Run the full pipeline daily (Spotify discovery, then YouTube sync)</label>
+          <label class="field" style="max-width:160px"><span>At (server time)</span><input id="set-time" type="time"></label>
+          <div class="muted" id="set-next"></div>
+        </div>
+        <div class="card">
+          <h2>YouTube</h2>
+          <label class="check"><input type="checkbox" id="set-yt-on">Sync YouTube automatically</label>
+          <div class="row" style="align-items:flex-start">
+            <label class="field" style="flex:1"><span>Every (hours)</span><input id="set-yt-every" type="number" min="1"></label>
+            <label class="field" style="flex:1"><span>Every run for videos younger than (days)</span><input id="set-yt-fresh" type="number" min="0"><small>older videos: once a day</small></label>
+            <label class="field" style="flex:1"><span>Look back before window (days)</span><input id="set-yt-back" type="number" min="0"></label>
+          </div>
+          <label class="field"><span>Labels and their channels</span><small>Only labels marked "Tracked" are collected and read. Removing a label or channel keeps the data already collected.</small></label>
+          <div id="yt-labels"></div>
+          <div class="row" style="margin-top:12px"><input id="yt-label-q" placeholder="New label name, e.g. T-Series"><button id="yt-label-add">Add label</button></div>
+        </div>
+        <div class="card">
+          <h2>Merge rules (duplicate songs)</h2>
+          <p class="muted" style="margin-top:0">One song can end up stored twice (spelling variant, longer name, same recording on two songs).
+            Each rule either <b>suggests</b> merges (Review → Duplicate songs, merge a whole rule in one click) or <b>merges automatically</b> during the pipeline.
+            Every merge can be undone under Review → Decision history. Click <b>Save settings</b> after changes.</p>
+          <div id="merge-rules"></div>
+          <label class="check" style="margin-top:10px"><input type="checkbox" id="set-merge-across">Allow merges across labels (off: songs of different labels never merge)</label>
+        </div>
+        <div class="card">
+          <h2>API health watcher</h2>
+          <label class="field" style="max-width:220px"><span>Re-check Spotify while failing, every (minutes)</span><input id="set-recheck" type="number" min="5"></label>
+          <label class="check"><input type="checkbox" id="set-autorun">Start discovery automatically as soon as access returns</label>
+        </div>
+        <div class="card">
+          <h2>Seed artists</h2>
+          <p class="muted" style="margin-top:0">Albums by these artists are checked too. Useful for Sony India artists whose releases don't surface via label search.</p>
+          <div class="row"><input id="seed-q" placeholder="Search Spotify artists…"><button id="seed-search">Search</button></div>
+          <div id="seed-results"></div>
+          <div class="chips" id="seed-list" style="margin-top:12px"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div class="drawer-bg" id="drawer-bg"></div>
+<aside class="drawer" id="drawer"></aside>
+<div class="player" id="player" style="display:none">
+  <div class="player-head"><span class="player-src" id="player-src"></span><b id="player-title" class="player-title"></b>
+    <button class="small" id="player-close" title="Close player">✕</button></div>
+  <div id="player-frame"></div>
+  <div class="player-foot"><span class="mono muted" id="player-id"></span><span class="spacer"></span><a id="player-open" target="_blank" rel="noopener"></a></div>
+</div>
+<div class="toast" id="toast"></div>
+<script src="/app.js"></script>
+<script>document.getElementById("year").textContent = new Date().getFullYear();</script>
+</body>
+</html>
