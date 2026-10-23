@@ -12,7 +12,7 @@ REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)   # the git repository (this 
 APP=$REPO/lens                                      # app folder (holds .env, config.json, data/)
 BRANCH=market-lens-pilot
 SERVICE=market-lens
-PORT=80                                             # must match --port in the systemd service
+PORT=3000                                           # must match --port in the systemd service (nginx proxies port 80 to it)
 WAIT_MINUTES=30
 
 FORCE=0
