@@ -215,7 +215,7 @@ async function loadOverview() {
       k.views_delta ? `${fmt(k.growing)} songs still growing` : "shown after the next daily reading"],
     ["Songs with 1M+ views", fmt(k.hits), `${pct(k.hits, k.songs)}% of all songs`],
     ["Top label", lead ? lead.label : "–", lead ? `${pct(lead.views, k.views)}% of all views · ${fmt(lead.songs)} songs` : ""]];
-  $("#ov-kpis").innerHTML = tiles.map(([l, v, x], i) => `<div class="card kpi${i === 0 && rise ? " kpi-song click" : ""}"${i === 0 && rise ? ` data-id="${rise.id}" title="Play ${esc(rise.title)}"` : ""}><div class="label">${l}</div><div class="value">${esc(v)}</div><div class="sub">${esc(x)}</div></div>`).join("");
+  $("#ov-kpis").innerHTML = tiles.map(([l, v, x], i) => `<div class="card kpi${l === "Fastest riser" && rise ? " kpi-song click" : ""}"${l === "Fastest riser" && rise ? ` data-id="${rise.id}" title="Play ${esc(rise.title)}"` : ""}><div class="label">${l}</div><div class="value">${esc(v)}</div><div class="sub">${esc(x)}</div></div>`).join("");
   const rt = $("#ov-kpis .kpi-song");
   if (rt) rt.onclick = () => { openTrack(rise.id); if (rise.yt_video_id) play("youtube", rise.yt_video_id, rise.title); };
   $("#ov-total").textContent = `${fmt(k.songs)} songs in total`;
