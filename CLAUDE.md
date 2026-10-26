@@ -94,7 +94,7 @@ The code lives in `lens/` and runs on the server as `/home/ubuntu/lens`. This la
 - Add HTTPS.
 - Rotate the keys that were pasted in chat.
 - Optional sources: Last.fm (needs a key), and JioSaavn (unofficial, needs a terms-of-service sign-off).
-- 2026-10-23: YouTube now uses 11 keys (comma-separated `YOUTUBE_API_KEY`, used in order, a key whose quota runs out is set aside until midnight Pacific time). Done on the laptop copy; not yet deployed to the server.
+- YouTube uses 21 keys since 2026-10-26 (comma-separated `YOUTUBE_API_KEY`, used in order; a key whose quota runs out is set aside until midnight Pacific time). Set on both the laptop and the server.
 
 ## Server-only actions
 
