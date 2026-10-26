@@ -23,7 +23,7 @@
     "enabled": true,
     "every_hours": 6,
     "fresh_days": 7,
-    "lookback_days": 31,
+    "lookback_days": 0,
     "labels": [
       {
         "name": "Sony Music India",

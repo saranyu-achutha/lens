@@ -86,7 +86,7 @@ def take_readings(conn, yt, ycfg, channels, pool_start, ts, log, check, flush_ra
     six_h_ago = (datetime.now(timezone.utc) - timedelta(hours=5, minutes=30)).isoformat()
     due = [r["platform_id"] for r in conn.execute(
         """SELECT pi.platform_id FROM platform_item pi
-           WHERE pi.platform='youtube' AND (pi.published_at >= ? OR pi.track_id IS NOT NULL)
+           WHERE pi.platform='youtube' AND pi.published_at >= ?  -- only uploads from the period start on, linked or not
              AND pi.channel IN (SELECT value FROM json_each(?))
              AND (pi.snippet_at IS NULL
                   OR NOT EXISTS (SELECT 1 FROM reading r WHERE r.platform_item_id=pi.id AND r.metric='views'
@@ -233,7 +233,7 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
         f"videos published since {pool_start}, {len(keys)} API key(s)")
     try:
         new = collect_uploads(conn, yt, channels, pool_start, ts, log, check)
-        read = take_readings(conn, yt, ycfg, channels, since, ts, log, check, flush_raw)  # window + linked videos only
+        read = take_readings(conn, yt, ycfg, channels, since, ts, log, check, flush_raw)  # uploads since the period start only
     except YouTubeError as e:
         if not e.quota_exceeded:
             raise
