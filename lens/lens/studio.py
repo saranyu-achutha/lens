@@ -23,7 +23,7 @@ from pathlib import Path
 
 import threading
 
-from . import ai, config, db, health, insights, jobs, merge, metadata, review, songs
+from . import ai, config, db, health, insights, jobs, merge, metadata, review, songs, spotify_charts
 from .discover_spotify import EXPORT_SQL
 from .spotify import Spotify, SpotifyError
 
@@ -278,8 +278,12 @@ def api_track(conn, qs):
             for k in ("views", "likes", "comments"):
                 b[k] += i[k] or 0
     aliases = [r[0] for r in conn.execute("SELECT song_key FROM song_alias WHERE track_id=?", (tid,))]
+    chart = spotify_charts.song_chart(conn, tid)
+    if chart:  # daily India chart rank as one more series for the drawer's trend chart
+        history = list(history) + [{"platform": "spotify_chart", "metric": "chart_rank", "capture_date": h["chart_date"], "value": h["rank"]}
+                                   for h in chart["history"]]
     return {"meta": metadata.for_song(conn, tid), "track": tag_labels(t)[0], "items": items, "history": history,
-            "releases": releases,
+            "releases": releases, "chart": chart and {k: v for k, v in chart.items() if k != "history"},
             "by_type": sorted(by_type.values(), key=lambda b: -b["views"]), "merged_names": aliases}
 
 

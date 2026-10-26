@@ -556,6 +556,8 @@ async function openTrack(id) {
     return Object.keys(byDay).sort().map((x) => ({ x, y: byDay[x] }));
   };
   const METRICS = [["views", "YouTube views", "youtube"], ["likes", "YouTube likes", "youtube"], ["comments", "YouTube comments", "youtube"], ["rank", "Deezer rank", "deezer"]];
+  if (d.chart) METRICS.push(["chart_rank", "Spotify India rank", "spotify_chart"]);
+  const ch = d.chart;
   $("#drawer").innerHTML = `
     <div class="row"><div style="flex:1"><h1>${esc(t.title)}</h1><div class="muted">${esc(t.artists || t.yt_channel || "")}</div></div><button class="small" id="dr-close">✕</button></div>
     <div style="margin-top:8px">${statusChip(t.release_status)}</div>
@@ -569,6 +571,7 @@ async function openTrack(id) {
         : '<span class="muted">–</span>'}</dd>
       <dt>YouTube video id</dt><dd>${t.yt_video_id ? `<span class="mono">${esc(t.yt_video_id)}</span> <button class="pbtn yt" data-play="youtube" data-pid="${esc(t.yt_video_id)}" data-ptitle="${esc(t.title)}">▶</button> <a href="https://www.youtube.com/watch?v=${esc(t.yt_video_id)}" target="_blank" rel="noopener">open ↗</a> <span class="muted">(most viewed)</span>` : '<span class="muted">–</span>'}</dd>
       ${t.deezer_url ? `<dt>Deezer</dt><dd><a href="${esc(t.deezer_url)}" target="_blank" rel="noopener">open ↗</a></dd>` : ""}
+      ${ch ? `<dt>Spotify India chart</dt><dd>best <b>#${ch.best_rank}</b> on ${esc(ch.best_date)} · ${fmt(ch.days)} ${ch.chart.endsWith("weekly") ? "weeks in the weekly" : "days in the daily"} Top 200 <span class="muted">(${esc(ch.first)} → ${esc(ch.last)})</span></dd>` : ""}
     </dl>
     ${sp && sp.review_state === "pending" ? `<div class="card" style="margin-bottom:16px"><b>Possible Spotify match:</b> <a href="${esc(sp.url)}" target="_blank" rel="noopener">${esc(sp.title)}</a> (${esc(sp.published || "")}) · score ${(sp.match_score || 0).toFixed(2)}
       <div class="row" style="margin-top:8px"><button class="small primary" data-decide="approve" data-item="${sp.id}">✓ Same song</button><button class="small" data-decide="reject" data-item="${sp.id}">✕ Different</button></div></div>` : ""}
