@@ -458,6 +458,10 @@ def musicbrainz_lookup(conn, cfg, since, until, ts, log, check, run_id):
         return '"' + re.sub(r'["\\]', " ", text) + '"'
 
     found = missing = taken = 0
+    cap = cfg["songs"].get("musicbrainz_per_run", 600)  # ~12 min; a backfill continues over later runs
+    if len(todo) > cap:
+        log(f"MusicBrainz: {len(todo)} songs without an ISRC; {cap} this run, the rest in later runs")
+        todo = todo[:cap]
     log(f"MusicBrainz: looking up {len(todo)} songs without an ISRC (about {len(todo) * 1.2 / 60:.0f} min)")
     for n, song in enumerate(todo, 1):
         check()
@@ -550,6 +554,10 @@ def itunes_lookup(conn, cfg, since, until, ts, log, check, run_id):
         return []
 
     found = missing = 0
+    cap = cfg["songs"].get("itunes_per_run", 300)  # ~16 min at Apple's ~20 calls a minute
+    if len(todo) > cap:
+        log(f"iTunes metadata: {len(todo)} songs to look up; {cap} this run, the rest in later runs")
+        todo = todo[:cap]
     log(f"iTunes metadata: looking up {len(todo)} songs Spotify hasn't reached (about {len(todo) * 3.2 / 60:.0f} min)")
     for n, song in enumerate(todo, 1):
         check()
