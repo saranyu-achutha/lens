@@ -7,12 +7,15 @@ hundred of the 10,000 daily units.
 """
 import csv
 import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 
 from . import config, db, match
 from .youtube import YouTube, YouTubeError, iso_duration, parse_keys
 
 MATCHABLE = ("video", "lyric", "audio", "other")
+READ_WORKERS = 8  # parallel videos.list calls when reading counts (quota is per call, not per second)
 
 
 class Cancelled(Exception):
@@ -74,7 +77,7 @@ def collect_uploads(conn, yt, channels, pool_start, ts, log, check):
     return new
 
 
-def take_readings(conn, yt, ycfg, channels, pool_start, ts, log, check):
+def take_readings(conn, yt, ycfg, channels, pool_start, ts, log, check, flush_raw=lambda: None):
     """Read views/likes/comments for every video that is due, on the given (switched-on) channels.
     Returns number of videos read."""
     today = ts[:10]
@@ -93,33 +96,36 @@ def take_readings(conn, yt, ycfg, channels, pool_start, ts, log, check):
         return 0
     log(f"reading view counts for {len(due)} videos")
     n = 0
-    for i in range(0, len(due), 50):
-        check()
-        for v in yt.videos(due[i:i + 50]):
-            item = conn.execute("SELECT id, title FROM platform_item WHERE platform='youtube' AND platform_id=?",
-                                (v["id"],)).fetchone()
-            if not item:
-                continue
-            dur = iso_duration(v.get("contentDetails", {}).get("duration"))
-            sn = v.get("snippet") or {}
-            conn.execute("""UPDATE platform_item SET duration_ms=?, asset_type=?, yt_tags=?, audio_language=?,
-                                yt_category=?, snippet_at=?, description=COALESCE(?, description) WHERE id=?""",
-                         (dur * 1000 if dur is not None else None, match.asset_type(item["title"], dur),
-                          json.dumps(sn.get("tags") or []), sn.get("defaultAudioLanguage") or sn.get("defaultLanguage"),
-                          sn.get("categoryId"), ts, (sn.get("description") or "")[:5000] or None, item["id"]))
-            st = v.get("statistics", {})
-            for metric, key in (("views", "viewCount"), ("likes", "likeCount"), ("comments", "commentCount")):
-                if key in st:
-                    val = int(st[key])
-                    conn.execute("INSERT INTO reading (platform_item_id, metric, value, captured_at) VALUES (?,?,?,?)",
-                                 (item["id"], metric, val, ts))
-                    conn.execute("""INSERT INTO snapshot (platform_item_id, metric, value, capture_date, captured_at)
-                                    VALUES (?,?,?,?,?)
-                                    ON CONFLICT(platform_item_id, metric, capture_date)
-                                    DO UPDATE SET value=excluded.value, captured_at=excluded.captured_at""",
-                                 (item["id"], metric, val, today, ts))
-            n += 1
-        conn.commit()
+    batches = [due[i:i + 50] for i in range(0, len(due), 50)]
+    with ThreadPoolExecutor(READ_WORKERS) as pool:  # API calls in parallel; database writes stay on this thread
+        for c in range(0, len(batches), READ_WORKERS * 2):
+            check()
+            for v in (v for vids in pool.map(yt.videos, batches[c:c + READ_WORKERS * 2]) for v in vids):
+                item = conn.execute("SELECT id, title FROM platform_item WHERE platform='youtube' AND platform_id=?",
+                                    (v["id"],)).fetchone()
+                if not item:
+                    continue
+                dur = iso_duration(v.get("contentDetails", {}).get("duration"))
+                sn = v.get("snippet") or {}
+                conn.execute("""UPDATE platform_item SET duration_ms=?, asset_type=?, yt_tags=?, audio_language=?,
+                                    yt_category=?, snippet_at=?, description=COALESCE(?, description) WHERE id=?""",
+                             (dur * 1000 if dur is not None else None, match.asset_type(item["title"], dur),
+                              json.dumps(sn.get("tags") or []), sn.get("defaultAudioLanguage") or sn.get("defaultLanguage"),
+                              sn.get("categoryId"), ts, (sn.get("description") or "")[:5000] or None, item["id"]))
+                st = v.get("statistics", {})
+                for metric, key in (("views", "viewCount"), ("likes", "likeCount"), ("comments", "commentCount")):
+                    if key in st:
+                        val = int(st[key])
+                        conn.execute("INSERT INTO reading (platform_item_id, metric, value, captured_at) VALUES (?,?,?,?)",
+                                     (item["id"], metric, val, ts))
+                        conn.execute("""INSERT INTO snapshot (platform_item_id, metric, value, capture_date, captured_at)
+                                        VALUES (?,?,?,?,?)
+                                        ON CONFLICT(platform_item_id, metric, capture_date)
+                                        DO UPDATE SET value=excluded.value, captured_at=excluded.captured_at""",
+                                     (item["id"], metric, val, today, ts))
+                n += 1
+            flush_raw()
+            conn.commit()
     return n
 
 
@@ -202,10 +208,18 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
         if should_stop():
             raise Cancelled()
 
+    owner, queued = threading.get_ident(), []  # raw responses from reader threads, written by this thread
+
+    def flush_raw():
+        while queued:
+            conn.execute("INSERT INTO raw_capture (run_id, source, url, status, captured_at, body)"
+                         " VALUES (?,'youtube',?,?,?,?)", queued.pop(0))
+
     def on_raw(url, status, body):
         if dcfg["store_raw"]:
-            conn.execute("INSERT INTO raw_capture (run_id, source, url, status, captured_at, body)"
-                         " VALUES (?,'youtube',?,?,?,?)", (run_id, url, status, db.now_iso(), body))
+            queued.append((run_id, url, status, db.now_iso(), body))
+            if threading.get_ident() == owner:
+                flush_raw()
 
     yt = YouTube(keys, on_raw=on_raw, log=log)
     ts = db.now_iso()
@@ -219,7 +233,7 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
         f"videos published since {pool_start}, {len(keys)} API key(s)")
     try:
         new = collect_uploads(conn, yt, channels, pool_start, ts, log, check)
-        read = take_readings(conn, yt, ycfg, channels, since, ts, log, check)  # window + linked videos only
+        read = take_readings(conn, yt, ycfg, channels, since, ts, log, check, flush_raw)  # window + linked videos only
     except YouTubeError as e:
         if not e.quota_exceeded:
             raise
