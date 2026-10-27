@@ -577,6 +577,7 @@ async function openTrack(id) {
     return Object.keys(byDay).sort().map((x) => ({ x, y: byDay[x] }));
   };
   const METRICS = [["views", "YouTube views", "youtube"], ["likes", "YouTube likes", "youtube"], ["comments", "YouTube comments", "youtube"], ["rank", "Deezer rank", "deezer"]];
+  if (d.history.some((h) => h.metric === "plays")) METRICS.push(["plays", "Spotify plays", "spotify"]);
   if (d.chart) METRICS.push(["chart_rank", "Spotify India rank", "spotify_chart"]);
   const ch = d.chart;
   $("#drawer").innerHTML = `

@@ -145,16 +145,31 @@ def api_platform(conn, qs):
                          JOIN platform_item pi ON pi.platform='spotify' AND pi.platform_id=ce.spotify_id AND pi.review_state IN ('auto','approved')
                          JOIN ({TRACKS_SQL}) t ON t.id=pi.track_id
                          WHERE ce.chart='regional-in-daily' AND ce.chart_date=? ORDER BY ce.rank""", tracks_args() + [last]) if last else []
-        out["kpis"] = [["Songs linked to Spotify", linked, pct(linked)], ["New releases", k["new"], "on Spotify ≤ 30 days before YouTube"],
-                       ["Older releases", k["cat"], "on Spotify 30+ days before"], ["Not found / in review", (k["nf"] or 0) + (k["rev"] or 0), f"{k['rev'] or 0} in review"],
-                       ["Still to look up", k["todo"], "about 600 searches a day"],
+        # Daily play counts read from the public track pages (lens/spotify_plays.py), summed over a song's Spotify versions.
+        pl = q(conn, f"""WITH sp AS (
+              SELECT pi.track_id,
+                     (SELECT value FROM snapshot s WHERE s.platform_item_id=pi.id AND metric='plays' ORDER BY capture_date DESC LIMIT 1) now,
+                     (SELECT value FROM snapshot s WHERE s.platform_item_id=pi.id AND metric='plays' ORDER BY capture_date DESC LIMIT 1 OFFSET 1) prev,
+                     (SELECT max(capture_date) FROM snapshot s WHERE s.platform_item_id=pi.id AND metric='plays') day
+              FROM platform_item pi WHERE pi.platform='spotify' AND pi.review_state IN ('auto','approved') AND pi.track_id IS NOT NULL)
+            SELECT t.id, t.title, t.song_date, t.yt_views, sum(sp.now) plays, sum(sp.now - sp.prev) delta, max(sp.day) day
+            FROM ({W}) t JOIN sp ON sp.track_id=t.id WHERE sp.now IS NOT NULL GROUP BY t.id ORDER BY plays DESC""", a)
+        rank_today = {r["id"]: r["rank"] for r in reversed(on)}
+        out["kpis"] = [["Spotify plays", sum(r["plays"] or 0 for r in pl), f"{len(pl):,} songs with a public count" + (f" · read {max(r['day'] for r in pl)}" if pl else "")],
+                       ["Plays in the last day", sum(r["delta"] or 0 for r in pl) if any(r["delta"] is not None for r in pl) else None, "after two daily readings"],
+                       ["Songs linked to Spotify", linked, pct(linked)], ["New releases", k["new"], f"{k['cat'] or 0:,} older releases (on Spotify 30+ days before)"],
+                       ["Not found on Spotify", k["nf"], f"{k['todo'] or 0:,} still to look up · {k['rev'] or 0} in review"],
                        ["On India Top 200 today", len({r["id"] for r in on}), f"daily chart of {last}" if last else "no chart data"]]
         days = q(conn, """SELECT ce.chart_date d, count(DISTINCT pi.track_id) n FROM chart_entry ce
                           JOIN platform_item pi ON pi.platform='spotify' AND pi.platform_id=ce.spotify_id AND pi.review_state IN ('auto','approved')
                           WHERE ce.chart='regional-in-daily' AND ce.chart_date >= date(?, '-59 day') GROUP BY 1 ORDER BY 1""", (last or until,))
         out["chart"] = {"title": "Our songs in the Spotify India Top 200, by day", "bars": [{"label": r["d"][5:], "value": r["n"]} for r in days]}
-        out["table"] = {"title": f"Our songs on the Spotify India Top 200 ({last or '–'})", "cols": ["Song", "Rank", "Days on chart (all-time)", "First upload", "YouTube views"],
-                        "rows": [[r["id"], r["title"], r["rank"], r["appearances"], r["song_date"], r["yt_views"]] for r in on[:25]]}
+        if pl:
+            out["table"] = {"title": "Top songs by Spotify plays", "cols": ["Song", "Spotify plays", "Δ day", "India Top 200 today", "YouTube views"],
+                            "rows": [[r["id"], r["title"], r["plays"], r["delta"], rank_today.get(r["id"]), r["yt_views"]] for r in pl[:25]]}
+        else:
+            out["table"] = {"title": f"Our songs on the Spotify India Top 200 ({last or '–'})", "cols": ["Song", "Rank", "Days on chart (all-time)", "First upload", "YouTube views"],
+                            "rows": [[r["id"], r["title"], r["rank"], r["appearances"], r["song_date"], r["yt_views"]] for r in on[:25]]}
     elif p == "apple":
         k = q(conn, f"""SELECT count(DISTINCT t.id) n, sum(t.release_status='not_on_spotify') gap FROM ({W}) t
                         WHERE EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='apple')""", a)[0]
