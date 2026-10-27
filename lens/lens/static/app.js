@@ -28,14 +28,14 @@ function toast(msg, bad = false) {
 let STATUS = null;
 
 /* ---------- Router ---------- */
-const PAGES = ["overview", "catalogue", "explore", "insights", "review", "runs", "outputs", "sources", "settings"];
+const PAGES = ["overview", "platforms", "catalogue", "explore", "insights", "review", "runs", "outputs", "sources", "settings"];
 const hashParams = () => new URLSearchParams(location.hash.split("?")[1] || "");
 function route() {
   const page = (location.hash.slice(1).split("?")[0]) || "overview";
   const p = PAGES.includes(page) ? page : "overview";
   document.querySelectorAll("section.page").forEach((s) => s.classList.toggle("active", s.id === `page-${p}`));
   document.querySelectorAll("a.nav").forEach((a) => a.classList.toggle("active", a.getAttribute("href") === `#${p}`));
-  ({ overview: loadOverview, catalogue: loadCatalogue, explore: loadExplore, insights: loadInsights, review: loadReview, runs: loadRuns, outputs: loadOutputs, sources: loadSources, settings: loadSettings })[p]();
+  ({ overview: loadOverview, platforms: loadPlatform, catalogue: loadCatalogue, explore: loadExplore, insights: loadInsights, review: loadReview, runs: loadRuns, outputs: loadOutputs, sources: loadSources, settings: loadSettings })[p]();
   const track = new URLSearchParams(location.hash.split("?")[1] || "").get("track");
   if (track) openTrack(track);
   const meta = new URLSearchParams(location.hash.split("?")[1] || "").get("meta");  // e.g. #explore?meta=singer:arijit singh
@@ -239,6 +239,25 @@ $("#ov-labels").addEventListener("click", (e) => {
   const tr = e.target.closest("tr[data-ch]"); if (!tr || tr.dataset.ch.startsWith("(")) return;
   Object.assign(CAT, { channel: tr.dataset.ch, label: "", day: "", status: "", offset: 0 }); location.hash = "#catalogue";
 });
+
+/* ---------- Platforms: one dashboard per platform ---------- */
+const PF = { p: "youtube" };
+async function loadPlatform() {
+  document.querySelectorAll("#pf-tabs .tab").forEach((b) => b.classList.toggle("active", b.dataset.pf === PF.p));
+  const d = await api(`/api/platform?p=${PF.p}`);
+  $("#pf-window").textContent = `Songs first uploaded ${d.since} → ${d.until} (${fmt(d.songs)} songs)`;
+  const num = (v) => typeof v === "number" ? (Math.abs(v) >= 1e5 ? compact(v) : fmt(v)) : (v == null ? "–" : v);
+  $("#pf-kpis").innerHTML = d.kpis.map(([l, v, x]) => `<div class="card kpi"><div class="label">${esc(l)}</div><div class="value">${esc(num(v))}</div><div class="sub">${esc(x || "")}</div></div>`).join("");
+  $("#pf-chart-title").textContent = d.chart.title;
+  barChart($("#pf-chart"), d.chart.bars.map((b) => ({ label: b.label, value: b.value })), { tip: (b) => `<b>${esc(b.label)}</b><br>${num(b.value)}` });
+  $("#pf-table-title").textContent = d.table.title;
+  $("#pf-table").innerHTML = d.table.rows.length ? `<thead><tr>${d.table.cols.map((c, i) => `<th class="${i ? "num" : ""}">${esc(c)}</th>`).join("")}</tr></thead><tbody>` +
+    d.table.rows.map(([id, ...cells]) => `<tr class="click" data-id="${id}">${cells.map((c, i) => i ? `<td class="num">${typeof c === "number" ? num(c) : esc(c ?? "–")}</td>`
+      : `<td><div class="t1">${esc(c)}</div></td>`).join("")}</tr>`).join("") + "</tbody>"
+    : `<tbody><tr><td class="empty">Nothing yet for this period.</td></tr></tbody>`;
+}
+document.querySelectorAll("#pf-tabs .tab").forEach((b) => (b.onclick = () => { PF.p = b.dataset.pf; loadPlatform(); }));
+$("#pf-table").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-id]"); if (tr) openTrack(tr.dataset.id); });
 
 /* ---------- Player ---------- */
 // Embedded players: YouTube plays the full video; Spotify plays the full track when the viewer is

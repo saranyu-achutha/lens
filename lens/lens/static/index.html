@@ -10,6 +10,7 @@
 <nav class="side">
   <div class="brand"><div class="logo"></div><div><b>Market Lens</b><small><span class="brand-tag">CONSOLE</span></small></div></div>
   <a class="nav" href="#overview"><svg viewBox="0 0 24 24"><path d="M4 13h6V4H4zM14 20h6v-9h-6zM4 20h6v-4H4zM14 4v4h6V4z"/></svg>Overview</a>
+  <a class="nav" href="#platforms"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 15v3M11 11v7M15 7v11M19 13v5"/></svg>Platforms</a>
   <a class="nav" href="#catalogue"><svg viewBox="0 0 24 24"><circle cx="7" cy="17" r="3"/><path d="M10 17V5l10-2v12"/><circle cx="17" cy="15" r="3"/></svg>Songs</a>
   <a class="nav" href="#explore"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6M11 8v6"/></svg>Explore</a>
   <a class="nav" href="#insights"><svg viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>AI Insights</a>
@@ -169,6 +170,20 @@
       </div>
     </div>
     <div class="card flush" style="margin-top:16px"><h2>History</h2><div class="table-wrap"><table id="runs-table"></table></div></div>
+  </section>
+
+  <!-- PLATFORMS -->
+  <section class="page" id="page-platforms">
+    <div class="page-head"><div><h1>Platforms</h1><p id="pf-window">Stats per platform for the song period.</p></div></div>
+    <div class="tabs" id="pf-tabs">
+      <button class="tab active" data-pf="youtube">YouTube</button><button class="tab" data-pf="spotify">Spotify</button>
+      <button class="tab" data-pf="apple">Apple Music</button><button class="tab" data-pf="deezer">Deezer</button>
+    </div>
+    <div class="grid g6" id="pf-kpis"></div>
+    <div class="grid g2" style="margin-top:16px">
+      <div class="card"><div class="card-head"><h2 id="pf-chart-title"></h2></div><div class="chart" id="pf-chart"></div></div>
+      <div class="card flush"><h2 id="pf-table-title"></h2><div class="table-wrap" style="max-height:340px"><table id="pf-table"></table></div></div>
+    </div>
   </section>
 
   <!-- OUTPUTS -->

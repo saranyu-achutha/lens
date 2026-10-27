@@ -113,6 +113,76 @@ def api_overview(conn, _):
             "labels": sorted(labels.values(), key=lambda t: -t["songs"])}
 
 
+def api_platform(conn, qs):
+    """Dashboard of one platform (youtube / spotify / apple / deezer) for the song period:
+    {kpis: [[label, value, sub]], chart: {title, bars: [{label, value}]}, table: {title, cols, rows}}."""
+    p = (qs.get("p") or "youtube").lower()
+    since, until = config.window(config.load())
+    W = f"SELECT * FROM ({TRACKS_SQL}) WHERE song_date >= ? AND song_date <= ?"
+    a = tracks_args() + [since, until]
+    songs = q(conn, f"SELECT count(*) n FROM ({W})", a)[0]["n"] or 0
+    pct = lambda n: f"{round(100 * (n or 0) / songs) if songs else 0}% of {songs:,} songs"
+    out = {"platform": p, "since": since, "until": until, "songs": songs}
+    if p == "youtube":
+        k = q(conn, f"""SELECT sum(yt_videos > 0) songs, sum(yt_videos) uploads, sum(yt_views) views, sum(yt_likes) likes,
+                               sum(yt_comments) comments, sum(yt_delta) delta, sum(yt_views >= 1000000) hits FROM ({W})""", a)[0]
+        allup = q(conn, "SELECT count(*) n FROM platform_item WHERE platform='youtube' AND published_at >= ?", (since,))[0]["n"]
+        out["kpis"] = [["Songs on YouTube", k["songs"], pct(k["songs"])], ["Uploads", allup, f"{k['uploads'] or 0:,} linked to songs"],
+                       ["Views", k["views"], f"{int(k['likes'] or 0):,} likes · {int(k['comments'] or 0):,} comments"],
+                       ["Views in the last day", k["delta"], "all linked uploads"], ["Songs with 1M+ views", k["hits"], pct(k["hits"])]]
+        t = q(conn, f"SELECT " + ", ".join(f"sum(yt_views_{x}) {x}" for x in ("video", "lyric", "audio", "short", "teaser", "other")) + f" FROM ({W})", a)[0]
+        out["chart"] = {"title": "Views by upload type", "bars": [{"label": x, "value": t[x] or 0} for x in t]}
+        rows = q(conn, W + " AND yt_views IS NOT NULL ORDER BY yt_views DESC LIMIT 10", a)
+        out["table"] = {"title": "Top 10 songs by YouTube views", "cols": ["Song", "Channel", "First upload", "Uploads", "Views", "Δ day"],
+                        "rows": [[r["id"], r["title"], r["yt_channel"], r["song_date"], r["yt_videos"], r["yt_views"], r["yt_delta"]] for r in rows]}
+    elif p == "spotify":
+        k = q(conn, f"""SELECT sum(release_status='new') new, sum(release_status='catalogue') cat, sum(release_status='not_on_spotify') nf,
+                               sum(release_status='pending') rev, sum(release_status='unchecked') todo FROM ({W})""", a)[0]
+        linked = (k["new"] or 0) + (k["cat"] or 0)
+        spotify_charts.ensure(conn)
+        last = q(conn, "SELECT max(chart_date) d FROM chart_entry WHERE chart='regional-in-daily'")[0]["d"]
+        on = q(conn, f"""SELECT ce.rank, ce.appearances, ce.track_name, t.id, t.title, t.yt_views, t.song_date FROM chart_entry ce
+                         JOIN platform_item pi ON pi.platform='spotify' AND pi.platform_id=ce.spotify_id AND pi.review_state IN ('auto','approved')
+                         JOIN ({TRACKS_SQL}) t ON t.id=pi.track_id
+                         WHERE ce.chart='regional-in-daily' AND ce.chart_date=? ORDER BY ce.rank""", tracks_args() + [last]) if last else []
+        out["kpis"] = [["Songs linked to Spotify", linked, pct(linked)], ["New releases", k["new"], "on Spotify ≤ 30 days before YouTube"],
+                       ["Older releases", k["cat"], "on Spotify 30+ days before"], ["Not found / in review", (k["nf"] or 0) + (k["rev"] or 0), f"{k['rev'] or 0} in review"],
+                       ["Still to look up", k["todo"], "about 600 searches a day"],
+                       ["On India Top 200 today", len({r["id"] for r in on}), f"daily chart of {last}" if last else "no chart data"]]
+        days = q(conn, """SELECT ce.chart_date d, count(DISTINCT pi.track_id) n FROM chart_entry ce
+                          JOIN platform_item pi ON pi.platform='spotify' AND pi.platform_id=ce.spotify_id AND pi.review_state IN ('auto','approved')
+                          WHERE ce.chart='regional-in-daily' AND ce.chart_date >= date(?, '-59 day') GROUP BY 1 ORDER BY 1""", (last or until,))
+        out["chart"] = {"title": "Our songs in the Spotify India Top 200, by day", "bars": [{"label": r["d"][5:], "value": r["n"]} for r in days]}
+        out["table"] = {"title": f"Our songs on the Spotify India Top 200 ({last or '–'})", "cols": ["Song", "Rank", "Days on chart", "First upload", "YouTube views"],
+                        "rows": [[r["id"], r["title"], r["rank"], r["appearances"], r["song_date"], r["yt_views"]] for r in on[:25]]}
+    elif p == "apple":
+        k = q(conn, f"""SELECT count(DISTINCT t.id) n, sum(t.release_status='not_on_spotify') gap FROM ({W}) t
+                        WHERE EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='apple')""", a)[0]
+        out["kpis"] = [["Songs on Apple Music", k["n"], pct(k["n"])], ["Found only on Apple", k["gap"], "not found on Spotify"],
+                       ["Lookups", "≈20 / min", "iTunes Search API, India store"]]
+        g = q(conn, f"""SELECT m.value label, count(*) value FROM song_meta m WHERE m.field='genre' AND m.source LIKE '%apple%'
+                        AND m.track_id IN (SELECT id FROM ({W})) GROUP BY 1 ORDER BY 2 DESC LIMIT 12""", a)
+        out["chart"] = {"title": "Apple Music genres", "bars": g}
+        rows = q(conn, f"""SELECT t.id, t.title, p.title apple_title, p.published_at rel, p.url, t.yt_views FROM ({W}) t
+                           JOIN platform_item p ON p.track_id=t.id AND p.platform='apple' ORDER BY t.yt_views DESC LIMIT 10""", a)
+        out["table"] = {"title": "Top 10 Apple-linked songs (by YouTube views)", "cols": ["Song", "Apple Music title", "Apple release", "YouTube views"],
+                        "rows": [[r["id"], r["title"], r["apple_title"], (r["rel"] or "")[:10], r["yt_views"]] for r in rows]}
+    elif p == "deezer":
+        k = q(conn, f"SELECT count(deezer_rank) n, avg(deezer_rank) avg, max(deezer_rank) top FROM ({W})", a)[0]
+        out["kpis"] = [["Songs with a Deezer rank", k["n"], pct(k["n"])], ["Average rank", round(k["avg"] or 0), "Deezer popularity score (higher = more popular)"],
+                       ["Highest rank", k["top"], "read daily by ISRC"]]
+        b = q(conn, f"""SELECT CASE WHEN deezer_rank >= 300000 THEN '300K+' WHEN deezer_rank >= 200000 THEN '200–300K'
+                                    WHEN deezer_rank >= 100000 THEN '100–200K' WHEN deezer_rank >= 50000 THEN '50–100K' ELSE 'under 50K' END label,
+                               count(*) value, min(deezer_rank) lo FROM ({W}) WHERE deezer_rank IS NOT NULL GROUP BY 1 ORDER BY lo""", a)
+        out["chart"] = {"title": "Songs by Deezer rank", "bars": [{"label": r["label"], "value": r["value"]} for r in b]}
+        rows = q(conn, W + " AND deezer_rank IS NOT NULL ORDER BY deezer_rank DESC LIMIT 10", a)
+        out["table"] = {"title": "Top 10 songs by Deezer rank", "cols": ["Song", "Deezer rank", "First upload", "YouTube views"],
+                        "rows": [[r["id"], r["title"], r["deezer_rank"], r["song_date"], r["yt_views"]] for r in rows]}
+    else:
+        raise ValueError("unknown platform")
+    return out
+
+
 # Per-track rollups of the latest (and previous-day) readings of linked videos, plus Deezer rank.
 YT_CTE = """
 yt_item AS (
@@ -993,7 +1063,7 @@ def api_youtube_status(conn, _):
 GET = {"/api/coverage": api_coverage, "/api/insights": api_insights, "/api/insights/song": api_insights_song, "/api/ai/status": api_ai_status, "/api/ai/assist": api_ai_assist,
        "/api/meta/top": api_meta_top, "/api/meta/detail": api_meta_detail,
        "/api/merge/suggestions": api_merge_suggestions, "/api/status": api_status, "/api/overview": api_overview, "/api/tracks": api_tracks,
-       "/api/track": api_track, "/api/runs": api_runs, "/api/seeds": api_seeds,
+       "/api/track": api_track, "/api/platform": api_platform, "/api/runs": api_runs, "/api/seeds": api_seeds,
        "/api/artist_search": api_artist_search, "/api/health": api_health, "/api/outputs": api_outputs,
        "/api/outputs/preview": api_output_preview, "/api/raw": api_raw, "/api/raw/item": api_raw_item,
        "/api/matching": api_matching, "/api/matching/candidates": api_match_candidates,
