@@ -161,7 +161,7 @@ def api_platform(conn, qs):
         out["kpis"] = [["Songs on Apple Music", k["n"], pct(k["n"])], ["Found only on Apple", k["gap"], "not found on Spotify"],
                        ["Lookups", "≈20 / min", "iTunes Search API, India store"]]
         g = q(conn, f"""SELECT m.value label, count(*) value FROM song_meta m WHERE m.field='genre' AND m.source LIKE '%apple%'
-                        AND m.track_id IN (SELECT id FROM ({W})) GROUP BY 1 ORDER BY 2 DESC LIMIT 12""", a)
+                        AND m.track_id IN (SELECT id FROM ({W})) GROUP BY 1 ORDER BY 2 DESC LIMIT 8""", a)
         out["chart"] = {"title": "Apple Music genres", "bars": g}
         rows = q(conn, f"""SELECT t.id, t.title, p.title apple_title, p.published_at rel, p.url, t.yt_views FROM ({W}) t
                            JOIN platform_item p ON p.track_id=t.id AND p.platform='apple' ORDER BY t.yt_views DESC LIMIT 10""", a)
