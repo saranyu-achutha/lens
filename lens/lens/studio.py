@@ -153,7 +153,7 @@ def api_platform(conn, qs):
                           JOIN platform_item pi ON pi.platform='spotify' AND pi.platform_id=ce.spotify_id AND pi.review_state IN ('auto','approved')
                           WHERE ce.chart='regional-in-daily' AND ce.chart_date >= date(?, '-59 day') GROUP BY 1 ORDER BY 1""", (last or until,))
         out["chart"] = {"title": "Our songs in the Spotify India Top 200, by day", "bars": [{"label": r["d"][5:], "value": r["n"]} for r in days]}
-        out["table"] = {"title": f"Our songs on the Spotify India Top 200 ({last or '–'})", "cols": ["Song", "Rank", "Days on chart", "First upload", "YouTube views"],
+        out["table"] = {"title": f"Our songs on the Spotify India Top 200 ({last or '–'})", "cols": ["Song", "Rank", "Days on chart (all-time)", "First upload", "YouTube views"],
                         "rows": [[r["id"], r["title"], r["rank"], r["appearances"], r["song_date"], r["yt_views"]] for r in on[:25]]}
     elif p == "apple":
         k = q(conn, f"""SELECT count(DISTINCT t.id) n, sum(t.release_status='not_on_spotify') gap FROM ({W}) t

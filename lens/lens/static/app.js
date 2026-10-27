@@ -248,8 +248,10 @@ async function loadPlatform() {
   $("#pf-window").textContent = `Songs first uploaded ${d.since} → ${d.until} (${fmt(d.songs)} songs)`;
   const num = (v) => typeof v === "number" ? (Math.abs(v) >= 1e5 ? compact(v) : fmt(v)) : (v == null ? "–" : v);
   $("#pf-kpis").innerHTML = d.kpis.map(([l, v, x]) => `<div class="card kpi"><div class="label">${esc(l)}</div><div class="value">${esc(num(v))}</div><div class="sub">${esc(x || "")}</div></div>`).join("");
-  $("#pf-chart-title").textContent = d.chart.title;
-  barChart($("#pf-chart"), d.chart.bars.map((b) => ({ label: b.label, value: b.value })), { tip: (b) => `<b>${esc(b.label)}</b><br>${num(b.value)}` });
+  const big = Math.max(0, ...d.chart.bars.map((b) => b.value || 0)) >= 1e6;  // show large counts in millions
+  $("#pf-chart-title").textContent = d.chart.title + (big ? " (millions)" : "");
+  barChart($("#pf-chart"), d.chart.bars.map((b) => ({ label: b.label.length > 10 ? b.label.slice(0, 9) + "…" : b.label, full: b.label,
+    value: big ? Math.round((b.value || 0) / 1e5) / 10 : b.value, raw: b.value })), { tip: (b) => `<b>${esc(b.full)}</b><br>${num(b.raw)}` });
   $("#pf-table-title").textContent = d.table.title;
   $("#pf-table").innerHTML = d.table.rows.length ? `<thead><tr>${d.table.cols.map((c, i) => `<th class="${i ? "num" : ""}">${esc(c)}</th>`).join("")}</tr></thead><tbody>` +
     d.table.rows.map(([id, ...cells]) => `<tr class="click" data-id="${id}">${cells.map((c, i) => i ? `<td class="num">${typeof c === "number" ? num(c) : esc(c ?? "–")}</td>`
