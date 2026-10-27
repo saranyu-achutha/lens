@@ -48,11 +48,20 @@ def export_ids(conn, since=None):
            ORDER BY p.platform_id""", (since,))]
 
 
+# chrome-headless-shell (Chrome for Testing, browser only, ~280 MB) unpacked in the home folder; used on the server.
+HEADLESS_SHELL = Path.home() / "chrome-headless-shell" / "chrome-headless-shell-linux64" / "chrome-headless-shell"
+
+
 def find_chrome():
+    """LENS_CHROME, else chrome-headless-shell in the home folder, else an installed Chrome/Chromium."""
+    if os.environ.get("LENS_CHROME"):
+        return os.environ["LENS_CHROME"]
+    if HEADLESS_SHELL.exists():
+        return str(HEADLESS_SHELL)
     for name in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser"):
         if shutil.which(name):
             return shutil.which(name)
-    sys.exit("Chrome/Chromium not found: install it, or run collect on a machine that has it")
+    sys.exit("No browser found: unpack chrome-headless-shell into ~/chrome-headless-shell, or install Chrome")
 
 
 class _WS:
@@ -126,10 +135,11 @@ def collect(ids, workers=10, day=None, log=print):
     log(f"Spotify plays {day}: {len(ids)} tracks, {len(ids) - len(todo)} already read today, {len(todo)} to read, {workers} tabs")
     profile = tempfile.mkdtemp(prefix="lens_sp_")
     port = 9400 + os.getpid() % 500
+    env = dict(os.environ, LD_LIBRARY_PATH=str(Path(chrome).parent))  # libgbm.so.1 ships next to chrome-headless-shell
     proc = subprocess.Popen([chrome, "--headless=new", "--disable-gpu", "--no-first-run", "--mute-audio", "--lang=en-US",
                              "--disable-background-timer-throttling", "--disable-renderer-backgrounding", "--disable-backgrounding-occluded-windows",
                              f"--user-data-dir={profile}", f"--remote-debugging-port={port}", "about:blank"],
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
     t0, done, lock = time.time(), 0, threading.Lock()
     queue = list(todo)
 
