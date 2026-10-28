@@ -5,7 +5,7 @@ import time
 import traceback
 from datetime import datetime, timedelta
 
-from . import config, db, discover_spotify, health, songs, sync_youtube, youtube_music
+from . import config, db, discover_spotify, health, song_daily, songs, sync_youtube, youtube_music
 from .spotify import SpotifyError
 from .youtube import YouTubeError
 
@@ -17,10 +17,10 @@ JOBS = {
     "ytmusic": "YouTube Music only (find songs' audio tracks, read their plays)",
 }
 STEPS = {
-    "pipeline": [("youtube", sync_youtube.run), ("songs", songs.run), ("ytmusic", youtube_music.run)],
-    "ytmusic": [("ytmusic", youtube_music.run)],
-    "youtube_sync": [("youtube", sync_youtube.run)],
-    "songs": [("songs", songs.run)],
+    "pipeline": [("youtube", sync_youtube.run), ("songs", songs.run), ("ytmusic", youtube_music.run), ("daily", song_daily.run)],
+    "ytmusic": [("ytmusic", youtube_music.run), ("daily", song_daily.run)],
+    "youtube_sync": [("youtube", sync_youtube.run), ("daily", song_daily.run)],
+    "songs": [("songs", songs.run), ("daily", song_daily.run)],
     "spotify_discovery": [("spotify", discover_spotify.run)],
 }
 SEVERITY = ["ok", "partial", "quota_exceeded", "cancelled", "failed"]

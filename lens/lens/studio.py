@@ -23,7 +23,7 @@ from pathlib import Path
 
 import threading
 
-from . import ai, config, db, health, insights, jobs, merge, metadata, review, songs, spotify_charts
+from . import ai, config, db, health, insights, jobs, merge, metadata, review, song_daily, songs, spotify_charts
 from .discover_spotify import EXPORT_SQL
 from .spotify import Spotify, SpotifyError
 
@@ -216,6 +216,76 @@ def api_platform(conn, qs):
     else:
         raise ValueError("unknown platform")
     return out
+
+
+# Daily data page: song_daily rows, by day (all songs) or by song (all days), with the change from the previous day.
+DAILY_COLS = [("yt_views", "YouTube views"), ("yt_likes", "YouTube likes"), ("yt_comments", "YouTube comments"),
+              ("ytm_plays", "YouTube Music plays"), ("sp_plays", "Spotify plays"), ("dz_rank", "Deezer rank"), ("chart_rank", "Spotify India chart")]
+
+
+GAIN = {"yt_views", "yt_likes", "yt_comments", "ytm_plays", "sp_plays"}
+
+
+def daily_change(r, k):
+    """Change since the previous day: the stored gain for counts, the difference for ranks."""
+    if k in GAIN:
+        return r.get(k + "_gain")
+    return (r[k] - r["prev_" + k]) if r.get(k) is not None and r.get("prev_" + k) is not None else None
+
+
+def daily_rows(conn, qs):
+    conn.executescript(song_daily.SCHEMA)
+    days = [r[0] for r in conn.execute("SELECT DISTINCT day FROM song_daily ORDER BY 1")]
+    cols = ", ".join(f"d.{k}, p.{k} prev_{k}" for k, _ in DAILY_COLS) + ", " + ", ".join(f"d.{k}_gain" for k in sorted(GAIN))
+    if qs.get("song"):  # one song, every day
+        rows = q(conn, f"""SELECT d.day, {cols}, d.yt_uploads_read FROM song_daily d
+                           LEFT JOIN song_daily p ON p.song_id=d.song_id AND p.day=(SELECT max(day) FROM song_daily x WHERE x.song_id=d.song_id AND x.day < d.day)
+                           WHERE d.song_id=? ORDER BY d.day DESC""", (int(qs["song"]),))
+        t = q(conn, "SELECT id, title FROM track WHERE id=?", (int(qs["song"]),))
+        return {"mode": "song", "song": t[0] if t else None, "days": days, "rows": rows}
+    day = qs.get("day") or (days[-1] if days else None)
+    prev = max((d for d in days if day and d < day), default=None)
+    rows = tag_labels(q(conn, f"""SELECT d.song_id id, t.title, substr(t.first_published,1,10) song_date, d.yt_uploads_read, {cols},
+                                    (SELECT channel FROM platform_item x WHERE x.track_id=t.id AND x.platform='youtube' ORDER BY published_at LIMIT 1) yt_channel
+                                  FROM song_daily d JOIN track t ON t.id=d.song_id
+                                  LEFT JOIN song_daily p ON p.song_id=d.song_id AND p.day=?
+                                  WHERE d.day=?""", (prev, day)))
+    lab, txt = qs.get("label") or "", (qs.get("q") or "").lower()
+    rows = [r for r in rows if (not lab or r["music_label"] == lab) and (not txt or txt in (r["title"] or "").lower())]
+    sort = qs.get("sort") or "yt_views"
+    key = (lambda r: daily_change(r, sort[:-6]) if daily_change(r, sort[:-6]) is not None else float("-inf")) \
+        if sort.endswith("_delta") else (lambda r: r.get(sort) if r.get(sort) is not None else float("-inf"))
+    rows.sort(key=key, reverse=True)
+    return {"mode": "day", "day": day, "prev": prev, "days": days, "rows": rows}
+
+
+def api_daily(conn, qs):
+    d = daily_rows(conn, qs)
+    d["cols"] = [{"key": k, "label": l} for k, l in DAILY_COLS]
+    if d["mode"] == "day":
+        d["total"] = len(d["rows"])
+        off, lim = int(qs.get("offset") or 0), int(qs.get("limit") or 100)
+        d["rows"] = d["rows"][off:off + lim]
+    return d
+
+
+def daily_csv(conn, qs):
+    d = daily_rows(conn, qs)
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    metrics = [k for k, _ in DAILY_COLS]
+    if d["mode"] == "song":
+        w.writerow(["day"] + [x for k in metrics for x in (k, k + "_change")] + ["yt_uploads_read"])
+        for r in d["rows"]:
+            w.writerow([r["day"]] + [x for k in metrics for x in (r[k], daily_change(r, k))] + [r["yt_uploads_read"]])
+        name = f"market_lens_song_{qs['song']}_daily.csv"
+    else:
+        w.writerow(["song_id", "song", "label", "channel", "first_upload", "day"] + [x for k in metrics for x in (k, k + "_change")] + ["yt_uploads_read"])
+        for r in d["rows"]:
+            w.writerow([r["id"], r["title"], r["music_label"], r["yt_channel"], r["song_date"], d["day"]] +
+                       [x for k in metrics for x in (r[k], daily_change(r, k))] + [r["yt_uploads_read"]])
+        name = f"market_lens_daily_{d['day']}.csv"
+    return buf.getvalue(), name
 
 
 # Day-by-day report: each song's value on two dates and the change, per platform metric.
@@ -1186,7 +1256,7 @@ def api_youtube_status(conn, _):
 GET = {"/api/coverage": api_coverage, "/api/insights": api_insights, "/api/insights/song": api_insights_song, "/api/ai/status": api_ai_status, "/api/ai/assist": api_ai_assist,
        "/api/meta/top": api_meta_top, "/api/meta/detail": api_meta_detail,
        "/api/merge/suggestions": api_merge_suggestions, "/api/status": api_status, "/api/overview": api_overview, "/api/tracks": api_tracks,
-       "/api/track": api_track, "/api/platform": api_platform, "/api/report": api_report, "/api/runs": api_runs, "/api/seeds": api_seeds,
+       "/api/track": api_track, "/api/platform": api_platform, "/api/report": api_report, "/api/daily": api_daily, "/api/runs": api_runs, "/api/seeds": api_seeds,
        "/api/artist_search": api_artist_search, "/api/health": api_health, "/api/outputs": api_outputs,
        "/api/outputs/preview": api_output_preview, "/api/raw": api_raw, "/api/raw/item": api_raw_item,
        "/api/matching": api_matching, "/api/matching/candidates": api_match_candidates,
@@ -1276,6 +1346,11 @@ class Handler(BaseHTTPRequestHandler):
             songs.write_csv(rows, buf)
             return self._send(200, buf.getvalue().encode("utf-8-sig"), "text/csv; charset=utf-8",
                               {"Content-Disposition": f'attachment; filename="market_lens_songs_{date.today()}.csv"'})
+        if url.path == "/api/daily.csv":
+            conn = db.connect(str(config.DB_FILE))
+            text, name = daily_csv(conn, qs)
+            conn.close()
+            return self._send(200, text.encode("utf-8-sig"), "text/csv; charset=utf-8", {"Content-Disposition": f'attachment; filename="{name}"'})
         if url.path == "/api/report.csv":
             conn = db.connect(str(config.DB_FILE))
             text, frm, to = report_csv(conn, qs)

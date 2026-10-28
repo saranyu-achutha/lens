@@ -28,14 +28,14 @@ function toast(msg, bad = false) {
 let STATUS = null;
 
 /* ---------- Router ---------- */
-const PAGES = ["overview", "platforms", "reports", "catalogue", "explore", "insights", "review", "runs", "outputs", "sources", "settings"];
+const PAGES = ["overview", "platforms", "reports", "daily", "catalogue", "explore", "insights", "review", "runs", "outputs", "sources", "settings"];
 const hashParams = () => new URLSearchParams(location.hash.split("?")[1] || "");
 function route() {
   const page = (location.hash.slice(1).split("?")[0]) || "overview";
   const p = PAGES.includes(page) ? page : "overview";
   document.querySelectorAll("section.page").forEach((s) => s.classList.toggle("active", s.id === `page-${p}`));
   document.querySelectorAll("a.nav").forEach((a) => a.classList.toggle("active", a.getAttribute("href") === `#${p}`));
-  ({ overview: loadOverview, platforms: loadPlatform, reports: loadReport, catalogue: loadCatalogue, explore: loadExplore, insights: loadInsights, review: loadReview, runs: loadRuns, outputs: loadOutputs, sources: loadSources, settings: loadSettings })[p]();
+  ({ overview: loadOverview, platforms: loadPlatform, reports: loadReport, daily: loadDaily, catalogue: loadCatalogue, explore: loadExplore, insights: loadInsights, review: loadReview, runs: loadRuns, outputs: loadOutputs, sources: loadSources, settings: loadSettings })[p]();
   const track = new URLSearchParams(location.hash.split("?")[1] || "").get("track");
   if (track) openTrack(track);
   const meta = new URLSearchParams(location.hash.split("?")[1] || "").get("meta");  // e.g. #explore?meta=singer:arijit singh
@@ -294,6 +294,48 @@ $("#rp-q").addEventListener("input", (e) => { clearTimeout(rpTimer); rpTimer = s
 $("#rp-prev").onclick = () => { RP.offset = Math.max(0, RP.offset - RP.limit); loadReport(); };
 $("#rp-next").onclick = () => { RP.offset += RP.limit; loadReport(); };
 $("#rp-table").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-id]"); if (tr) openTrack(tr.dataset.id); });
+
+/* ---------- Daily data: song_daily by day (all songs) or by song (all days) ---------- */
+const DD = { day: "", label: "", sort: "yt_views_delta", q: "", song: "", offset: 0, limit: 100 };
+const GAIN_KEYS = ["yt_views", "yt_likes", "yt_comments", "ytm_plays", "sp_plays"];
+const ddChange = (r, k) => GAIN_KEYS.includes(k) ? r[k + "_gain"] : (r[k] != null && r["prev_" + k] != null ? r[k] - r["prev_" + k] : null);
+async function loadDaily() {
+  const song = DD.song;
+  const d = await api(`/api/daily?${new URLSearchParams(song ? { song } : { day: DD.day, label: DD.label, sort: DD.sort, q: DD.q, offset: DD.offset, limit: DD.limit })}`);
+  document.querySelectorAll("#dd-controls .dd-day").forEach((e) => (e.style.display = song ? "none" : ""));
+  $("#dd-back").style.display = $("#dd-song").style.display = song ? "" : "none";
+  $("#dd-pager").style.display = song ? "none" : "";
+  const sign = (v) => v == null ? '<span class="muted">–</span>' : (v > 0 ? "+" : "") + (Math.abs(v) >= 1e5 ? compact(v) : fmt(v));
+  const val = (v) => v == null ? '<span class="muted">–</span>' : (Math.abs(v) >= 1e5 ? compact(v) : fmt(v));
+  const head = d.cols.map((c) => `<th class="num">${esc(c.label)}</th><th class="num">Change</th>`).join("");
+  const cells = (r) => d.cols.map((c) => `<td class="num">${val(r[c.key])}</td><td class="num ${(ddChange(r, c.key) || 0) > 0 ? "delta-up" : ""}">${sign(ddChange(r, c.key))}</td>`).join("");
+  if (song) {
+    $("#dd-song").textContent = d.song ? d.song.title : "Song";
+    $("#dd-csv").href = `/api/daily.csv?song=${song}`;
+    $("#dd-table").innerHTML = `<thead><tr><th>Day</th><th class="num">Uploads read</th>${head}</tr></thead><tbody>` +
+      (d.rows.map((r) => `<tr><td>${esc(r.day)}</td><td class="num">${fmt(r.yt_uploads_read)}</td>${cells(r)}</tr>`).join("") || `<tr><td class="empty" colspan="${2 + d.cols.length * 2}">No daily data for this song yet.</td></tr>`) + "</tbody>";
+    return;
+  }
+  DD.day = d.day || "";
+  $("#dd-day").innerHTML = d.days.slice().reverse().map((x) => `<option ${x === d.day ? "selected" : ""}>${x}</option>`).join("");
+  if ($("#dd-label").options.length === 1 && STATUS) (STATUS.config.youtube.labels || []).forEach((l) => $("#dd-label").insertAdjacentHTML("beforeend", `<option>${esc(l.name)}</option>`));
+  $("#dd-sort").innerHTML = d.cols.flatMap((c) => [[c.key + "_delta", c.label + " change"], [c.key, c.label]])
+    .map(([k, l]) => `<option value="${k}" ${DD.sort === k ? "selected" : ""}>${esc(l)}</option>`).join("");
+  $("#dd-csv").href = `/api/daily.csv?${new URLSearchParams({ day: DD.day, label: DD.label, sort: DD.sort, q: DD.q })}`;
+  $("#dd-sub").textContent = `Totals for ${d.day || "–"}${d.prev ? `; change compared with ${d.prev}` : ""}. Stored indefinitely; click a song for its full day-by-day history.`;
+  $("#dd-table").innerHTML = `<thead><tr><th>Song</th><th>Label</th><th class="num">Uploads read</th>${head}</tr></thead><tbody>` +
+    (d.rows.map((r) => `<tr class="click" data-song="${r.id}"><td><div class="t1">${esc(r.title)}</div><div class="t2">${esc(r.yt_channel || "")} · ${esc(r.song_date || "")}</div></td>
+      <td>${esc(r.music_label || "")}</td><td class="num">${fmt(r.yt_uploads_read)}</td>${cells(r)}</tr>`).join("") || `<tr><td class="empty" colspan="${3 + d.cols.length * 2}">No data for this day.</td></tr>`) + "</tbody>";
+  $("#dd-count").textContent = d.total ? `${fmt(DD.offset + 1)}–${fmt(Math.min(DD.offset + DD.limit, d.total))} of ${fmt(d.total)}` : "0";
+  $("#dd-prev").disabled = DD.offset === 0; $("#dd-next").disabled = DD.offset + DD.limit >= d.total;
+}
+["day", "label", "sort"].forEach((k) => ($(`#dd-${k}`).onchange = (e) => { DD[k] = e.target.value; DD.offset = 0; loadDaily(); }));
+let ddTimer;
+$("#dd-q").addEventListener("input", (e) => { clearTimeout(ddTimer); ddTimer = setTimeout(() => { DD.q = e.target.value; DD.offset = 0; loadDaily(); }, 300); });
+$("#dd-prev").onclick = () => { DD.offset = Math.max(0, DD.offset - DD.limit); loadDaily(); };
+$("#dd-next").onclick = () => { DD.offset += DD.limit; loadDaily(); };
+$("#dd-back").onclick = () => { DD.song = ""; loadDaily(); };
+$("#dd-table").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-song]"); if (tr) { DD.song = tr.dataset.song; loadDaily(); } });
 
 /* ---------- Player ---------- */
 // Embedded players: YouTube plays the full video; Spotify plays the full track when the viewer is
