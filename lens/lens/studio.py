@@ -218,6 +218,94 @@ def api_platform(conn, qs):
     return out
 
 
+# Day-by-day report: each song's value on two dates and the change, per platform metric.
+REPORT_METRICS = [  # key, label, platform, stored metric, how a song's items combine
+    ("yt_views", "YouTube views", "youtube", "views", "sum"), ("yt_likes", "YouTube likes", "youtube", "likes", "sum"),
+    ("yt_comments", "YouTube comments", "youtube", "comments", "sum"), ("ytm_plays", "YouTube Music plays", "ytmusic", "plays", "sum"),
+    ("sp_plays", "Spotify plays", "spotify", "plays", "sum"), ("dz_rank", "Deezer rank", "deezer", "rank", "max")]
+
+
+def report_data(conn, qs):
+    since, until = config.window(config.load())
+    days = [r["d"] for r in q(conn, "SELECT DISTINCT capture_date d FROM snapshot ORDER BY 1")]
+    if not days:
+        return {"days": [], "rows": [], "totals": {}, "metrics": [], "capture": []}
+    to = qs.get("to") or days[-1]
+    frm = qs.get("from") or (days[-2] if len(days) > 1 else days[-1])
+    W = f"SELECT * FROM ({TRACKS_SQL}) WHERE song_date >= ? AND song_date <= ?"
+    songs = {r["id"]: r for r in tag_labels(q(conn, f"SELECT id, title, yt_channel, song_date FROM ({W})", tracks_args() + [since, until]))}
+    items = q(conn, """SELECT id, track_id, platform FROM platform_item WHERE track_id IS NOT NULL
+                       AND ((platform='youtube' AND review_state IN ('auto','approved','song')) OR (platform='spotify' AND review_state IN ('auto','approved'))
+                            OR platform IN ('ytmusic','deezer'))""")
+    items = [i for i in items if i["track_id"] in songs]
+    ids = {i["id"]: i for i in items}
+
+    def at(day):  # every item's reading taken ON `day` (an older reading would hide a gap and inflate the change)
+        out = {}
+        for r in conn.execute("SELECT platform_item_id, metric, value FROM snapshot WHERE capture_date = ?", (day,)):
+            if r[0] in ids:
+                out[(r[0], r[1])] = r[2]
+        return out
+
+    A, B = at(frm), at(to)
+    per = {}
+    for (iid, metric) in set(A) | set(B):
+        it = ids[iid]
+        for key, _l, plat, m, how in REPORT_METRICS:
+            if plat == it["platform"] and m == metric:
+                row = per.setdefault(it["track_id"], {})
+                a, b = A.get((iid, metric)), B.get((iid, metric))
+                # Only uploads read on both dates count, so from + change = to (a new upload's first reading is not growth).
+                if a is None or b is None:
+                    continue
+                for side, v in (("from", a), ("to", b), ("delta", b - a)):
+                    k = f"{key}_{side}"
+                    row[k] = (row.get(k) or 0) + v if how == "sum" else (max(row.get(k) or 0, v) if side != "delta" else v)
+    rows = []
+    for tid, v in per.items():
+        sng = songs[tid]
+        r = {"id": tid, "title": sng["title"], "label": sng["music_label"], "channel": sng["yt_channel"], "song_date": sng["song_date"]}
+        for key, *_ in REPORT_METRICS:
+            for side in ("from", "to", "delta"):
+                r[f"{key}_{side}"] = v.get(f"{key}_{side}")
+        rows.append(r)
+    lab, txt = qs.get("label") or "", (qs.get("q") or "").lower()
+    rows = [r for r in rows if (not lab or r["label"] == lab) and (not txt or txt in (r["title"] or "").lower())]
+    sort = qs.get("sort") or "yt_views_delta"
+    rows.sort(key=lambda r: (r.get(sort) is None, -(r.get(sort) or 0)))
+    totals = {f"{k}_{side}": sum(r[f"{k}_{side}"] or 0 for r in rows) for k, *_ in REPORT_METRICS if k != "dz_rank" for side in ("from", "to", "delta")}
+    # Capture check: share of a platform's items with a reading on the `to` date.
+    capture = []
+    for plat, metric in (("youtube", "views"), ("ytmusic", "plays"), ("spotify", "plays"), ("deezer", "rank")):
+        want = [i for i in items if i["platform"] == plat]
+        got = conn.execute(f"""SELECT count(DISTINCT platform_item_id) FROM snapshot WHERE capture_date=? AND metric=?
+                               AND platform_item_id IN ({",".join(str(i["id"]) for i in want) or "0"})""", (to, metric)).fetchone()[0]
+        capture.append({"platform": plat, "items": len(want), "read": got})
+    return {"from": frm, "to": to, "days": days, "sort": sort, "total": len(rows), "totals": totals, "capture": capture,
+            "metrics": [{"key": k, "label": l} for k, l, *_ in REPORT_METRICS], "rows": rows}
+
+
+def api_report(conn, qs):
+    d = report_data(conn, qs)
+    off, lim = int(qs.get("offset") or 0), int(qs.get("limit") or 100)
+    d["rows"] = d["rows"][off:off + lim]
+    return d
+
+
+def report_csv(conn, qs):
+    d = report_data(conn, qs)
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    head = ["song_id", "song", "label", "channel", "first_upload"]
+    for m in d["metrics"]:
+        head += [f"{m['label']} {d['from']}", f"{m['label']} {d['to']}", f"{m['label']} change"]
+    w.writerow(head)
+    for r in d["rows"]:
+        w.writerow([r["id"], r["title"], r["label"], r["channel"], r["song_date"]] +
+                   [r[f"{m['key']}_{s}"] for m in d["metrics"] for s in ("from", "to", "delta")])
+    return buf.getvalue(), d["from"], d["to"]
+
+
 # Per-track rollups of the latest (and previous-day) readings of linked videos, plus Deezer rank.
 YT_CTE = """
 yt_item AS (
@@ -1098,7 +1186,7 @@ def api_youtube_status(conn, _):
 GET = {"/api/coverage": api_coverage, "/api/insights": api_insights, "/api/insights/song": api_insights_song, "/api/ai/status": api_ai_status, "/api/ai/assist": api_ai_assist,
        "/api/meta/top": api_meta_top, "/api/meta/detail": api_meta_detail,
        "/api/merge/suggestions": api_merge_suggestions, "/api/status": api_status, "/api/overview": api_overview, "/api/tracks": api_tracks,
-       "/api/track": api_track, "/api/platform": api_platform, "/api/runs": api_runs, "/api/seeds": api_seeds,
+       "/api/track": api_track, "/api/platform": api_platform, "/api/report": api_report, "/api/runs": api_runs, "/api/seeds": api_seeds,
        "/api/artist_search": api_artist_search, "/api/health": api_health, "/api/outputs": api_outputs,
        "/api/outputs/preview": api_output_preview, "/api/raw": api_raw, "/api/raw/item": api_raw_item,
        "/api/matching": api_matching, "/api/matching/candidates": api_match_candidates,
@@ -1188,6 +1276,12 @@ class Handler(BaseHTTPRequestHandler):
             songs.write_csv(rows, buf)
             return self._send(200, buf.getvalue().encode("utf-8-sig"), "text/csv; charset=utf-8",
                               {"Content-Disposition": f'attachment; filename="market_lens_songs_{date.today()}.csv"'})
+        if url.path == "/api/report.csv":
+            conn = db.connect(str(config.DB_FILE))
+            text, frm, to = report_csv(conn, qs)
+            conn.close()
+            return self._send(200, text.encode("utf-8-sig"), "text/csv; charset=utf-8",
+                              {"Content-Disposition": f'attachment; filename="market_lens_report_{frm}_to_{to}.csv"'})
         if url.path == "/api/outputs/download":
             try:
                 f = _output_path(qs.get("name"))

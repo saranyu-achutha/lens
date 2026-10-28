@@ -11,6 +11,7 @@
   <div class="brand"><div class="logo"></div><div><b>Market Lens</b><small><span class="brand-tag">CONSOLE</span></small></div></div>
   <a class="nav" href="#overview"><svg viewBox="0 0 24 24"><path d="M4 13h6V4H4zM14 20h6v-9h-6zM4 20h6v-4H4zM14 4v4h6V4z"/></svg>Overview</a>
   <a class="nav" href="#platforms"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 15v3M11 11v7M15 7v11M19 13v5"/></svg>Platforms</a>
+  <a class="nav" href="#reports"><svg viewBox="0 0 24 24"><path d="M4 4h16v16H4z"/><path d="M8 15l3-3 2 2 4-5"/></svg>Reports</a>
   <a class="nav" href="#catalogue"><svg viewBox="0 0 24 24"><circle cx="7" cy="17" r="3"/><path d="M10 17V5l10-2v12"/><circle cx="17" cy="15" r="3"/></svg>Songs</a>
   <a class="nav" href="#explore"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6M11 8v6"/></svg>Explore</a>
   <a class="nav" href="#insights"><svg viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>AI Insights</a>
@@ -184,6 +185,22 @@
       <div class="card"><div class="card-head"><h2 id="pf-chart-title"></h2></div><div class="chart" id="pf-chart"></div></div>
       <div class="card flush"><h2 id="pf-table-title"></h2><div class="table-wrap" style="max-height:340px"><table id="pf-table"></table></div></div>
     </div>
+  </section>
+
+  <!-- REPORTS -->
+  <section class="page" id="page-reports">
+    <div class="page-head"><div><h1>Reports</h1><p>Each song's readings on two days and the change between them. Only readings taken on those exact days are used, so a missed day shows as “–” instead of a wrong change.</p></div></div>
+    <div class="card" style="margin-bottom:16px"><div class="row" style="flex-wrap:wrap;gap:12px">
+      <label class="field" style="margin:0"><span>From</span><select id="rp-from"></select></label>
+      <label class="field" style="margin:0"><span>To</span><select id="rp-to"></select></label>
+      <label class="field" style="margin:0"><span>Label</span><select id="rp-label"><option value="">All labels</option></select></label>
+      <label class="field" style="margin:0"><span>Sort by</span><select id="rp-sort"></select></label>
+      <label class="field" style="margin:0;flex:1;min-width:180px"><span>Song</span><input id="rp-q" placeholder="Filter by song name…"></label>
+      <a class="btn" id="rp-csv" href="#" style="align-self:flex-end;background:var(--accent);border-color:var(--accent);color:#fff;padding:7px 14px;text-decoration:none">⬇ Download CSV</a>
+    </div></div>
+    <div class="grid g6" id="rp-kpis"></div>
+    <div class="card flush" style="margin-top:16px"><div class="table-wrap"><table id="rp-table"></table></div>
+      <div class="pager"><span id="rp-count"></span><span class="spacer"></span><button class="small" id="rp-prev">‹ Prev</button><button class="small" id="rp-next">Next ›</button></div></div>
   </section>
 
   <!-- OUTPUTS -->

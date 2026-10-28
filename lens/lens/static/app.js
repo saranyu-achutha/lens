@@ -28,14 +28,14 @@ function toast(msg, bad = false) {
 let STATUS = null;
 
 /* ---------- Router ---------- */
-const PAGES = ["overview", "platforms", "catalogue", "explore", "insights", "review", "runs", "outputs", "sources", "settings"];
+const PAGES = ["overview", "platforms", "reports", "catalogue", "explore", "insights", "review", "runs", "outputs", "sources", "settings"];
 const hashParams = () => new URLSearchParams(location.hash.split("?")[1] || "");
 function route() {
   const page = (location.hash.slice(1).split("?")[0]) || "overview";
   const p = PAGES.includes(page) ? page : "overview";
   document.querySelectorAll("section.page").forEach((s) => s.classList.toggle("active", s.id === `page-${p}`));
   document.querySelectorAll("a.nav").forEach((a) => a.classList.toggle("active", a.getAttribute("href") === `#${p}`));
-  ({ overview: loadOverview, platforms: loadPlatform, catalogue: loadCatalogue, explore: loadExplore, insights: loadInsights, review: loadReview, runs: loadRuns, outputs: loadOutputs, sources: loadSources, settings: loadSettings })[p]();
+  ({ overview: loadOverview, platforms: loadPlatform, reports: loadReport, catalogue: loadCatalogue, explore: loadExplore, insights: loadInsights, review: loadReview, runs: loadRuns, outputs: loadOutputs, sources: loadSources, settings: loadSettings })[p]();
   const track = new URLSearchParams(location.hash.split("?")[1] || "").get("track");
   if (track) openTrack(track);
   const meta = new URLSearchParams(location.hash.split("?")[1] || "").get("meta");  // e.g. #explore?meta=singer:arijit singh
@@ -260,6 +260,40 @@ async function loadPlatform() {
 }
 document.querySelectorAll("#pf-tabs .tab").forEach((b) => (b.onclick = () => { PF.p = b.dataset.pf; loadPlatform(); }));
 $("#pf-table").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-id]"); if (tr) openTrack(tr.dataset.id); });
+
+/* ---------- Reports: readings on two days and the change ---------- */
+const RP = { from: "", to: "", label: "", sort: "yt_views_delta", q: "", offset: 0, limit: 100 };
+const rpParams = (extra = {}) => new URLSearchParams({ from: RP.from, to: RP.to, label: RP.label, sort: RP.sort, q: RP.q, ...extra });
+async function loadReport() {
+  const d = await api(`/api/report?${rpParams({ offset: RP.offset, limit: RP.limit })}`);
+  RP.from = d.from || ""; RP.to = d.to || "";
+  const opts = (sel) => d.days.slice().reverse().map((x) => `<option ${x === sel ? "selected" : ""}>${x}</option>`).join("");
+  $("#rp-from").innerHTML = opts(d.from); $("#rp-to").innerHTML = opts(d.to);
+  if ($("#rp-label").options.length === 1 && STATUS) (STATUS.config.youtube.labels || []).forEach((l) => $("#rp-label").insertAdjacentHTML("beforeend", `<option>${esc(l.name)}</option>`));
+  $("#rp-sort").innerHTML = d.metrics.map((m) => `<option value="${m.key}_delta" ${RP.sort === m.key + "_delta" ? "selected" : ""}>${esc(m.label)} change</option>`).join("");
+  $("#rp-csv").href = `/api/report.csv?${rpParams()}`;
+  const sign = (v) => v == null ? "–" : (v > 0 ? "+" : "") + (Math.abs(v) >= 1e5 ? compact(v) : fmt(v));
+  const t = d.totals || {};
+  const cap = (p) => { const c = (d.capture || []).find((x) => x.platform === p); return c && c.items ? `${Math.round((100 * c.read) / c.items)}% read on ${d.to}` : "no items yet"; };
+  $("#rp-kpis").innerHTML = [["YouTube views", sign(t.yt_views_delta), cap("youtube")], ["YouTube likes", sign(t.yt_likes_delta), `comments ${sign(t.yt_comments_delta)}`],
+    ["YouTube Music plays", sign(t.ytm_plays_delta), cap("ytmusic")], ["Spotify plays", sign(t.sp_plays_delta), cap("spotify")],
+    ["Deezer", (d.capture || []).find((x) => x.platform === "deezer")?.read ? "rank" : "–", cap("deezer")],
+    ["Songs in report", fmt(d.total), `${d.from} → ${d.to}`]]
+    .map(([l, v, x]) => `<div class="card kpi"><div class="label">${esc(l)} ${l === "Songs in report" || l === "Deezer" ? "" : "change"}</div><div class="value">${esc(v)}</div><div class="sub">${esc(x)}</div></div>`).join("");
+  const cols = d.metrics;
+  $("#rp-table").innerHTML = `<thead><tr><th>Song</th><th>Label</th>${cols.map((m) => `<th class="num">${esc(m.label)}<br><span class="muted">${esc(d.to)}</span></th><th class="num">Change</th>`).join("")}</tr></thead><tbody>` +
+    (d.rows.map((r) => `<tr class="click" data-id="${r.id}"><td><div class="t1">${esc(r.title)}</div><div class="t2">${esc(r.channel || "")} · ${esc(r.song_date || "")}</div></td><td>${esc(r.label || "")}</td>` +
+      cols.map((m) => `<td class="num">${r[m.key + "_to"] == null ? '<span class="muted">–</span>' : compact(r[m.key + "_to"])}</td><td class="num ${(r[m.key + "_delta"] || 0) > 0 ? "delta-up" : ""}">${sign(r[m.key + "_delta"])}</td>`).join("") + "</tr>").join("")
+      || `<tr><td colspan="${2 + cols.length * 2}" class="empty">No songs with readings on both days.</td></tr>`) + "</tbody>";
+  $("#rp-count").textContent = d.total ? `${fmt(RP.offset + 1)}–${fmt(Math.min(RP.offset + RP.limit, d.total))} of ${fmt(d.total)}` : "0";
+  $("#rp-prev").disabled = RP.offset === 0; $("#rp-next").disabled = RP.offset + RP.limit >= d.total;
+}
+["from", "to", "label", "sort"].forEach((k) => ($(`#rp-${k}`).onchange = (e) => { RP[k] = e.target.value; RP.offset = 0; loadReport(); }));
+let rpTimer;
+$("#rp-q").addEventListener("input", (e) => { clearTimeout(rpTimer); rpTimer = setTimeout(() => { RP.q = e.target.value; RP.offset = 0; loadReport(); }, 300); });
+$("#rp-prev").onclick = () => { RP.offset = Math.max(0, RP.offset - RP.limit); loadReport(); };
+$("#rp-next").onclick = () => { RP.offset += RP.limit; loadReport(); };
+$("#rp-table").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-id]"); if (tr) openTrack(tr.dataset.id); });
 
 /* ---------- Player ---------- */
 // Embedded players: YouTube plays the full video; Spotify plays the full track when the viewer is
