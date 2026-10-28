@@ -112,6 +112,69 @@ def find_track(song, label, artists, lang=None):
                                              c["evidence"]["label"] + c["evidence"]["artist"], c["plays"]))
 
 
+# ---- Offload: another machine searches part of the backlog, the server imports the results.
+def export_todo(conn, cfg, limit=2000, smallest_first=True):
+    """Songs still to search, with what the search needs (the server's own runs go biggest first)."""
+    since, until = config.window(cfg)
+    labels = config.channel_labels(cfg)
+    rows = _todo(conn, since, until, date.today().isoformat(), 100000)
+    rows = list(reversed(rows)) if smallest_first else list(rows)
+    return [{"id": r["id"], "title": r["title"], "label": labels.get(r["channel"]), "artists": _artists(conn, r["id"]),
+             "lang": _song_lang(conn, r["id"])} for r in rows[:limit]]
+
+
+def search_list(songs, out_path, workers=2, deadline=None, log=print):
+    """Search each song (no database needed); results saved to out_path as they come: {song_id: hit or null}."""
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    from pathlib import Path
+    out = Path(out_path)
+    res = json.loads(out.read_text()) if out.exists() else {}
+    todo = [s for s in songs if str(s["id"]) not in res]
+    lock, done = threading.Lock(), [0]
+
+    def one(s):
+        if deadline and time.time() > deadline:
+            return
+        hit = find_track(s["title"], s["label"], s["artists"], s["lang"])
+        with lock:
+            res[str(s["id"])] = hit
+            done[0] += 1
+            if done[0] % 25 == 0:
+                out.write_text(json.dumps(res))
+                log(f"  {done[0]}/{len(todo)} searched ({sum(1 for v in res.values() if v)} found in file)")
+
+    with ThreadPoolExecutor(workers) as pool:
+        list(pool.map(one, todo))
+    out.write_text(json.dumps(res))
+    log(f"searched {done[0]} songs; file has {len(res)} results, {sum(1 for v in res.values() if v)} found")
+    return out
+
+
+def import_results(conn, path, log=print):
+    """Add found tracks (with the play count seen in the search as today's reading) and mark every searched song."""
+    conn.execute("PRAGMA busy_timeout = 120000")
+    res = json.loads(open(path).read())
+    today, ts = date.today().isoformat(), db.now_iso()
+    added = 0
+    for sid, hit in res.items():
+        conn.execute("INSERT OR REPLACE INTO state (key, value) VALUES (?,?)", (f"js_lookup:{sid}", today))
+        if not hit:
+            continue
+        cur = conn.execute("""INSERT INTO platform_item (platform, platform_id, title, url, published_at, track_id, review_state,
+                                  match_method, match_score, match_detail, first_seen_at)
+                              VALUES ('jiosaavn', ?, ?, ?, ?, ?, 'auto', 'search', ?, ?, ?) ON CONFLICT(platform, platform_id) DO NOTHING""",
+                           (hit["id"], hit["title"], hit["url"], hit.get("release_date"), int(sid), hit["evidence"]["title"], json.dumps(hit), ts))
+        added += cur.rowcount
+        item = conn.execute("SELECT id FROM platform_item WHERE platform='jiosaavn' AND platform_id=?", (hit["id"],)).fetchone()
+        if item and hit.get("plays"):
+            conn.execute("""INSERT INTO snapshot (platform_item_id, metric, value, capture_date, captured_at) VALUES (?, 'plays', ?, ?, ?)
+                            ON CONFLICT(platform_item_id, metric, capture_date) DO NOTHING""", (item[0], int(hit["plays"]), today, ts))
+    conn.commit()
+    log(f"imported {len(res)} searched songs: {added} new JioSaavn tracks")
+    return added
+
+
 def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, **_):
     since, until = config.window(cfg)
     today = date.today().isoformat()
