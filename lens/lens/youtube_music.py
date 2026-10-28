@@ -141,7 +141,7 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
     except YouTubeError as e:
         if not e.quota_exceeded:
             raise
-        status, stop_reason = "quota_exceeded", "YouTube quota exceeded during the YouTube Music search"
+        status, stop_reason = "partial", "all keys reached their daily search limit; the remaining songs are searched in later runs"
         log(f"⚠ {stop_reason}")
     conn.commit()
     if todo:
@@ -154,7 +154,7 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
              AND NOT EXISTS (SELECT 1 FROM snapshot s WHERE s.platform_item_id=p.id AND s.metric='plays' AND s.capture_date=?)""",
         (since, today))]
     read = 0
-    if due and status == "ok":
+    if due:  # play counts use videos.list, which the search limit does not affect
         for i in range(0, len(due), 50):
             for v in yt.videos(due[i:i + 50]):
                 st = v.get("statistics", {})

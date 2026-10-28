@@ -72,6 +72,11 @@ class YouTubeError(Exception):
         return self.reason in ("quotaExceeded", "dailyLimitExceeded")
 
     @property
+    def search_limit(self):
+        """A project's daily cap on search.list calls (~100 a day), separate from the 10,000 units."""
+        return self.reason == "rateLimitExceeded" and "Search Queries" in str(self)
+
+    @property
     def bad_key(self):
         """The key itself is unusable (invalid, expired, API not enabled, restricted)."""
         return self.reason in ("keyInvalid", "keyExpired", "accessNotConfigured", "ipRefererBlocked") \
@@ -90,10 +95,10 @@ class YouTube:
         self.units = 0
         self.units_by_key = {}  # key hint -> units used by this client
 
-    def _key(self):
+    def _key(self, endpoint=None):
         now = time.time()
         for k in self.keys:
-            if _SET_ASIDE.get(k, (0, ""))[0] <= now:
+            if _SET_ASIDE.get(k, (0, ""))[0] <= now and _SET_ASIDE.get((k, endpoint), (0, ""))[0] <= now:
                 return k
         body = json.dumps({"error": {"message": f"all {len(self.keys)} YouTube API keys are out of quota or unusable",
                                      "errors": [{"reason": "quotaExceeded"}]}})
@@ -101,10 +106,15 @@ class YouTube:
 
     def get(self, endpoint, **params):
         while True:
-            key = self._key()
+            key = self._key(endpoint)
             try:
                 return self._get(endpoint, key, params)
             except YouTubeError as e:
+                if e.search_limit:  # this key can't search any more today; it still serves other calls
+                    _SET_ASIDE[(key, endpoint)] = (next_reset(), "daily search limit")
+                    left = sum(1 for k in self.keys if _SET_ASIDE.get((k, endpoint), (0, ""))[0] <= time.time())
+                    self.log(f"⚠ YouTube key {key_hint(key)}: daily search limit reached; next key ({left} of {len(self.keys)} can still search)")
+                    continue
                 if not (e.quota_exceeded or e.bad_key):
                     raise
                 _SET_ASIDE[key] = (next_reset(), e.reason or "rejected")
