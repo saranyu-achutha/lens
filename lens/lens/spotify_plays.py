@@ -73,7 +73,7 @@ class _WS:
 
     def __init__(self, url):
         u = urllib.parse.urlparse(url)
-        self.sock = socket.create_connection((u.hostname, u.port), timeout=60)
+        self.sock = socket.create_connection((u.hostname, u.port), timeout=120)
         key = base64.b64encode(os.urandom(16)).decode()
         self.sock.sendall((f"GET {u.path} HTTP/1.1\r\nHost: {u.hostname}:{u.port}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
                            f"Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n").encode())
@@ -192,40 +192,64 @@ def collect(ids, workers=3, day=None, log=print, should_stop=lambda: False, fold
         ws.call("Network.setBlockedURLs", urls=BLOCK)
         return target["id"], ws
 
+    def close_tab(tab_id, ws):
+        try:
+            ws.sock.close()
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/json/close/{tab_id}", timeout=10)
+        except OSError:
+            pass
+
+    def read_one(ws, tid):
+        """Open one track page and wait for its play count (or for the page to show none: under 1,000 plays)."""
+        got = None
+        for attempt in range(2):
+            ws.call("Page.navigate", url="about:blank")
+            ws.call("Page.navigate", url=f"https://open.spotify.com/track/{tid}")
+            loaded_at = None
+            for tick in range(40 if attempt == 0 else 60):  # up to 20 s (30 s on the retry)
+                time.sleep(0.5)
+                r = ws.call("Runtime.evaluate", expression=READ_JS, returnByValue=True)
+                got = json.loads(r.get("result", {}).get("value") or "{}")
+                if not (got.get("path") or "").endswith(tid):  # still the previous page: its count is not this track's
+                    got = None
+                    continue
+                if got.get("plays"):
+                    break
+                if got.get("loaded"):
+                    loaded_at = loaded_at if loaded_at is not None else tick
+                    if tick - loaded_at >= 6:  # page shown 3 s with no count: under 1,000 plays
+                        break
+            if got and (got.get("plays") or got.get("loaded")):
+                break
+        return got
+
     def tab_worker(_):
         nonlocal done
         tab_id, ws = new_tab()
-        pages = 0
+        pages, fails_in_row = 0, 0
         while not stopping["sig"] and not should_stop():
             with lock:
                 if not queue:
                     break
                 tid = queue.pop(0)
             if pages and pages % TAB_PAGES == 0:  # recycle the tab
-                ws.sock.close()
-                urllib.request.urlopen(f"http://127.0.0.1:{port}/json/close/{tab_id}", timeout=10)
+                close_tab(tab_id, ws)
                 tab_id, ws = new_tab()
             pages += 1
             got = None
-            for attempt in range(2):
-                ws.call("Page.navigate", url="about:blank")
-                ws.call("Page.navigate", url=f"https://open.spotify.com/track/{tid}")
-                loaded_at = None
-                for tick in range(40 if attempt == 0 else 60):  # up to 20 s (30 s on the retry)
-                    time.sleep(0.5)
-                    r = ws.call("Runtime.evaluate", expression=READ_JS, returnByValue=True)
-                    got = json.loads(r.get("result", {}).get("value") or "{}")
-                    if not (got.get("path") or "").endswith(tid):  # still the previous page: its count is not this track's
-                        got = None
-                        continue
-                    if got.get("plays"):
-                        break
-                    if got.get("loaded"):
-                        loaded_at = loaded_at if loaded_at is not None else tick
-                        if tick - loaded_at >= 6:  # page shown 3 s with no count: under 1,000 plays
-                            break
-                if got and (got.get("plays") or got.get("loaded")):
-                    break
+            try:
+                got = read_one(ws, tid)
+                fails_in_row = 0
+            except (TimeoutError, ConnectionError, OSError, json.JSONDecodeError) as e:  # a slow or broken page: skip it, fresh tab
+                got = {"title": f"page error: {type(e).__name__}"}
+                fails_in_row += 1
+                close_tab(tab_id, ws)
+                if fails_in_row >= 10:  # something is really wrong (blocked, browser gone): stop, progress is kept
+                    log(f"  10 pages in a row failed ({type(e).__name__}); stopping this tab")
+                    with lock:
+                        queue.insert(0, tid)
+                    return
+                tab_id, ws = new_tab()
             with lock:
                 done += 1
                 digits = re.sub(r"\D", "", (got or {}).get("plays") or "")
@@ -242,7 +266,10 @@ def collect(ids, workers=3, day=None, log=print, should_stop=lambda: False, fold
                     path.write_text(json.dumps(res))
                     rate = done / max(time.time() - t0, 1)
                     log(f"  {done}/{len(todo)} read ({len(res['hidden'])} under 1,000, {len(res['missing'])} failed), ~{(len(todo) - done) / rate / 60:.0f} min left")
-        ws.call("Page.navigate", url="about:blank")
+        try:
+            ws.call("Page.navigate", url="about:blank")
+        except (TimeoutError, ConnectionError, OSError):
+            pass
 
     try:
         for _ in range(60):  # wait for Chrome's DevTools endpoint
