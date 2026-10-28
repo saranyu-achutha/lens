@@ -95,7 +95,7 @@ The code lives in `lens/` and runs on the server as `/home/ubuntu/lens`. This la
 - Rotate the keys that were pasted in chat.
 - Optional sources: Last.fm (needs a key), and JioSaavn (unofficial, needs a terms-of-service sign-off).
 - YouTube uses 21 keys since 2026-10-26 (comma-separated `YOUTUBE_API_KEY`, used in order; a key whose quota runs out is set aside until midnight Pacific time). Set on both the laptop and the server.
-  - **Quota is per Google Cloud project, not per key.** Checked 2026-10-28: 20 of the 21 keys are in one project (421586835201) and key 1 in another (887372396500), so the real daily capacity is about 20,000 units and about 200 searches (search.list costs 100 units and is capped at ~100 a day per project). More capacity needs keys from separate projects.
+  - **Quota is per Google Cloud project, not per key.** Checked 2026-10-28: 20 of the 21 keys are in one project (421586835201) and key 1 in another (887372396500). On 2026-10-28 ten more keys were added (31 in all) from two more projects (5 keys each, same Google account), so there are now about 4 projects: roughly 40,000 units and 400 searches a day (search.list costs 100 units and is capped at ~100 a day per project). More capacity needs keys from more projects; extra keys in one project add nothing.
   - The client sets a key aside for searches only when it hits the daily search cap (`rateLimitExceeded`, "Search Queries per day").
 
 ## Server-only actions
