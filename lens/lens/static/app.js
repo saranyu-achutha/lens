@@ -363,7 +363,8 @@ document.addEventListener("click", (e) => {
   play(b.dataset.play, b.dataset.pid, b.dataset.ptitle);
 }, true);
 const playBtns = (r) => `<td class="play-cell">${r.yt_video_id ? `<button class="pbtn yt" data-play="youtube" data-pid="${esc(r.yt_video_id)}" data-ptitle="${esc(r.title)}" title="Play on YouTube (${esc(r.yt_video_id)})">▶</button>` : `<span class="pbtn off">▶</span>`}${
-  r.spotify_id && ["auto", "approved"].includes(r.spotify_state) ? `<button class="pbtn sp" data-play="spotify" data-pid="${esc(r.spotify_id)}" data-ptitle="${esc(r.title)}" title="Play on Spotify (${esc(r.spotify_id)})">▶</button>` : `<span class="pbtn off" title="not on Spotify">▶</span>`}</td>`;
+  r.spotify_id && ["auto", "approved"].includes(r.spotify_state) ? `<button class="pbtn sp" data-play="spotify" data-pid="${esc(r.spotify_id)}" data-ptitle="${esc(r.title)}" title="Play on Spotify (${esc(r.spotify_id)})">▶</button>` : `<span class="pbtn off" title="not on Spotify">▶</span>`}${
+  r.js_url ? `<a class="pbtn js" href="${esc(r.js_url)}" target="_blank" rel="noopener" title="Open on JioSaavn${r.js_plays != null ? ` (${fmt(r.js_plays)} plays)` : ""}">J</a>` : `<span class="pbtn off" title="not found on JioSaavn yet">J</span>`}</td>`;
 
 /* ---------- Songs ---------- */
 const CAT = { q: "", status: "", label: "", language: "", category: "", meta: "", channel: "", day: "", since: "", until: "", sel: new Set(), sort: "song_date", order: "desc", offset: 0, limit: 50, total: 0 };
@@ -670,6 +671,7 @@ async function openTrack(id) {
         ? `<span class="mono">${esc(t.spotify_id)}</span> <button class="pbtn sp" data-play="spotify" data-pid="${esc(t.spotify_id)}" data-ptitle="${esc(t.title)}">▶</button> <a href="https://open.spotify.com/track/${esc(t.spotify_id)}" target="_blank" rel="noopener">open ↗</a>`
         : '<span class="muted">–</span>'}</dd>
       <dt>YouTube video id</dt><dd>${t.yt_video_id ? `<span class="mono">${esc(t.yt_video_id)}</span> <button class="pbtn yt" data-play="youtube" data-pid="${esc(t.yt_video_id)}" data-ptitle="${esc(t.title)}">▶</button> <a href="https://www.youtube.com/watch?v=${esc(t.yt_video_id)}" target="_blank" rel="noopener">open ↗</a> <span class="muted">(most viewed)</span>` : '<span class="muted">–</span>'}</dd>
+      <dt>JioSaavn</dt><dd>${t.js_url ? `${esc(t.js_title || t.title)}${t.js_plays != null ? ` · <b>${fmt(t.js_plays)}</b> plays` : ""} <a class="pbtn js" href="${esc(t.js_url)}" target="_blank" rel="noopener" title="Open on JioSaavn">J</a> <a href="${esc(t.js_url)}" target="_blank" rel="noopener">open ↗</a>` : '<span class="muted">not found yet</span>'}</dd>
       ${t.deezer_url ? `<dt>Deezer</dt><dd><a href="${esc(t.deezer_url)}" target="_blank" rel="noopener">open ↗</a></dd>` : ""}
       ${ch ? `<dt>Spotify India chart</dt><dd>best <b>#${ch.best_rank}</b> on ${esc(ch.best_date)} · ${fmt(ch.days)} ${ch.chart.endsWith("weekly") ? "weeks in the weekly" : "days in the daily"} Top 200 <span class="muted">(${esc(ch.first)} → ${esc(ch.last)})</span></dd>` : ""}
     </dl>

@@ -432,7 +432,11 @@ dz AS (
   SELECT p.track_id,
          (SELECT value FROM snapshot s WHERE s.platform_item_id=p.id AND metric='rank' ORDER BY capture_date DESC LIMIT 1) deezer_rank,
          p.url deezer_url
-  FROM platform_item p WHERE p.platform='deezer' AND p.track_id IS NOT NULL GROUP BY p.track_id)
+  FROM platform_item p WHERE p.platform='deezer' AND p.track_id IS NOT NULL GROUP BY p.track_id),
+js AS (
+  SELECT p.track_id, p.url js_url, p.title js_title,
+         (SELECT value FROM snapshot s WHERE s.platform_item_id=p.id AND metric='plays' ORDER BY capture_date DESC LIMIT 1) js_plays
+  FROM platform_item p WHERE p.platform='jiosaavn' AND p.track_id IS NOT NULL GROUP BY p.track_id)
 """
 
 TRACKS_SQL = """
@@ -447,7 +451,7 @@ SELECT * FROM (
          (SELECT group_concat(name, ', ') FROM (SELECT a.name FROM track_artist ta JOIN artist a ON a.id=ta.artist_id
           WHERE ta.track_id=t.id ORDER BY ta.position)) artists,
          coalesce(yt.yt_videos, 0) yt_videos, coalesce(yt.yt_pending, 0) yt_pending, yt.yt_views, yt.yt_delta,
-         yt.yt_likes, yt.yt_comments, yt.yt_channel, dz.deezer_rank, dz.deezer_url,
+         yt.yt_likes, yt.yt_comments, yt.yt_channel, dz.deezer_rank, dz.deezer_url, js.js_url, js.js_title, js.js_plays,
          yt.yt_views_video, yt.yt_n_video,
          yt.yt_views_lyric, yt.yt_n_lyric,
          yt.yt_views_audio, yt.yt_n_audio,
@@ -467,6 +471,7 @@ SELECT * FROM (
   LEFT JOIN release r ON r.id=t.release_id
   LEFT JOIN yt ON yt.track_id=t.id
   LEFT JOIN dz ON dz.track_id=t.id
+  LEFT JOIN js ON js.track_id=t.id
 ) r
 """
 
