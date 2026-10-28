@@ -120,6 +120,12 @@ DEFAULTS = {
         # Start discovery automatically when access comes back (if no successful run today).
         "auto_run_on_recovery": True,
     },
+    # Keep the machine working between scheduled pipelines: Spotify plays, JioSaavn, song lookups, YouTube Music,
+    # each only while it has work and within its source's limits (lens/jobs.py start_worker).
+    "worker": {
+        "enabled": True,
+        "pause_seconds": 60,  # breather between jobs so the Console stays responsive
+    },
 }
 
 

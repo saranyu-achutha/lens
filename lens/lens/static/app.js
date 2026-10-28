@@ -1047,6 +1047,7 @@ async function loadSettings() {
   $("#set-budget").value = d.max_calls_per_run; $("#set-isrc").value = d.isrc_lookups_per_run;
   $("#set-sched").checked = s.enabled; $("#set-time").value = s.time;
   const y = STATUS.config.youtube;
+  $("#set-worker-on").checked = (STATUS.config.worker || {}).enabled !== false;
   $("#set-yt-on").checked = y.enabled; $("#set-yt-every").value = y.every_hours; $("#set-yt-fresh").value = y.fresh_days; $("#set-yt-back").value = y.lookback_days;
   renderLabels(y);
   renderMergeRules(STATUS.config.merge);
@@ -1062,6 +1063,7 @@ $("#set-save").onclick = async () => {
         use_track_search: $("#set-track").checked, use_artist_seeds: $("#set-seeds").checked, store_raw: $("#set-raw").checked, refresh_existing: $("#set-refresh").checked,
         max_calls_per_run: +$("#set-budget").value || 900, isrc_lookups_per_run: +$("#set-isrc").value || 0 },
       schedule: { enabled: $("#set-sched").checked, time: $("#set-time").value || "06:00" },
+      worker: { enabled: $("#set-worker-on").checked },
       youtube: { enabled: $("#set-yt-on").checked, every_hours: +$("#set-yt-every").value || 6, fresh_days: +$("#set-yt-fresh").value || 0,
         lookback_days: +$("#set-yt-back").value || 0 },
       health: { recheck_minutes: +$("#set-recheck").value || 15, auto_run_on_recovery: $("#set-autorun").checked },

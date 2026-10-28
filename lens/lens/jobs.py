@@ -5,7 +5,7 @@ import time
 import traceback
 from datetime import datetime, timedelta
 
-from . import config, db, discover_spotify, health, jiosaavn, song_daily, songs, sync_youtube, youtube_music
+from . import config, db, discover_spotify, health, jiosaavn, song_daily, songs, spotify_plays, sync_youtube, youtube_music
 from .spotify import SpotifyError
 from .youtube import YouTubeError
 
@@ -16,10 +16,12 @@ JOBS = {
     "spotify_discovery": "Spotify label crawl (heavy on Spotify quota, manual only)",
     "ytmusic": "YouTube Music only (find songs' audio tracks, read their plays)",
     "jiosaavn": "JioSaavn only (find songs' tracks, read their plays)",
+    "spotify_plays": "Spotify play counts (public track pages, light headless browser)",
 }
 STEPS = {
     "pipeline": [("youtube", sync_youtube.run), ("songs", songs.run), ("ytmusic", youtube_music.run), ("jiosaavn", jiosaavn.run), ("daily", song_daily.run)],
     "jiosaavn": [("jiosaavn", jiosaavn.run), ("daily", song_daily.run)],
+    "spotify_plays": [("spotify_plays", spotify_plays.run), ("daily", song_daily.run)],
     "ytmusic": [("ytmusic", youtube_music.run), ("daily", song_daily.run)],
     "youtube_sync": [("youtube", sync_youtube.run), ("daily", song_daily.run)],
     "songs": [("songs", songs.run), ("daily", song_daily.run)],
@@ -115,6 +117,7 @@ class JobManager:
         conn.close()
         with self.lock:
             j["status"] = status
+            j["ended_at"] = time.time()
             self.last, self.current = j, None
 
 
@@ -178,6 +181,100 @@ def start_scheduler(manager):
                     manager.start("pipeline", trigger="schedule")
                 except RuntimeError:
                     pass
+            time.sleep(30)
+    threading.Thread(target=loop, daemon=True).start()
+
+
+# ---- Keep the server busy: between scheduled pipelines, run whatever useful work is due, within each source's limits.
+def _count(sql, args=()):
+    conn = db.connect(str(config.DB_FILE))
+    try:
+        return conn.execute(sql, args).fetchone()[0] or 0
+    finally:
+        conn.close()
+
+
+def _due_work(cfg, tried):
+    """The next job worth running now, or None. `tried` holds when each job was last started by this loop."""
+    since, until = config.window(cfg)
+    today = datetime.now().date().isoformat()
+    now = time.time()
+    ago = lambda job: now - tried.get(job, 0)
+    in_window = "t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?"
+    # 1. Spotify play counts: once a day for tracks without today's count (needs a browser on this machine).
+    if ago("spotify_plays") > 2 * 3600:
+        try:
+            spotify_plays.find_chrome()
+            conn = db.connect(str(config.DB_FILE))
+            n = len(spotify_plays.due_ids(conn))
+            conn.close()
+            if n:
+                return "spotify_plays", f"{n} Spotify tracks without today's play count"
+        except SystemExit:
+            pass
+    # 2. JioSaavn: songs never searched (or due a retry) and tracks without today's plays.
+    if ago("jiosaavn") > 600:
+        recheck = (datetime.now().date() - timedelta(days=7)).isoformat()
+        todo = _count(f"""SELECT count(*) FROM track t WHERE {in_window}
+                          AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='jiosaavn')
+                          AND coalesce((SELECT value FROM state WHERE key='js_lookup:' || t.id), '') < ?""", (since, until, recheck))
+        unread = _count("""SELECT count(*) FROM platform_item p WHERE p.platform='jiosaavn' AND p.track_id IS NOT NULL
+                           AND NOT EXISTS (SELECT 1 FROM snapshot s WHERE s.platform_item_id=p.id AND s.metric='plays' AND s.capture_date=?)""", (today,))
+        if todo or unread:
+            return "jiosaavn", f"{todo} songs to search, {unread} tracks to read"
+    # 3. Songs: Spotify / iTunes / MusicBrainz lookups still pending, or Deezer not read today (at most hourly).
+    if ago("songs") > 3600 and hours_since("songs") >= 1:
+        pending = _count(f"""SELECT count(*) FROM track t WHERE {in_window} AND (t.release_status IS NULL OR t.release_status='unchecked')""", (since, until))
+        dz = _count("""SELECT count(*) FROM platform_item p WHERE p.platform='deezer' AND p.track_id IS NOT NULL
+                       AND NOT EXISTS (SELECT 1 FROM snapshot s WHERE s.platform_item_id=p.id AND s.capture_date=?)""", (today,))
+        if pending or dz:
+            return "songs", f"{pending} songs awaiting lookups, {dz} Deezer ranks to read"
+    # 4. YouTube Music: songs not yet searched, while today's search quota lasts (one try an hour).
+    if ago("ytmusic") > 3600:
+        from .youtube import _SET_ASIDE, parse_keys
+        keys = parse_keys(config.read_secrets().get("YOUTUBE_API_KEY"))
+        can_search = any(_SET_ASIDE.get((k, "search"), (0, ""))[0] <= now and _SET_ASIDE.get(k, (0, ""))[0] <= now for k in keys)
+        todo = _count(f"""SELECT count(*) FROM track t WHERE {in_window}
+                          AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='ytmusic')
+                          AND coalesce((SELECT value FROM state WHERE key='ytm_lookup:' || t.id), '') < ?""",
+                      (since, until, (datetime.now().date() - timedelta(days=7)).isoformat()))
+        if can_search and todo:
+            return "ytmusic", f"{todo} songs to search on YouTube Music"
+    return None
+
+
+def hours_since(job):
+    conn = db.connect(str(config.DB_FILE))
+    row = conn.execute("SELECT max(started_at) FROM run_log WHERE job IN (?, 'pipeline') AND status NOT IN ('failed','interrupted')", (job,)).fetchone()
+    conn.close()
+    if not row[0]:
+        return float("inf")
+    return (datetime.now().astimezone() - datetime.fromisoformat(row[0])).total_seconds() / 3600
+
+
+def start_worker(manager):
+    """Between scheduled runs, keep the machine working on whatever is due (config worker.enabled)."""
+    def loop():
+        tried, idle_since = {}, None
+        time.sleep(90)  # let the scheduler claim a due pipeline first
+        while True:
+            try:
+                cfg = config.load()
+                w = cfg.get("worker", {})
+                last_end = manager.last and manager.last.get("ended_at")
+                pause_ok = not last_end or time.time() - last_end >= w.get("pause_seconds", 60)
+                if w.get("enabled", True) and not manager.current and pause_ok:
+                    due = _due_work(cfg, tried)
+                    if due:
+                        job, why = due
+                        tried[job] = time.time()
+                        try:
+                            manager.start(job, trigger="worker")
+                            print(f"worker: started {job} ({why})", flush=True)
+                        except RuntimeError:
+                            pass
+            except Exception:
+                traceback.print_exc()
             time.sleep(30)
     threading.Thread(target=loop, daemon=True).start()
 

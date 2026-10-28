@@ -790,8 +790,8 @@ def api_artist_search(conn, qs):
 
 def post_config(conn, body):
     cfg = config.load()
-    for section in ("discovery", "schedule", "health", "youtube"):
-        cfg[section].update(body.get(section, {}))
+    for section in ("discovery", "schedule", "health", "youtube", "worker"):
+        cfg.setdefault(section, {}).update(body.get(section, {}))
     if "merge" in body:
         m = body["merge"]
         cfg["merge"]["across_labels"] = bool(m.get("across_labels", cfg["merge"]["across_labels"]))
@@ -1625,6 +1625,7 @@ def main():
 
     jobs.start_scheduler(MANAGER)
     jobs.start_health_watcher(MANAGER)
+    jobs.start_worker(MANAGER)
     srv = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"Market Lens Console on http://{args.host}:{args.port}")
     try:

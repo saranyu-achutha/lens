@@ -146,15 +146,11 @@ def _kill_group(proc):
             pass
 
 
-def collect(ids, workers=3, day=None, log=print):
+def collect(ids, workers=3, day=None, log=print, should_stop=lambda: False, folder=None):
     """Read play counts with one light headless Chrome and `workers` tabs (low CPU priority, images etc. blocked)."""
     chrome = find_chrome()
-    try:
-        os.nice(19)  # yield the CPU to everything else on the machine (Chrome inherits it)
-    except OSError:
-        pass
     day = day or date.today().isoformat()
-    path = out_dir() / f"{day}.json"
+    path = Path(folder or out_dir()) / f"{day}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     res = json.loads(path.read_text()) if path.exists() else {"date": day, "plays": {}, "hidden": [], "missing": {}}
     res.setdefault("hidden", [])
@@ -171,7 +167,8 @@ def collect(ids, workers=3, day=None, log=print):
                              f"--renderer-process-limit={workers + 1}", "--js-flags=--max-old-space-size=384",
                              "--disable-background-timer-throttling", "--disable-renderer-backgrounding",
                              f"--user-data-dir={profile}", f"--remote-debugging-port={port}", "about:blank"],
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env, start_new_session=True)
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env, start_new_session=True,
+                            preexec_fn=lambda: os.nice(19))  # the browser yields the CPU to everything else
     stopping = {"sig": None}
 
     def on_signal(sig, _frame):  # a kill of the reader also closes its browser
@@ -199,7 +196,7 @@ def collect(ids, workers=3, day=None, log=print):
         nonlocal done
         tab_id, ws = new_tab()
         pages = 0
-        while not stopping["sig"]:
+        while not stopping["sig"] and not should_stop():
             with lock:
                 if not queue:
                     break
@@ -287,6 +284,36 @@ def import_file(conn, path, log=print):
     conn.commit()
     log(f"imported {len(res['plays'])} play counts for {day} ({n} Spotify items); {gone} hidden-count values removed")
     return n
+
+
+def due_ids(conn, day=None):
+    """Linked tracks of the period without a play count today (and not found hidden/failed in today's server file)."""
+    day = day or date.today().isoformat()
+    read = {r[0] for r in conn.execute("""SELECT p.platform_id FROM snapshot s JOIN platform_item p ON p.id=s.platform_item_id
+                                         WHERE p.platform='spotify' AND s.metric='plays' AND s.capture_date=?""", (day,))}
+    f = out_dir() / "server" / f"{day}.json"
+    skip = set()
+    if f.exists():
+        r = json.loads(f.read_text())
+        skip = set(r.get("hidden", [])) | set(r.get("missing", {}))
+    return [i for i in export_ids(conn) if i not in read and i not in skip]
+
+
+def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, **_):
+    """Console job: read today's missing play counts on this machine (light headless browser), then import."""
+    try:
+        find_chrome()
+    except SystemExit as e:
+        return {"status": "ok", "stop_reason": str(e)}
+    todo = due_ids(conn)
+    if not todo:
+        log("Spotify plays: every linked track already read today")
+        return {"status": "ok", "spotify_plays_read": 0}
+    path = collect(todo, workers=cfg["songs"].get("spotify_plays_tabs", 2), log=log, should_stop=should_stop,
+                   folder=out_dir() / "server")
+    conn.execute("PRAGMA busy_timeout = 120000")
+    n = import_file(conn, path, log=log)
+    return {"status": "ok", "spotify_plays_read": n}
 
 
 def main(argv=None):
