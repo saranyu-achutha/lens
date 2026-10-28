@@ -241,17 +241,25 @@ $("#ov-labels").addEventListener("click", (e) => {
 });
 
 /* ---------- Platforms: one dashboard per platform ---------- */
-const PF = { p: "youtube" };
+const PF = { p: "all" };
 async function loadPlatform() {
   document.querySelectorAll("#pf-tabs .tab").forEach((b) => b.classList.toggle("active", b.dataset.pf === PF.p));
   const d = await api(`/api/platform?p=${PF.p}`);
   $("#pf-window").textContent = `Songs first uploaded ${d.since} → ${d.until} (${fmt(d.songs)} songs)`;
   const num = (v) => typeof v === "number" ? (Math.abs(v) >= 1e5 ? compact(v) : fmt(v)) : (v == null ? "–" : v);
   $("#pf-kpis").innerHTML = d.kpis.map(([l, v, x]) => `<div class="card kpi"><div class="label">${esc(l)}</div><div class="value">${esc(num(v))}</div><div class="sub">${esc(x || "")}</div></div>`).join("");
-  const big = Math.max(0, ...d.chart.bars.map((b) => b.value || 0)) >= 1e6;  // show large counts in millions
-  $("#pf-chart-title").textContent = d.chart.title + (big ? " (millions)" : "");
-  barChart($("#pf-chart"), d.chart.bars.map((b) => ({ label: b.label.length > 10 ? b.label.slice(0, 9) + "…" : b.label, full: b.label,
-    value: big ? Math.round((b.value || 0) / 1e5) / 10 : b.value, raw: b.value })), { tip: (b) => `<b>${esc(b.full)}</b><br>${num(b.raw)}` });
+  $("#pf-legend").innerHTML = "";
+  if (d.lines) {  // cross-platform: one coloured line per platform
+    $("#pf-chart-title").textContent = d.chart.title;
+    const series = d.lines.map((l) => ({ name: l.name, color: PCOLOR[l.platform], points: l.points })).filter((x) => x.points.length);
+    multiLine($("#pf-chart"), series);
+    $("#pf-legend").innerHTML = d.lines.map((l) => `<span><span style="display:inline-block;width:12px;height:3px;background:${PCOLOR[l.platform]};vertical-align:middle;margin-right:5px"></span>${esc(l.name)}${l.points.length ? "" : ' <span class="muted">(from tomorrow)</span>'}</span>`).join("");
+  } else {
+    const big = Math.max(0, ...d.chart.bars.map((b) => b.value || 0)) >= 1e6;  // show large counts in millions
+    $("#pf-chart-title").textContent = d.chart.title + (big ? " (millions)" : "");
+    barChart($("#pf-chart"), d.chart.bars.map((b) => ({ label: b.label.length > 10 ? b.label.slice(0, 9) + "…" : b.label, full: b.label,
+      value: big ? Math.round((b.value || 0) / 1e5) / 10 : b.value, raw: b.value })), { tip: (b) => `<b>${esc(b.full)}</b><br>${num(b.raw)}` });
+  }
   $("#pf-table-title").textContent = d.table.title;
   $("#pf-table").innerHTML = d.table.rows.length ? `<thead><tr>${d.table.cols.map((c, i) => `<th class="${i ? "num" : ""}">${esc(c)}</th>`).join("")}</tr></thead><tbody>` +
     d.table.rows.map(([id, ...cells]) => `<tr class="click" data-id="${id}">${cells.map((c, i) => i ? `<td class="num">${typeof c === "number" ? num(c) : esc(c ?? "–")}</td>`
@@ -259,7 +267,7 @@ async function loadPlatform() {
     : `<tbody><tr><td class="empty">Nothing yet for this period.</td></tr></tbody>`;
 }
 document.querySelectorAll("#pf-tabs .tab").forEach((b) => (b.onclick = () => { PF.p = b.dataset.pf; loadPlatform(); }));
-$("#pf-table").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-id]"); if (tr) openTrack(tr.dataset.id); });
+$("#pf-table").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-id]"); if (tr && tr.dataset.id !== "null") openTrack(tr.dataset.id); });
 
 /* ---------- Reports: readings on two days and the change ---------- */
 const RP = { from: "", to: "", label: "", sort: "yt_views_delta", q: "", offset: 0, limit: 100 };

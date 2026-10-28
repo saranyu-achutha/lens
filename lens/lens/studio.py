@@ -123,7 +123,36 @@ def api_platform(conn, qs):
     songs = q(conn, f"SELECT count(*) n FROM ({W})", a)[0]["n"] or 0
     pct = lambda n: f"{round(100 * (n or 0) / songs) if songs else 0}% of {songs:,} songs"
     out = {"platform": p, "since": since, "until": until, "songs": songs}
-    if p == "youtube":
+    if p == "all":  # cross-platform: daily totals and gains per platform over the period's songs (song_daily)
+        song_daily.ensure(conn)
+        ids = f"SELECT id FROM ({W})"
+        plats = [("youtube", "YouTube", "yt_views"), ("ytmusic", "YouTube Music", "ytm_plays"), ("spotify", "Spotify", "sp_plays"), ("jiosaavn", "JioSaavn", "js_plays")]
+        daily = q(conn, f"""SELECT day, {', '.join(f"sum({c}) {c}, sum({c}_gain) {c}_gain, count({c}) {c}_n" for _, _, c in plats)}
+                            FROM song_daily WHERE song_id IN ({ids}) GROUP BY day ORDER BY day""", a)
+        rows, tiles = [], []
+        allp = 0
+        for plat, label, c in plats:
+            last = next((d for d in reversed(daily) if d[c] is not None), None)
+            week = [d[c + "_gain"] for d in daily[-7:] if d[c + "_gain"] is not None]
+            top = q(conn, f"""SELECT t.title, d.{c} v FROM song_daily d JOIN track t ON t.id=d.song_id
+                             WHERE d.day=? AND d.song_id IN ({ids}) AND d.{c} IS NOT NULL ORDER BY d.{c} DESC LIMIT 1""",
+                    [last["day"] if last else ""] + a)
+            r = {"platform": plat, "label": label, "songs": last[c + "_n"] if last else 0, "total": last[c] if last else None,
+                 "day": last["day"] if last else None, "gain_1d": daily[-1][c + "_gain"] if daily else None,
+                 "gain_7d": sum(week) if week else None, "top": top[0]["title"] if top else None, "top_value": top[0]["v"] if top else None}
+            allp += r["total"] or 0
+            rows.append(r)
+        for r in rows:
+            r["share"] = round(100 * r["total"] / allp, 1) if allp and r["total"] else None
+            tiles.append([r["label"], r["total"], f"{'+' + format(int(r['gain_1d']), ',') if r['gain_1d'] else 'no gain yet'} last day · {r['songs']:,} songs"])
+        out["kpis"] = [["All platforms", allp, "views + plays, latest reading of each"]] + tiles
+        out["lines"] = [{"platform": plat, "name": label, "points": [{"x": d["day"], "y": d[c + "_gain"]} for d in daily if d[c + "_gain"] is not None]}
+                        for plat, label, c in plats]
+        out["chart"] = {"title": "Daily gain by platform", "bars": []}
+        out["table"] = {"title": "Platforms compared", "cols": ["Platform", "Songs", "Total", "Gain last day", "Gain 7 days", "Share", "Top song"],
+                        "rows": [[None, r["label"], r["songs"], r["total"], r["gain_1d"], r["gain_7d"], f"{r['share']}%" if r["share"] is not None else "–",
+                                  f"{r['top']} ({r['top_value']:,.0f})" if r["top"] else "–"] for r in rows]}
+    elif p == "youtube":
         k = q(conn, f"""SELECT sum(yt_videos > 0) songs, sum(yt_videos) uploads, sum(yt_views) views, sum(yt_likes) likes,
                                sum(yt_comments) comments, sum(yt_delta) delta, sum(yt_views >= 1000000) hits FROM ({W})""", a)[0]
         allup = q(conn, "SELECT count(*) n FROM platform_item WHERE platform='youtube' AND published_at >= ?", (since,))[0]["n"]
