@@ -12,7 +12,7 @@ set -euo pipefail
 SERVER=${LENS_SERVER:-ubuntu@54.255.142.81}
 KEY=${LENS_SSH_KEY:-$HOME/SARANYU-KEY.pem}
 REMOTE_APP=/home/ubuntu/lens/lens
-WORKERS=${SPOTIFY_PLAYS_TABS:-10}
+WORKERS=${SPOTIFY_PLAYS_TABS:-3}
 
 REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 APP=$REPO/lens
@@ -28,7 +28,7 @@ say "Getting the track list from the server"
 python3 -c "import json;print(len(json.load(open('data/spotify_plays/ids.json'))), 'tracks')"
 
 say "Reading play counts (headless Chrome, $WORKERS tabs)"
-python3 -u -m lens.spotify_plays collect data/spotify_plays/ids.json --workers "$WORKERS"
+nice -n 19 ionice -c3 python3 -u -m lens.spotify_plays collect data/spotify_plays/ids.json --workers "$WORKERS"
 
 say "Uploading and importing on the server"
 scp -q -i "$KEY" "data/spotify_plays/$DAY.json" "$SERVER:$REMOTE_APP/data/spotify_plays/$DAY.json" 2>/dev/null || {

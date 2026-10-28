@@ -18,6 +18,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import socket
 import struct
 import subprocess
@@ -53,11 +54,14 @@ HEADLESS_SHELL = Path.home() / "chrome-headless-shell" / "chrome-headless-shell-
 
 
 def find_chrome():
-    """LENS_CHROME, else chrome-headless-shell in the home folder, else an installed Chrome/Chromium."""
+    """LENS_CHROME, else a headless-shell build (home folder or Playwright's), else an installed Chrome/Chromium."""
     if os.environ.get("LENS_CHROME"):
         return os.environ["LENS_CHROME"]
     if HEADLESS_SHELL.exists():
         return str(HEADLESS_SHELL)
+    # Playwright's headless shell, if installed (much lighter than full Chrome: ~430 MB for 3 tabs).
+    for p in sorted((Path.home() / ".cache" / "ms-playwright").glob("chromium_headless_shell-*/chrome-*/headless_shell"), reverse=True):
+        return str(p)
     for name in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser"):
         if shutil.which(name):
             return shutil.which(name)
@@ -123,9 +127,32 @@ READ_JS = """(() => { const p = document.querySelector('[data-testid="playcount"
   return JSON.stringify({plays: p ? p.innerText : null, loaded: !!t, title: document.title}); })()"""
 
 
-def collect(ids, workers=10, day=None, log=print):
-    """Read play counts with one headless Chrome and `workers` tabs reused page after page."""
+# Images, audio and video are not needed for the play count (blocking styles or scripts breaks Spotify's page).
+BLOCK = ["*.jpg*", "*.jpeg*", "*.png*", "*.webp*", "*.gif*", "*.mp3*", "*.mp4*", "*.m4a*", "*i.scdn.co/image*", "*mosaic.scdn.co*"]
+TAB_PAGES = 100  # a fresh tab every 100 pages keeps memory flat on long runs
+
+
+def _kill_group(proc):
+    """Stop Chrome and every process it started (renderers, GPU, zygotes): no leftovers after a stop."""
+    if proc.poll() is not None:
+        return
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+        proc.wait(10)
+    except (ProcessLookupError, subprocess.TimeoutExpired):
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
+def collect(ids, workers=3, day=None, log=print):
+    """Read play counts with one light headless Chrome and `workers` tabs (low CPU priority, images etc. blocked)."""
     chrome = find_chrome()
+    try:
+        os.nice(19)  # yield the CPU to everything else on the machine (Chrome inherits it)
+    except OSError:
+        pass
     day = day or date.today().isoformat()
     path = out_dir() / f"{day}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -133,26 +160,55 @@ def collect(ids, workers=10, day=None, log=print):
     res.setdefault("hidden", [])
     todo = [i for i in ids if i not in res["plays"] and i not in res["hidden"]]
     log(f"Spotify plays {day}: {len(ids)} tracks, {len(ids) - len(todo)} already read today, {len(todo)} to read, {workers} tabs")
+    if not todo:
+        return path
     profile = tempfile.mkdtemp(prefix="lens_sp_")
     port = 9400 + os.getpid() % 500
     env = dict(os.environ, LD_LIBRARY_PATH=str(Path(chrome).parent))  # libgbm.so.1 ships next to chrome-headless-shell
     proc = subprocess.Popen([chrome, "--headless=new", "--disable-gpu", "--no-first-run", "--mute-audio", "--lang=en-US",
-                             "--disable-background-timer-throttling", "--disable-renderer-backgrounding", "--disable-backgrounding-occluded-windows",
+                             "--blink-settings=imagesEnabled=false", "--disable-extensions", "--disable-background-networking",
+                             "--disable-component-update", "--disable-default-apps", "--disable-sync", "--no-pings",
+                             f"--renderer-process-limit={workers + 1}", "--js-flags=--max-old-space-size=384",
+                             "--disable-background-timer-throttling", "--disable-renderer-backgrounding",
                              f"--user-data-dir={profile}", f"--remote-debugging-port={port}", "about:blank"],
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env, start_new_session=True)
+    stopping = {"sig": None}
+
+    def on_signal(sig, _frame):  # a kill of the reader also closes its browser
+        stopping["sig"] = sig
+        _kill_group(proc)
+        raise SystemExit(f"stopped by signal {sig}; {len(res['plays'])} counts saved, a rerun continues")
+
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        try:
+            signal.signal(sig, on_signal)
+        except ValueError:  # not the main thread (e.g. inside the Console): the finally block still cleans up
+            pass
     t0, done, lock = time.time(), 0, threading.Lock()
     queue = list(todo)
 
-    def tab_worker(_):
-        nonlocal done
+    def new_tab():
         target = json.load(urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:{port}/json/new?about:blank", method="PUT"), timeout=30))
         ws = _WS(target["webSocketDebuggerUrl"])
         ws.call("Page.enable")
-        while True:
+        ws.call("Network.enable")
+        ws.call("Network.setBlockedURLs", urls=BLOCK)
+        return target["id"], ws
+
+    def tab_worker(_):
+        nonlocal done
+        tab_id, ws = new_tab()
+        pages = 0
+        while not stopping["sig"]:
             with lock:
                 if not queue:
                     break
                 tid = queue.pop(0)
+            if pages and pages % TAB_PAGES == 0:  # recycle the tab
+                ws.sock.close()
+                urllib.request.urlopen(f"http://127.0.0.1:{port}/json/close/{tab_id}", timeout=10)
+                tab_id, ws = new_tab()
+            pages += 1
             got = None
             for attempt in range(2):
                 ws.call("Page.navigate", url=f"https://open.spotify.com/track/{tid}")
@@ -197,14 +253,10 @@ def collect(ids, workers=10, day=None, log=print):
         with ThreadPoolExecutor(workers) as pool:
             list(pool.map(tab_worker, range(workers)))
     finally:
-        proc.terminate()
-        try:
-            proc.wait(10)
-        except subprocess.TimeoutExpired:
-            proc.kill()
+        _kill_group(proc)
         shutil.rmtree(profile, ignore_errors=True)
-    res["captured_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    path.write_text(json.dumps(res))
+        res["captured_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        path.write_text(json.dumps(res))
     log(f"saved {len(res['plays'])} play counts, {len(res['hidden'])} under 1,000, {len(res['missing'])} failed -> {path}  [{time.time() - t0:.0f}s]")
     return path
 
@@ -233,7 +285,7 @@ def main(argv=None):
     e.add_argument("--since")
     c = sub.add_parser("collect")
     c.add_argument("ids_file")
-    c.add_argument("--workers", type=int, default=10)
+    c.add_argument("--workers", type=int, default=3)
     i = sub.add_parser("import")
     i.add_argument("file")
     a = ap.parse_args(argv)
