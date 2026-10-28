@@ -134,8 +134,8 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
             found += 1
         else:
             missing += 1
+        conn.commit()  # save each song: never hold the database while waiting on the network
         if n % 25 == 0:
-            conn.commit()
             log(f"  {n}/{len(todo)} searched ({found} found)")
     conn.commit()
     if todo:

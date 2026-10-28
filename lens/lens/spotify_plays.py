@@ -269,6 +269,7 @@ def import_file(conn, path, log=print):
     """Store a day's play counts as readings (metric 'plays') on every Spotify item with that track id."""
     res = json.loads(Path(path).read_text())
     day, ts = res["date"], res.get("captured_at") or db.now_iso()
+    conn.execute("PRAGMA busy_timeout = 120000")  # wait for a running job's write to finish instead of failing
     n = 0
     for tid, plays in res["plays"].items():
         for (item_id,) in conn.execute("SELECT id FROM platform_item WHERE platform='spotify' AND platform_id=?", (tid,)).fetchall():
