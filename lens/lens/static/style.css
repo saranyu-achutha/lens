@@ -336,3 +336,18 @@ a.mchip:hover { border-color: var(--accent); text-decoration: none; }
 table.sticky-head thead th { position: sticky; top: 0; background: var(--surface-2, var(--surface)); z-index: 1; }
 .share-bar { display: inline-block; min-width: 64px; padding: 1px 6px; border-radius: 4px; text-align: right;
   background: linear-gradient(90deg, color-mix(in srgb, var(--c) 35%, transparent) var(--w), transparent var(--w)); }
+
+/* Song profile (song drawer) */
+.drawer.wide { width: min(1040px, 100vw); }
+.sp-head { display: flex; gap: 14px; align-items: flex-start; }
+.sp-sec { margin: 18px 0 8px; font-size: 14px; }
+.sp-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.sp-tile { border: 1px solid var(--border); border-left: 4px solid var(--c); border-radius: 10px; padding: 10px 12px; background: var(--surface-2, var(--surface)); }
+.sp-l { font-size: 12px; color: var(--text-muted); } .sp-v { font-size: 22px; font-weight: 600; margin: 2px 0; font-variant-numeric: tabular-nums; } .sp-s { font-size: 12px; }
+.sp-two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 4px; }
+.sp-share { display: grid; gap: 8px; }
+.sp-share-row { display: grid; grid-template-columns: 110px 1fr 52px; align-items: center; gap: 8px; font-size: 13px; }
+.sp-bar { height: 10px; border-radius: 5px; background: var(--surface-3); overflow: hidden; } .sp-bar i { display: block; height: 100%; border-radius: 5px; }
+.pbtn.big { width: 34px; height: 34px; font-size: 13px; }
+.warn-card { border-color: #e0a106; }
+@media (max-width: 760px) { .sp-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } .sp-two { grid-template-columns: 1fr; } }

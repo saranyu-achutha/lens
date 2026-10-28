@@ -432,6 +432,7 @@ async function loadPData() {
 }
 async function openItem(id) {
   const d = await api(`/api/items/history?id=${id}`), it = d.item, ms = d.metrics;
+  $("#drawer").classList.remove("wide");
   let metric = ms[0];
   const render = () => {
     const pts = d.history.filter((h) => h[metric] != null);
@@ -773,108 +774,158 @@ document.addEventListener("click", (e) => {
 });
 $("#drawer-bg").onclick = closeDrawer;
 document.addEventListener("keydown", (e) => e.key === "Escape" && closeDrawer());
-function closeDrawer() { $("#drawer").classList.remove("open"); $("#drawer-bg").classList.remove("open"); }
+function closeDrawer() { $("#drawer").classList.remove("open", "wide"); $("#drawer-bg").classList.remove("open"); }
 async function openTrack(id) {
-  const d = await api(`/api/track?id=${id}`);
-  const t = d.track, r = d.releases[0] || {};
-  const yt = d.items.filter((i) => i.platform === "youtube");
+  // One-glance song profile: who/what/when, every platform's numbers with the last day's gain, cross-platform split,
+  // details and credits, performance vs similar songs, trend, uploads, versions. Same layout for every song.
+  const [d, cmp] = await Promise.all([api(`/api/track?id=${id}`), api(`/api/song/compare?id=${id}`).catch(() => null)]);
+  const t = d.track, r = d.releases[0] || {}, m = d.meta || {}, ch = d.chart;
+  const yt = d.items.filter((i) => i.platform === "youtube").sort((a, b) => (b.views || 0) - (a.views || 0));
   const sp = d.items.find((i) => i.platform === "spotify");
   const spAll = d.items.filter((i) => i.platform === "spotify" && ["auto", "approved"].includes(i.review_state));
   const totV = d.by_type.reduce((a, b) => a + b.views, 0);
-  const dz = d.items.find((i) => i.platform === "deezer");
+  const pf = Object.fromEntries(((cmp && cmp.platforms) || []).map((p) => [p.platform, p]));
+  const first = (f) => (m[f] && m[f][0] ? m[f][0].value : "");
+  const names = (f, n = 3) => (m[f] || []).slice(0, n).map((v) => v.value).join(", ");
+  const sign = (v) => v == null ? "" : `${v > 0 ? "+" : ""}${Math.abs(v) >= 1e5 ? compact(v) : fmt(v)}`;
+  const big = (v) => v == null ? "–" : Math.abs(v) >= 1e5 ? compact(v) : fmt(v);
+  const spotifyOk = t.spotify_id && ["auto", "approved"].includes(t.spotify_state);
   const series = (platform, metric) => {
     const byDay = {};
-    d.history.filter((h) => h.platform === platform && h.metric === metric).forEach((h) => { byDay[h.capture_date] = (byDay[h.capture_date] || 0) + h.value; });
+    d.history.filter((h) => h.platform === platform && h.metric === metric).forEach((h) => {
+      byDay[h.capture_date] = platform === "spotify" ? Math.max(byDay[h.capture_date] || 0, h.value) : (byDay[h.capture_date] || 0) + h.value; });
     return Object.keys(byDay).sort().map((x) => ({ x, y: byDay[x] }));
   };
-  const METRICS = [["views", "YouTube views", "youtube"], ["likes", "YouTube likes", "youtube"], ["comments", "YouTube comments", "youtube"], ["rank", "Deezer rank", "deezer"]];
+  const METRICS = [["views", "YouTube views", "youtube"], ["likes", "YouTube likes", "youtube"], ["comments", "YouTube comments", "youtube"]];
   if (d.history.some((h) => h.platform === "spotify" && h.metric === "plays")) METRICS.push(["plays", "Spotify plays", "spotify"]);
-  if (d.history.some((h) => h.platform === "ytmusic")) METRICS.push(["ytm", "YouTube Music plays", "ytmusic", "plays"]);
   if (d.history.some((h) => h.platform === "jiosaavn")) METRICS.push(["jsp", "JioSaavn plays", "jiosaavn", "plays"]);
-  if (d.chart) METRICS.push(["chart_rank", "Spotify India rank", "spotify_chart"]);
-  const ch = d.chart;
+  if (d.history.some((h) => h.platform === "ytmusic")) METRICS.push(["ytm", "YouTube Music plays", "ytmusic", "plays"]);
+  if (d.history.some((h) => h.platform === "deezer")) METRICS.push(["rank", "Deezer rank", "deezer"]);
+  if (ch) METRICS.push(["chart_rank", "Spotify India rank", "spotify_chart"]);
+
+  const tile = (label, value, sub, color, extra = "") => `<div class="sp-tile" style="--c:${color}"><div class="sp-l">${label}</div><div class="sp-v">${value}</div><div class="sp-s">${sub || "&nbsp;"}</div>${extra}</div>`;
+  const gainLine = (p) => !p || p.latest == null ? '<span class="muted">not found yet</span>'
+    : p.gain_1d != null ? `<span class="delta-up">${sign(p.gain_1d)}</span> last day` : '<span class="muted">gain from tomorrow</span>';
+  const tiles = [
+    tile("YouTube views", big(pf.youtube ? pf.youtube.latest : t.yt_views), gainLine(pf.youtube) + ` · ${fmt(t.yt_videos)} upload${t.yt_videos === 1 ? "" : "s"}`, PCOLOR.youtube),
+    tile("Spotify plays", big(pf.spotify && pf.spotify.latest), pf.spotify && pf.spotify.latest != null ? gainLine(pf.spotify) : (spotifyOk ? '<span class="muted">under 1,000 or not read yet</span>' : '<span class="muted">not on Spotify yet</span>'), PCOLOR.spotify),
+    tile("JioSaavn plays", big(pf.jiosaavn && pf.jiosaavn.latest), gainLine(pf.jiosaavn), PCOLOR.jiosaavn),
+    tile("YouTube Music plays", big(pf.ytmusic && pf.ytmusic.latest), pf.ytmusic && pf.ytmusic.latest != null ? gainLine(pf.ytmusic) : '<span class="muted">no separate audio track</span>', PCOLOR.ytmusic),
+    tile("Deezer rank", big(pf.deezer && pf.deezer.latest), pf.deezer && pf.deezer.latest != null ? "popularity score (higher = more popular)" : '<span class="muted">not on Deezer yet</span>', "#a238ff"),
+    tile("Spotify India chart", ch ? `#${ch.best_rank}` : "–", ch ? `best · ${fmt(ch.days)} ${ch.chart.endsWith("weekly") ? "weeks" : "days"} in Top 200` : '<span class="muted">not in the India Top 200</span>', "#1db954")];
+  const listen = [[t.yt_video_id && `https://www.youtube.com/watch?v=${t.yt_video_id}`, "YouTube", "yt"], [t.ytm_url, "YouTube Music", "ym"],
+    [spotifyOk && `https://open.spotify.com/track/${t.spotify_id}`, "Spotify", "sp"], [t.js_url, "JioSaavn", "js"], [t.apple_url, "Apple Music", "am"],
+    [t.deezer_url, "Deezer", "dz"], [t.mb_url, "MusicBrainz", "mb"]]
+    .map(([u, n, c]) => u ? `<a class="lo ${c}" href="${esc(u)}" target="_blank" rel="noopener">${n} ↗</a>` : `<span class="lo off" title="not found on ${n} yet">${n}</span>`).join(" ");
+  const facts = [first("film") && `🎬 ${esc(first("film"))}`, first("language") && `🗣 ${esc(first("language"))}`, t.music_label && `🏷 ${esc(t.music_label)}`,
+    first("category") && esc(first("category")), first("occasion") && esc(first("occasion"))].filter(Boolean).join(" · ");
+  const row = (f) => m[f] && m[f].length ? `<dt>${esc(STATUS.meta_fields[f] || f)}</dt><dd>${m[f].map((v) => metaChip(f, v)).join(" ")} ${srcTag([...new Set(m[f].flatMap((v) => v.source.split(",")))].join(","))}</dd>` : "";
+  const plain = (l, v, src) => v ? `<dt>${l}</dt><dd>${v} ${src ? srcTag(src) : ""}</dd>` : "";
+  const released = ((cmp && cmp.platforms) || []).filter((p) => p.released).map((p) => `<span class="pill" style="border-color:${PCOLOR[p.platform] || "var(--border)"}">${esc(p.label)} ${esc(p.released)}</span>`).join(" ");
+  const details = ["film", "album", "language", "category", "occasion", "music_label", "genre"].map(row).join("")
+    + plain("First on YouTube", esc((t.first_published || "").slice(0, 10)) + (t.yt_channel ? ` · ${esc(t.yt_channel)}` : ""))
+    + plain("Released on", released)
+    + plain("Spotify album", r.title ? `${esc(r.title)} <span class="muted">(${esc(r.album_type || "")})</span>` : "", "spotify")
+    + plain("ISRC", t.isrc ? `<span class="mono">${esc(t.isrc)}</span>` : "", r.title ? "spotify" : "musicbrainz")
+    + plain("Length", t.duration_ms ? dur(t.duration_ms) + (t.explicit ? " · explicit" : "") : "");
+  const credits = ["singer", "music_director", "lyricist", "cast", "director", "producer", "video_director", "arranger", "mix_master", "choreographer", "spotify_artist", "apple_artist"].map(row).join("");
+
+  $("#drawer").classList.add("wide");
   $("#drawer").innerHTML = `
-    <div class="row"><div style="flex:1"><h1>${esc(t.title)}</h1><div class="muted">${esc(t.artists || t.yt_channel || "")}</div></div><button class="small" id="dr-daily" title="Every day's totals and gains, with graphs">📈 Daily history</button><button class="small" id="dr-close">✕</button></div>
-    <div style="margin-top:8px">${statusChip(t.release_status)}</div>
-    <dl class="kv">
-      <dt>First on YouTube</dt><dd>${esc(t.first_published ? t.first_published.slice(0, 10) : "–")}${t.yt_channel ? ` · ${esc(t.yt_channel)}` : ""}</dd>
-      <dt>Spotify release</dt><dd>${r.title ? `${esc(r.title)} <span class="muted">(${esc(r.album_type)})</span> · ${esc(r.release_date)}` : '<span class="muted">not linked</span>'}</dd>
-      <dt>ISRC</dt><dd class="mono">${esc(t.isrc || "–")}</dd>
-      <dt>Length</dt><dd>${dur(t.duration_ms)}${t.explicit ? " · explicit" : ""}</dd>
-      <dt>Spotify track id</dt><dd>${t.spotify_id && ["auto", "approved"].includes(t.spotify_state)
-        ? `<span class="mono">${esc(t.spotify_id)}</span> <button class="pbtn sp" data-play="spotify" data-pid="${esc(t.spotify_id)}" data-ptitle="${esc(t.title)}">▶</button> <a href="https://open.spotify.com/track/${esc(t.spotify_id)}" target="_blank" rel="noopener">open ↗</a>`
-        : '<span class="muted">–</span>'}</dd>
-      <dt>YouTube video id</dt><dd>${t.yt_video_id ? `<span class="mono">${esc(t.yt_video_id)}</span> <button class="pbtn yt" data-play="youtube" data-pid="${esc(t.yt_video_id)}" data-ptitle="${esc(t.title)}">▶</button> <a href="https://www.youtube.com/watch?v=${esc(t.yt_video_id)}" target="_blank" rel="noopener">open ↗</a> <span class="muted">(most viewed)</span>` : '<span class="muted">–</span>'}</dd>
-      <dt>Listen on</dt><dd class="listen-on">${[
-        [t.yt_video_id && `https://www.youtube.com/watch?v=${t.yt_video_id}`, "YouTube", "yt"], [t.ytm_url, "YouTube Music", "ym"],
-        [t.spotify_id && ["auto", "approved"].includes(t.spotify_state) && `https://open.spotify.com/track/${t.spotify_id}`, "Spotify", "sp"],
-        [t.js_url, "JioSaavn", "js"], [t.apple_url, "Apple Music", "am"], [t.deezer_url, "Deezer", "dz"], [t.mb_url, "MusicBrainz", "mb"]]
-        .map(([u, n, c]) => u ? `<a class="lo ${c}" href="${esc(u)}" target="_blank" rel="noopener">${n} ↗</a>` : `<span class="lo off" title="not found on ${n} yet">${n}</span>`).join(" ")}</dd>
-      <dt>JioSaavn</dt><dd>${t.js_url ? `${esc(t.js_title || t.title)}${t.js_plays != null ? ` · <b>${fmt(t.js_plays)}</b> plays` : ""} <a class="pbtn js" href="${esc(t.js_url)}" target="_blank" rel="noopener" title="Open on JioSaavn">J</a> <a href="${esc(t.js_url)}" target="_blank" rel="noopener">open ↗</a>` : '<span class="muted">not found yet</span>'}</dd>
-      ${t.deezer_url ? `<dt>Deezer</dt><dd><a href="${esc(t.deezer_url)}" target="_blank" rel="noopener">open ↗</a></dd>` : ""}
-      ${ch ? `<dt>Spotify India chart</dt><dd>best <b>#${ch.best_rank}</b> on ${esc(ch.best_date)} · ${fmt(ch.days)} ${ch.chart.endsWith("weekly") ? "weeks in the weekly" : "days in the daily"} Top 200 <span class="muted">(${esc(ch.first)} → ${esc(ch.last)})</span></dd>` : ""}
-    </dl>
-    ${sp && sp.review_state === "pending" ? `<div class="card" style="margin-bottom:16px"><b>Possible Spotify match:</b> <a href="${esc(sp.url)}" target="_blank" rel="noopener">${esc(sp.title)}</a> (${esc(sp.published || "")}) · score ${(sp.match_score || 0).toFixed(2)}
+    <div class="sp-head">
+      <div style="flex:1;min-width:0">
+        <h1 style="margin:0">${esc(t.title)}</h1>
+        <div class="muted" style="margin-top:2px">${esc(names("singer") || t.artists || t.yt_channel || "")}${first("music_director") ? ` · music ${esc(names("music_director", 2))}` : ""}</div>
+        <div style="margin-top:6px;font-size:13px">${facts || ""} ${statusChip(t.release_status)}</div>
+      </div>
+      <div class="row" style="gap:6px;align-items:flex-start;flex-shrink:0">
+        ${t.yt_video_id ? `<button class="pbtn yt big" data-play="youtube" data-pid="${esc(t.yt_video_id)}" data-ptitle="${esc(t.title)}" title="Play on YouTube">▶</button>` : ""}
+        ${spotifyOk ? `<button class="pbtn sp big" data-play="spotify" data-pid="${esc(t.spotify_id)}" data-ptitle="${esc(t.title)}" title="Play on Spotify">▶</button>` : ""}
+        <button class="small" id="dr-daily" title="Every day's totals and gains, with graphs">📈 Daily history</button><button class="small" id="dr-close">✕</button>
+      </div>
+    </div>
+    <div class="listen-on" style="margin:10px 0 14px">${listen}</div>
+    ${sp && sp.review_state === "pending" ? `<div class="card warn-card" style="margin-bottom:14px"><b>Spotify match to check:</b> <a href="${esc(sp.url)}" target="_blank" rel="noopener">${esc(sp.title)}</a> (${esc(sp.published || "")}) · score ${(sp.match_score || 0).toFixed(2)}
       <div class="row" style="margin-top:8px"><button class="small primary" data-decide="approve" data-item="${sp.id}">✓ Same song</button><button class="small" data-decide="reject" data-item="${sp.id}">✕ Different</button></div></div>` : ""}
-    <h3>Compared with similar songs</h3><div class="bench" id="dr-bench"><span class="muted">…</span></div>
-    <h3>Song details</h3>
-    ${(() => {
-      const m = d.meta || {};
-      const row = (f) => m[f] && m[f].length ? `<dt>${esc(STATUS.meta_fields[f] || f)}</dt><dd>${m[f].map((v) => metaChip(f, v)).join(" ")} ${srcTag([...new Set(m[f].flatMap((v) => v.source.split(",")))].join(","))}</dd>` : "";
-      const plain = (l, v, src) => v ? `<dt>${l}</dt><dd>${esc(v)} ${src ? srcTag(src) : ""}</dd>` : "";
-      const rel = ["film", "album", "song_title", "language", "category", "occasion", "label", "channel", "music_label", "apple_album", "genre", "release_date"].map(row).join("")
-        + plain("Spotify album", r.title ? `${r.title} (${r.album_type || ""})` : "", "spotify") + plain("Release date", r.release_date, "spotify")
-        + plain("ISRC", t.isrc, r.title ? "spotify" : "musicbrainz") + plain("Length", t.duration_ms ? dur(t.duration_ms) + (t.explicit ? " · explicit" : "") : "", t.isrc ? "spotify" : "");
-      const credits = ["singer", "music_director", "lyricist", "cast", "director", "producer", "video_director", "arranger", "mix_master", "choreographer", "spotify_artist", "apple_artist"].map(row).join("");
-      return `<div class="card" style="margin-bottom:16px"><h4 class="muted" style="margin:0 0 8px;font-weight:500">Release</h4><dl class="meta-grid">${rel}</dl>
-        <h4 class="muted" style="margin:6px 0 8px;font-weight:500">Credits</h4><dl class="meta-grid">${credits || "<dd class='muted'>No credits found in the descriptions or on Spotify.</dd>"}</dl>
-        <div class="muted" style="font-size:11.5px">Click any name to see its metrics across songs. Sources are shown next to each field.</div></div>`;
-    })()}
-    <h3>YouTube by video type</h3>
-    <div class="card flush" style="margin-bottom:16px">${d.by_type.length ? `<table><thead><tr><th>Type</th><th class="num">Videos</th><th class="num">Views</th><th class="num">Share</th><th class="num">Likes</th><th class="num">Comments</th></tr></thead><tbody>
-      ${d.by_type.map((b) => `<tr><td>${esc((VTYPES.find(([t]) => t === b.type) || [0, b.type])[1])}</td><td class="num">${fmt(b.videos)}</td><td class="num">${compact(b.views)}</td>
+
+    <h3 class="sp-sec">At a glance${cmp && cmp.days && cmp.days.length ? ` <span class="muted">· latest ${esc(cmp.days[cmp.days.length - 1])}</span>` : ""}</h3>
+    <div class="sp-tiles">${tiles.join("")}</div>
+
+    <h3 class="sp-sec">Across platforms</h3>
+    <div class="sp-two">
+      <div class="card"><div class="sp-share">${((cmp && cmp.platforms) || []).filter((p) => p.share != null).map((p) =>
+        `<div class="sp-share-row"><span>${esc(p.label)}</span><div class="sp-bar"><i style="width:${Math.max(p.share, 1)}%;background:${PCOLOR[p.platform]}"></i></div><b>${p.share}%</b></div>`).join("")
+        || '<span class="muted">Shares appear once the song has plays on more than one platform.</span>'}</div>
+        <div class="muted" style="font-size:11.5px;margin-top:6px">Share of ${cmp && cmp.total_plays ? compact(cmp.total_plays) : "all"} views and plays (Deezer is a rank, not counted).</div></div>
+      <div class="card"><div class="chart" id="dr-cmp" style="min-height:160px"></div><div id="dr-cmp-legend" class="row" style="gap:12px;flex-wrap:wrap;font-size:11.5px"></div></div>
+    </div>
+
+    <div class="sp-two">
+      <div><h3 class="sp-sec">Song details</h3><div class="card"><dl class="meta-grid" style="margin:0">${details}</dl></div></div>
+      <div><h3 class="sp-sec">Credits</h3><div class="card"><dl class="meta-grid" style="margin:0">${credits || "<dd class='muted'>No credits found in the descriptions or on Spotify.</dd>"}</dl>
+        <div class="muted" style="font-size:11.5px;margin-top:6px">Click a name to see its metrics across songs.</div></div></div>
+    </div>
+
+    <h3 class="sp-sec">Performance</h3><div class="bench" id="dr-bench"><span class="muted">…</span></div>
+
+    <div class="row" style="justify-content:space-between;margin-top:18px"><h3 class="sp-sec" style="margin:0">Trend</h3>
+      <div class="seg" id="dr-metric">${METRICS.map(([mm, l], i) => `<button class="small${i ? "" : " on"}" data-m="${mm}">${l}</button>`).join("")}</div></div>
+    <div class="card" style="padding:12px 12px 4px;margin-top:8px"><div class="chart" id="dr-chart"></div><div class="muted" id="dr-chart-note" style="font-size:12px;padding:0 4px 8px"></div></div>
+
+    <h3 class="sp-sec">YouTube by upload type</h3>
+    <div class="card flush">${d.by_type.length ? `<table><thead><tr><th>Type</th><th class="num">Uploads</th><th class="num">Views</th><th class="num">Share</th><th class="num">Likes</th><th class="num">Comments</th></tr></thead><tbody>
+      ${d.by_type.map((b) => `<tr><td>${esc((VTYPES.find(([x]) => x === b.type) || [0, b.type])[1])}</td><td class="num">${fmt(b.videos)}</td><td class="num">${compact(b.views)}</td>
         <td class="num">${totV ? Math.round((100 * b.views) / totV) : 0}%</td><td class="num">${compact(b.likes)}</td><td class="num">${compact(b.comments)}</td></tr>`).join("")}
-      <tr class="label-row"><td>All versions</td><td class="num">${fmt(d.by_type.reduce((a, b) => a + b.videos, 0))}</td><td class="num">${compact(totV)}</td><td class="num">100%</td>
+      <tr class="label-row"><td>All</td><td class="num">${fmt(d.by_type.reduce((a, b) => a + b.videos, 0))}</td><td class="num">${compact(totV)}</td><td class="num">100%</td>
         <td class="num">${compact(d.by_type.reduce((a, b) => a + b.likes, 0))}</td><td class="num">${compact(d.by_type.reduce((a, b) => a + b.comments, 0))}</td></tr></tbody></table>`
-      : `<div class="empty">No YouTube video linked.</div>`}</div>
-    ${spAll.length > 1 ? `<h3>Spotify versions (${spAll.length})</h3><div class="card flush" style="margin-bottom:16px"><table><tbody>${spAll.map((i) => {
+      : `<div class="empty">No YouTube upload linked.</div>`}</div>
+
+    <h3 class="sp-sec">YouTube uploads (${yt.length})</h3>
+    <div class="card flush"><table><tbody id="dr-uploads"></tbody></table>${yt.length > 10 ? `<div class="pager"><button class="small" id="dr-more">Show all ${yt.length}</button></div>` : ""}</div>
+
+    ${spAll.length ? `<h3 class="sp-sec">Spotify versions (${spAll.length})</h3><div class="card flush"><table><tbody>${spAll.map((i) => {
         const md = i.match_detail || {};
         return `<tr><td style="width:34px"><button class="pbtn sp" data-play="spotify" data-pid="${esc(i.platform_id)}" data-ptitle="${esc(i.title)}">▶</button></td>
-        <td><a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.title)}</a><div class="t2"><span class="mono">${esc(i.platform_id)}</span>${md.album ? ` · ${esc(md.album)} (${esc(md.album_type || "")})` : ""} · ${esc(i.published || "")}${md.isrc ? ` · ISRC ${esc(md.isrc)}` : ""} · ${i.match_method === "same_recording" ? "same recording" : "main match"}</div></td></tr>`;
+        <td><a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.title)}</a><div class="t2">${md.album ? `${esc(md.album)} (${esc(md.album_type || "")}) · ` : ""}${esc(i.published || "")}${md.isrc ? ` · ISRC ${esc(md.isrc)}` : ""} · ${i.match_method === "same_recording" ? "same recording" : "main match"}</div></td></tr>`;
       }).join("")}</tbody></table></div>` : ""}
     ${d.merged_names.length ? `<p class="muted" style="font-size:12px">Merged from: ${d.merged_names.map((k) => esc(k.split("::").pop().split("|")[0])).join(", ")} (undo under Review → Decision history)</p>` : ""}
-    <div class="row" style="justify-content:space-between"><h3 style="margin:0">Trend</h3>
-      <div class="seg" id="dr-metric">${METRICS.map(([m, l], i) => `<button class="small${i ? "" : " on"}" data-m="${m}">${l.replace("YouTube ", "")}</button>`).join("")}</div></div>
-    <div class="card" style="padding:12px 12px 4px;margin-top:8px"><div class="chart" id="dr-chart"></div><div class="muted" id="dr-chart-note" style="font-size:12px;padding:0 4px 8px"></div></div>
-    <h3 style="margin-top:20px">YouTube videos (${yt.length})</h3>
-    <div class="card flush">${yt.length ? `<table><tbody>${yt.map((i) => `<tr><td style="width:34px"><button class="pbtn yt" data-play="youtube" data-pid="${esc(i.platform_id)}" data-ptitle="${esc(i.title)}">▶</button></td><td><a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.title)}</a>
-        <div class="t2"><span class="mono">${esc(i.platform_id)}</span> · ${esc(i.channel)} · ${esc(i.asset_type)} · ${esc(i.published)} · ${stateChip(i.review_state, i.match_method)}</div></td>
-        <td class="num" style="white-space:nowrap">${compact(i.views)} views<div class="t2">${compact(i.likes)} likes · ${compact(i.comments)} comments</div></td>
-        <td style="white-space:nowrap">${i.review_state === "pending" ? `<button class="small" data-decide="approve" data-item="${i.id}">✓</button> ` : ""}<button class="small" data-decide="reject" data-item="${i.id}" title="Not this song">✕</button></td></tr>`).join("")}</tbody></table>`
-      : `<div class="empty">No YouTube video linked.</div>`}</div>
-    <p class="muted" style="font-size:12px;margin-top:14px">Spotify plays are read daily from the public track page (counts under 1,000 are hidden by Spotify); Deezer rank is Deezer's own popularity score (higher = more popular). “Daily history” shows every stored day with its gain.</p>`;
+    <p class="muted" style="font-size:11.5px;margin-top:14px">Spotify plays are read daily from the public track page (Spotify hides counts under 1,000); a song's Spotify plays are the highest of its copies. Gains compare with the previous day's reading.</p>`;
+
+  const upRow = (i) => `<tr><td style="width:34px"><button class="pbtn yt" data-play="youtube" data-pid="${esc(i.platform_id)}" data-ptitle="${esc(i.title)}">▶</button></td>
+    <td><a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.title)}</a><div class="t2">${esc(i.channel || "")} · ${esc(i.asset_type || "")} · ${esc(i.published || "")} · ${stateChip(i.review_state, i.match_method)}</div></td>
+    <td class="num" style="white-space:nowrap">${compact(i.views)} views<div class="t2">${compact(i.likes)} likes · ${compact(i.comments)} comments</div></td>
+    <td style="white-space:nowrap">${i.review_state === "pending" ? `<button class="small" data-decide="approve" data-item="${i.id}">✓</button> ` : ""}<button class="small" data-decide="reject" data-item="${i.id}" title="Not this song">✕</button></td></tr>`;
+  const showUploads = (all) => { $("#dr-uploads").innerHTML = (all ? yt : yt.slice(0, 10)).map(upRow).join("") || `<tr><td class="empty">No YouTube upload linked.</td></tr>`; bindDecide(); };
+  const bindDecide = () => $("#drawer").querySelectorAll("[data-decide]").forEach((b) => (b.onclick = async () => { await decide(b.dataset.item, b.dataset.decide); openTrack(id); refreshStatus(); }));
+  showUploads(false);
+  if ($("#dr-more")) $("#dr-more").onclick = (e) => { showUploads(true); e.target.closest(".pager").remove(); };
+
   $("#drawer").classList.add("open"); $("#drawer-bg").classList.add("open");
   $("#dr-close").onclick = closeDrawer;
   $("#dr-daily").onclick = () => { closeDrawer(); DD.song = String(id); if (location.hash.startsWith("#daily")) loadDaily(); else location.hash = "#daily"; };
   api(`/api/insights/song?id=${id}`).then((b) => {
     const el = $("#dr-bench"); if (!el) return;
     const bm = b.benchmark;
-    el.innerHTML = bm ? `<span class="pill">${compact(bm.song.velocity)} views/day · ${esc(bm.song.age_band)}</span>` + bm.comparisons.map((c) =>
+    el.innerHTML = bm ? `<span class="pill">${compact(bm.song.velocity)} YouTube views a day · ${esc(bm.song.age_band)}</span>` + bm.comparisons.map((c) =>
       `<span class="pill ${c.percentile >= 70 ? "ok" : c.percentile < 30 ? "warn" : ""}" title="${fmt(c.songs)} songs">faster than ${c.percentile}% of ${esc(c.compared_with)}</span>`).join("")
-      : `<span class="muted">Not in the current window or no views yet.</span>`;
+      : `<span class="muted">No YouTube views in the current period yet.</span>`;
   }).catch(() => {});
-  const draw = (m) => {
-    const [, label, platform, metric] = METRICS.find((x) => x[0] === m);  // optional 4th: stored metric name
-    const pts = series(platform, metric || m);
+  requestAnimationFrame(() => {
+    if (cmp) {
+      const lines = cmp.platforms.filter((p) => p.unit !== "rank").map((p) => ({ name: p.label, color: PCOLOR[p.platform], points: p.series.filter((x) => x.gain != null).map((x) => ({ x: x.day, y: x.gain })) })).filter((x) => x.points.length);
+      multiLine($("#dr-cmp"), lines, { height: 170 });
+      $("#dr-cmp-legend").innerHTML = lines.map((l) => `<span><span style="display:inline-block;width:10px;height:3px;background:${l.color};vertical-align:middle;margin-right:4px"></span>${esc(l.name)} daily gain</span>`).join("");
+    }
+    draw("views");
+  });
+  const draw = (mm) => {
+    const [, label, platform, metric] = METRICS.find((x) => x[0] === mm);
+    const pts = series(platform, metric || mm);
     lineChart($("#dr-chart"), pts, { label });
-    $("#dr-chart-note").textContent = pts.length === 1 ? "One reading so far; the line builds up with each sync." : "";
-    document.querySelectorAll("#dr-metric button").forEach((b) => b.classList.toggle("on", b.dataset.m === m));
+    $("#dr-chart-note").textContent = pts.length === 1 ? "One reading so far; the line builds up with each day." : "";
+    document.querySelectorAll("#dr-metric button").forEach((b) => b.classList.toggle("on", b.dataset.m === mm));
   };
   $("#dr-metric").onclick = (e) => { const b = e.target.closest("button[data-m]"); if (b) draw(b.dataset.m); };
-  requestAnimationFrame(() => draw("views"));
-  $("#drawer").querySelectorAll("[data-decide]").forEach((b) => (b.onclick = async () => {
-    await decide(b.dataset.item, b.dataset.decide); openTrack(id); refreshStatus();
-  }));
 }
 const stateChip = (st, method) => st === "song" ? "same song (grouped)" : st === "auto" ? "auto-matched" : st === "approved" ? (method === "manual" ? "linked manually" : "approved") : st === "pending" ? "<b>awaiting review</b>" : esc(st || "");
 async function decide(itemId, action) {
