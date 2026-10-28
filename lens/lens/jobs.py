@@ -5,26 +5,28 @@ import time
 import traceback
 from datetime import datetime, timedelta
 
-from . import config, db, discover_spotify, health, song_daily, songs, sync_youtube, youtube_music
+from . import config, db, discover_spotify, health, jiosaavn, song_daily, songs, sync_youtube, youtube_music
 from .spotify import SpotifyError
 from .youtube import YouTubeError
 
 JOBS = {
-    "pipeline": "Pipeline: YouTube sync, then songs (Spotify metadata, Deezer rank), then YouTube Music",
+    "pipeline": "Pipeline: YouTube sync, songs (Spotify metadata, Deezer rank), YouTube Music, JioSaavn",
     "youtube_sync": "YouTube sync only (new videos, views/likes/comments)",
     "songs": "Songs only (group videos, Spotify lookup, Deezer rank)",
     "spotify_discovery": "Spotify label crawl (heavy on Spotify quota, manual only)",
     "ytmusic": "YouTube Music only (find songs' audio tracks, read their plays)",
+    "jiosaavn": "JioSaavn only (find songs' tracks, read their plays)",
 }
 STEPS = {
-    "pipeline": [("youtube", sync_youtube.run), ("songs", songs.run), ("ytmusic", youtube_music.run), ("daily", song_daily.run)],
+    "pipeline": [("youtube", sync_youtube.run), ("songs", songs.run), ("ytmusic", youtube_music.run), ("jiosaavn", jiosaavn.run), ("daily", song_daily.run)],
+    "jiosaavn": [("jiosaavn", jiosaavn.run), ("daily", song_daily.run)],
     "ytmusic": [("ytmusic", youtube_music.run), ("daily", song_daily.run)],
     "youtube_sync": [("youtube", sync_youtube.run), ("daily", song_daily.run)],
     "songs": [("songs", songs.run), ("daily", song_daily.run)],
     "spotify_discovery": [("spotify", discover_spotify.run)],
 }
 SEVERITY = ["ok", "partial", "quota_exceeded", "cancelled", "failed"]
-CANCELLED = (discover_spotify.Cancelled, sync_youtube.Cancelled, songs.Cancelled, youtube_music.Cancelled)
+CANCELLED = (discover_spotify.Cancelled, sync_youtube.Cancelled, songs.Cancelled, youtube_music.Cancelled, jiosaavn.Cancelled)
 
 
 class JobManager:

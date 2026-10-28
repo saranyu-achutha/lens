@@ -207,7 +207,7 @@ async function loadOverview() {
   const pct = (n, d) => (d ? Math.round((100 * (n || 0)) / d) : 0);
   const rise = ov.risers[0];
   const on = k.on_platform || {};
-  const tiles = [["Total songs", fmt(k.songs), [["youtube", "YouTube"], ["ytmusic", "YouTube Music"], ["spotify", "Spotify"], ["apple", "Apple Music"], ["deezer", "Deezer"]]
+  const tiles = [["Total songs", fmt(k.songs), [["youtube", "YouTube"], ["ytmusic", "YouTube Music"], ["spotify", "Spotify"], ["jiosaavn", "JioSaavn"], ["apple", "Apple Music"], ["deezer", "Deezer"]]
       .map(([p, l]) => `${l} ${fmt(on[p] || 0)}`).join(" · ")],
     ["Fastest riser", rise ? rise.title : "–", rise ? `+${compact(rise.yt_delta)} views in the last day${rise.music_label ? ` · ${rise.music_label}` : ""}` : "shown after the next daily reading"],
     ["Total YouTube views", compact(k.views), `about ${compact(k.songs ? k.views / k.songs : 0)} per song`],
@@ -277,7 +277,7 @@ async function loadReport() {
   const cap = (p) => { const c = (d.capture || []).find((x) => x.platform === p); return c && c.items ? `${Math.round((100 * c.read) / c.items)}% read on ${d.to}` : "no items yet"; };
   $("#rp-kpis").innerHTML = [["YouTube views", sign(t.yt_views_delta), cap("youtube")], ["YouTube likes", sign(t.yt_likes_delta), `comments ${sign(t.yt_comments_delta)}`],
     ["YouTube Music plays", sign(t.ytm_plays_delta), cap("ytmusic")], ["Spotify plays", sign(t.sp_plays_delta), cap("spotify")],
-    ["Deezer", (d.capture || []).find((x) => x.platform === "deezer")?.read ? "rank" : "–", cap("deezer")],
+    ["JioSaavn plays", sign(t.js_plays_delta), cap("jiosaavn")],
     ["Songs in report", fmt(d.total), `${d.from} → ${d.to}`]]
     .map(([l, v, x]) => `<div class="card kpi"><div class="label">${esc(l)} ${l === "Songs in report" || l === "Deezer" ? "" : "change"}</div><div class="value">${esc(v)}</div><div class="sub">${esc(x)}</div></div>`).join("");
   const cols = d.metrics;
@@ -297,7 +297,7 @@ $("#rp-table").addEventListener("click", (e) => { const tr = e.target.closest("t
 
 /* ---------- Daily data: song_daily by day (all songs) or by song (all days) ---------- */
 const DD = { day: "", label: "", sort: "yt_views_delta", q: "", song: "", offset: 0, limit: 100 };
-const GAIN_KEYS = ["yt_views", "yt_likes", "yt_comments", "ytm_plays", "sp_plays"];
+const GAIN_KEYS = ["yt_views", "yt_likes", "yt_comments", "ytm_plays", "sp_plays", "js_plays"];
 const ddChange = (r, k) => GAIN_KEYS.includes(k) ? r[k + "_gain"] : (r[k] != null && r["prev_" + k] != null ? r[k] - r["prev_" + k] : null);
 async function loadDaily() {
   const song = DD.song;
@@ -655,6 +655,7 @@ async function openTrack(id) {
   const METRICS = [["views", "YouTube views", "youtube"], ["likes", "YouTube likes", "youtube"], ["comments", "YouTube comments", "youtube"], ["rank", "Deezer rank", "deezer"]];
   if (d.history.some((h) => h.platform === "spotify" && h.metric === "plays")) METRICS.push(["plays", "Spotify plays", "spotify"]);
   if (d.history.some((h) => h.platform === "ytmusic")) METRICS.push(["ytm", "YouTube Music plays", "ytmusic", "plays"]);
+  if (d.history.some((h) => h.platform === "jiosaavn")) METRICS.push(["jsp", "JioSaavn plays", "jiosaavn", "plays"]);
   if (d.chart) METRICS.push(["chart_rank", "Spotify India rank", "spotify_chart"]);
   const ch = d.chart;
   $("#drawer").innerHTML = `

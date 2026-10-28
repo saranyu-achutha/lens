@@ -92,7 +92,7 @@ def api_overview(conn, _):
     kpi["on_platform"] = {r["platform"]: r["songs"] for r in q(conn, f"""
         SELECT pi.platform, count(DISTINCT pi.track_id) songs FROM platform_item pi
         WHERE pi.track_id IN (SELECT id FROM ({W})) AND pi.review_state IN ('auto','approved','song')
-          AND pi.platform IN ('youtube','ytmusic','spotify','apple','deezer') GROUP BY pi.platform""", a)}
+          AND pi.platform IN ('youtube','ytmusic','spotify','jiosaavn','apple','deezer') GROUP BY pi.platform""", a)}
     kpi.update(q(conn, f"""SELECT """ + ", ".join(f"sum(yt_views_{t}) views_{t}" for t in
                                                   ("video", "lyric", "audio", "short", "teaser", "other")) + f" FROM ({W})", a)[0])
     by_day = q(conn, f"""SELECT song_date day, count(*) songs, sum(release_status='new') new FROM ({W})
@@ -190,6 +190,25 @@ def api_platform(conn, qs):
         out["chart"] = {"title": "YouTube Music plays by label", "bars": [{"label": k, "value": v} for k, v in sorted(by.items(), key=lambda x: -x[1])]}
         out["table"] = {"title": "Top songs by YouTube Music plays", "cols": ["Song", "Topic channel", "YT Music plays", "Δ day", "YouTube views"],
                         "rows": [[r["id"], r["title"], r["topic"], r["plays"], r["delta"], r["yt_views"]] for r in rows[:25]]}
+    elif p == "jiosaavn":
+        rows = q(conn, f"""WITH js AS (
+              SELECT pi.track_id, pi.title js_title,
+                     (SELECT value FROM snapshot s WHERE s.platform_item_id=pi.id AND metric='plays' ORDER BY capture_date DESC LIMIT 1) now,
+                     (SELECT value FROM snapshot s WHERE s.platform_item_id=pi.id AND metric='plays' ORDER BY capture_date DESC LIMIT 1 OFFSET 1) prev
+              FROM platform_item pi WHERE pi.platform='jiosaavn' AND pi.track_id IS NOT NULL)
+            SELECT t.id, t.title, t.yt_channel, t.yt_views, max(js.js_title) js_title, sum(js.now) plays, sum(js.now - js.prev) delta
+            FROM ({W}) t JOIN js ON js.track_id=t.id GROUP BY t.id ORDER BY plays DESC""", a)
+        looked = q(conn, "SELECT count(*) n FROM state WHERE key LIKE 'js_lookup:%'")[0]["n"]
+        lab = config.channel_labels(config.load())
+        by = {}
+        for r in rows:
+            by[lab.get(r["yt_channel"], "Other")] = by.get(lab.get(r["yt_channel"], "Other"), 0) + (r["plays"] or 0)
+        out["kpis"] = [["Songs on JioSaavn", len(rows), pct(len(rows))], ["JioSaavn plays", sum(r["plays"] or 0 for r in rows), "public play counts, read daily"],
+                       ["Plays in the last day", sum(r["delta"] or 0 for r in rows) if any(r["delta"] is not None for r in rows) else None, "after two daily readings"],
+                       ["Songs searched", looked, f"{max(songs - looked, 0):,} still to search (400 a run)"]]
+        out["chart"] = {"title": "JioSaavn plays by label", "bars": [{"label": k, "value": v} for k, v in sorted(by.items(), key=lambda x: -x[1])]}
+        out["table"] = {"title": "Top songs by JioSaavn plays", "cols": ["Song", "JioSaavn title", "JioSaavn plays", "Δ day", "YouTube views"],
+                        "rows": [[r["id"], r["title"], r["js_title"], r["plays"], r["delta"], r["yt_views"]] for r in rows[:25]]}
     elif p == "apple":
         k = q(conn, f"""SELECT count(DISTINCT t.id) n, sum(t.release_status='not_on_spotify') gap FROM ({W}) t
                         WHERE EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='apple')""", a)[0]
@@ -220,10 +239,11 @@ def api_platform(conn, qs):
 
 # Daily data page: song_daily rows, by day (all songs) or by song (all days), with the change from the previous day.
 DAILY_COLS = [("yt_views", "YouTube views"), ("yt_likes", "YouTube likes"), ("yt_comments", "YouTube comments"),
-              ("ytm_plays", "YouTube Music plays"), ("sp_plays", "Spotify plays"), ("dz_rank", "Deezer rank"), ("chart_rank", "Spotify India chart")]
+              ("ytm_plays", "YouTube Music plays"), ("sp_plays", "Spotify plays"), ("js_plays", "JioSaavn plays"), ("dz_rank", "Deezer rank"),
+              ("chart_rank", "Spotify India chart")]
 
 
-GAIN = {"yt_views", "yt_likes", "yt_comments", "ytm_plays", "sp_plays"}
+GAIN = {"yt_views", "yt_likes", "yt_comments", "ytm_plays", "sp_plays", "js_plays"}
 
 
 def daily_change(r, k):
@@ -234,7 +254,7 @@ def daily_change(r, k):
 
 
 def daily_rows(conn, qs):
-    conn.executescript(song_daily.SCHEMA)
+    song_daily.ensure(conn)
     days = [r[0] for r in conn.execute("SELECT DISTINCT day FROM song_daily ORDER BY 1")]
     cols = ", ".join(f"d.{k}, p.{k} prev_{k}" for k, _ in DAILY_COLS) + ", " + ", ".join(f"d.{k}_gain" for k in sorted(GAIN))
     if qs.get("song"):  # one song, every day
@@ -292,7 +312,8 @@ def daily_csv(conn, qs):
 REPORT_METRICS = [  # key, label, platform, stored metric, how a song's items combine
     ("yt_views", "YouTube views", "youtube", "views", "sum"), ("yt_likes", "YouTube likes", "youtube", "likes", "sum"),
     ("yt_comments", "YouTube comments", "youtube", "comments", "sum"), ("ytm_plays", "YouTube Music plays", "ytmusic", "plays", "sum"),
-    ("sp_plays", "Spotify plays", "spotify", "plays", "sum"), ("dz_rank", "Deezer rank", "deezer", "rank", "max")]
+    ("sp_plays", "Spotify plays", "spotify", "plays", "sum"), ("js_plays", "JioSaavn plays", "jiosaavn", "plays", "sum"),
+    ("dz_rank", "Deezer rank", "deezer", "rank", "max")]
 
 
 def report_data(conn, qs):
@@ -306,7 +327,7 @@ def report_data(conn, qs):
     songs = {r["id"]: r for r in tag_labels(q(conn, f"SELECT id, title, yt_channel, song_date FROM ({W})", tracks_args() + [since, until]))}
     items = q(conn, """SELECT id, track_id, platform FROM platform_item WHERE track_id IS NOT NULL
                        AND ((platform='youtube' AND review_state IN ('auto','approved','song')) OR (platform='spotify' AND review_state IN ('auto','approved'))
-                            OR platform IN ('ytmusic','deezer'))""")
+                            OR platform IN ('ytmusic','deezer','jiosaavn'))""")
     items = [i for i in items if i["track_id"] in songs]
     ids = {i["id"]: i for i in items}
 
@@ -346,7 +367,7 @@ def report_data(conn, qs):
     totals = {f"{k}_{side}": sum(r[f"{k}_{side}"] or 0 for r in rows) for k, *_ in REPORT_METRICS if k != "dz_rank" for side in ("from", "to", "delta")}
     # Capture check: share of a platform's items with a reading on the `to` date.
     capture = []
-    for plat, metric in (("youtube", "views"), ("ytmusic", "plays"), ("spotify", "plays"), ("deezer", "rank")):
+    for plat, metric in (("youtube", "views"), ("ytmusic", "plays"), ("spotify", "plays"), ("jiosaavn", "plays"), ("deezer", "rank")):
         want = [i for i in items if i["platform"] == plat]
         got = conn.execute(f"""SELECT count(DISTINCT platform_item_id) FROM snapshot WHERE capture_date=? AND metric=?
                                AND platform_item_id IN ({",".join(str(i["id"]) for i in want) or "0"})""", (to, metric)).fetchone()[0]
