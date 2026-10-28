@@ -278,8 +278,14 @@ def import_file(conn, path, log=print):
                             ON CONFLICT(platform_item_id, metric, capture_date) DO UPDATE SET value=excluded.value, captured_at=excluded.captured_at""",
                          (item_id, plays, day, ts))
             n += 1
+    # Tracks found under 1,000 plays (Spotify hides the count): drop any value stored for them that day,
+    # so an earlier wrong reading cannot stay.
+    gone = 0
+    for tid in res.get("hidden", []):
+        gone += conn.execute("""DELETE FROM snapshot WHERE metric='plays' AND capture_date=? AND platform_item_id IN
+                                (SELECT id FROM platform_item WHERE platform='spotify' AND platform_id=?)""", (day, tid)).rowcount
     conn.commit()
-    log(f"imported {len(res['plays'])} play counts for {day} ({n} Spotify items)")
+    log(f"imported {len(res['plays'])} play counts for {day} ({n} Spotify items); {gone} hidden-count values removed")
     return n
 
 
