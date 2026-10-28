@@ -124,7 +124,7 @@ class _WS:
 
 READ_JS = """(() => { const p = document.querySelector('[data-testid="playcount"]');
   const t = document.querySelector('[data-testid="entityTitle"]');
-  return JSON.stringify({plays: p ? p.innerText : null, loaded: !!t, title: document.title}); })()"""
+  return JSON.stringify({plays: p ? p.innerText : null, loaded: !!t, title: document.title, path: location.pathname}); })()"""
 
 
 # Images, audio and video are not needed for the play count (blocking styles or scripts breaks Spotify's page).
@@ -211,12 +211,16 @@ def collect(ids, workers=3, day=None, log=print):
             pages += 1
             got = None
             for attempt in range(2):
+                ws.call("Page.navigate", url="about:blank")
                 ws.call("Page.navigate", url=f"https://open.spotify.com/track/{tid}")
                 loaded_at = None
                 for tick in range(40 if attempt == 0 else 60):  # up to 20 s (30 s on the retry)
                     time.sleep(0.5)
                     r = ws.call("Runtime.evaluate", expression=READ_JS, returnByValue=True)
                     got = json.loads(r.get("result", {}).get("value") or "{}")
+                    if not (got.get("path") or "").endswith(tid):  # still the previous page: its count is not this track's
+                        got = None
+                        continue
                     if got.get("plays"):
                         break
                     if got.get("loaded"):
