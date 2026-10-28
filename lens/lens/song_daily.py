@@ -3,7 +3,8 @@
 Built from the per-upload readings (snapshot) and the Spotify chart, summed over a song's linked items:
   yt_views / yt_likes / yt_comments   YouTube uploads read that day (yt_uploads_read says how many)
   ytm_plays                           YouTube Music audio tracks
-  sp_plays                            Spotify play counts (public track pages)
+  sp_plays                            Spotify play count (public track page); the highest of the song's copies,
+                                      because Spotify shows one recording's count on all its copies (single, album, compilations)
   js_plays                            JioSaavn play counts
   dz_rank                             Deezer rank (highest of the song's ISRC matches)
   chart_rank                          best position on the Spotify India daily chart
@@ -72,7 +73,7 @@ def build(conn, days=None, log=print):
                       sum(CASE WHEN p.platform='youtube' AND s.metric='comments' THEN s.value END) yt_comments,
                       count(DISTINCT CASE WHEN p.platform='youtube' AND s.metric='views' THEN p.id END) yt_uploads_read,
                       sum(CASE WHEN p.platform='ytmusic' AND s.metric='plays' THEN s.value END) ytm_plays,
-                      sum(CASE WHEN p.platform='spotify' AND s.metric='plays' THEN s.value END) sp_plays,
+                      max(CASE WHEN p.platform='spotify' AND s.metric='plays' THEN s.value END) sp_plays,  -- copies of one recording share a count
                       sum(CASE WHEN p.platform='jiosaavn' AND s.metric='plays' THEN s.value END) js_plays,
                       max(CASE WHEN p.platform='deezer' AND s.metric='rank' THEN s.value END) dz_rank
                FROM snapshot s JOIN platform_item p ON p.id=s.platform_item_id
@@ -85,7 +86,9 @@ def build(conn, days=None, log=print):
         # Real daily growth: each item's reading today minus its reading on the previous calendar day (both must exist).
         gains = {}
         for tid, plat, metric, g in conn.execute(
-                """SELECT p.track_id, p.platform, s.metric, sum(s.value - y.value) FROM snapshot s
+                """SELECT p.track_id, p.platform, s.metric,
+                          CASE WHEN p.platform='spotify' THEN max(s.value) - max(y.value) ELSE sum(s.value - y.value) END
+                   FROM snapshot s
                    JOIN snapshot y ON y.platform_item_id=s.platform_item_id AND y.metric=s.metric AND y.capture_date=date(?, '-1 day')
                    JOIN platform_item p ON p.id=s.platform_item_id
                    WHERE s.capture_date=? AND p.track_id IS NOT NULL AND p.platform IN ('youtube','ytmusic','spotify','jiosaavn')

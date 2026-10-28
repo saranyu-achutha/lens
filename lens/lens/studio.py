@@ -145,14 +145,15 @@ def api_platform(conn, qs):
                          JOIN platform_item pi ON pi.platform='spotify' AND pi.platform_id=ce.spotify_id AND pi.review_state IN ('auto','approved')
                          JOIN ({TRACKS_SQL}) t ON t.id=pi.track_id
                          WHERE ce.chart='regional-in-daily' AND ce.chart_date=? ORDER BY ce.rank""", tracks_args() + [last]) if last else []
-        # Daily play counts read from the public track pages (lens/spotify_plays.py), summed over a song's Spotify versions.
+        # Daily play counts read from the public track pages (lens/spotify_plays.py). Spotify shows one recording's count on all
+# its copies (single, album, compilations), so a song's count is the highest of its copies, not their sum.
         pl = q(conn, f"""WITH sp AS (
               SELECT pi.track_id,
                      (SELECT value FROM snapshot s WHERE s.platform_item_id=pi.id AND metric='plays' ORDER BY capture_date DESC LIMIT 1) now,
                      (SELECT value FROM snapshot s WHERE s.platform_item_id=pi.id AND metric='plays' ORDER BY capture_date DESC LIMIT 1 OFFSET 1) prev,
                      (SELECT max(capture_date) FROM snapshot s WHERE s.platform_item_id=pi.id AND metric='plays') day
               FROM platform_item pi WHERE pi.platform='spotify' AND pi.review_state IN ('auto','approved') AND pi.track_id IS NOT NULL)
-            SELECT t.id, t.title, t.song_date, t.yt_views, sum(sp.now) plays, sum(sp.now - sp.prev) delta, max(sp.day) day
+            SELECT t.id, t.title, t.song_date, t.yt_views, max(sp.now) plays, max(sp.now) - max(sp.prev) delta, max(sp.day) day
             FROM ({W}) t JOIN sp ON sp.track_id=t.id WHERE sp.now IS NOT NULL GROUP BY t.id ORDER BY plays DESC""", a)
         rank_today = {r["id"]: r["rank"] for r in reversed(on)}
         out["kpis"] = [["Spotify plays", sum(r["plays"] or 0 for r in pl), f"{len(pl):,} songs with a public count" + (f" · read {max(r['day'] for r in pl)}" if pl else "")],
@@ -312,7 +313,7 @@ def daily_csv(conn, qs):
 REPORT_METRICS = [  # key, label, platform, stored metric, how a song's items combine
     ("yt_views", "YouTube views", "youtube", "views", "sum"), ("yt_likes", "YouTube likes", "youtube", "likes", "sum"),
     ("yt_comments", "YouTube comments", "youtube", "comments", "sum"), ("ytm_plays", "YouTube Music plays", "ytmusic", "plays", "sum"),
-    ("sp_plays", "Spotify plays", "spotify", "plays", "sum"), ("js_plays", "JioSaavn plays", "jiosaavn", "plays", "sum"),
+    ("sp_plays", "Spotify plays", "spotify", "plays", "max"), ("js_plays", "JioSaavn plays", "jiosaavn", "plays", "sum"),
     ("dz_rank", "Deezer rank", "deezer", "rank", "max")]
 
 
@@ -349,9 +350,13 @@ def report_data(conn, qs):
                 # Only uploads read on both dates count, so from + change = to (a new upload's first reading is not growth).
                 if a is None or b is None:
                     continue
-                for side, v in (("from", a), ("to", b), ("delta", b - a)):
-                    k = f"{key}_{side}"
-                    row[k] = (row.get(k) or 0) + v if how == "sum" else (max(row.get(k) or 0, v) if side != "delta" else v)
+                if how == "sum":
+                    for side, v in (("from", a), ("to", b), ("delta", b - a)):
+                        row[f"{key}_{side}"] = (row.get(f"{key}_{side}") or 0) + v
+                else:  # copies sharing one count (Spotify) or a rank: the highest, and the change of that
+                    row[f"{key}_from"] = max(row.get(f"{key}_from") or a, a)
+                    row[f"{key}_to"] = max(row.get(f"{key}_to") or b, b)
+                    row[f"{key}_delta"] = row[f"{key}_to"] - row[f"{key}_from"]
     rows = []
     for tid, v in per.items():
         sng = songs[tid]
