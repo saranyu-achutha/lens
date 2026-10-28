@@ -5,7 +5,8 @@ description that starts "Provided to YouTube by <label>". For each song of the p
   1. searches once for its Art Track (search.list, 100 quota units): a result is kept only when it is on a
      "- Topic" channel, its title matches the song (title score >= 0.9, no remix/male/female-version mismatch),
      and the providing label or a credited artist matches the song. Up to `ytmusic_searches_per_run` songs a run,
-     biggest songs first; songs not found are retried after 7 days.
+     biggest songs first; songs not found are retried after 7 days. Quota note: the daily search cap and the
+     10,000 units are per Google Cloud project, so keys only add capacity when each comes from its own project.
   2. reads the play count of every found track once a day (videos.list, 1 unit per 50 tracks), stored as
      snapshot metric 'plays' on platform 'ytmusic'.
 """
@@ -113,7 +114,9 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
     ts = db.now_iso()
     yt = YouTube(keys, log=log)
     labels = config.channel_labels(cfg)
-    budget = cfg["songs"].get("ytmusic_searches_per_run", 300)
+    # A Google Cloud project allows ~100 searches a day (= its whole 10,000 units), and keys of one project share
+    # that; keep searches small so the daily views reads always have quota left.
+    budget = cfg["songs"].get("ytmusic_searches_per_run", 40)
     todo = _todo(conn, since, until, today, budget)
     found = missing = 0
     status, stop_reason = "ok", None

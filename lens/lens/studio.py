@@ -186,7 +186,7 @@ def api_platform(conn, qs):
         out["kpis"] = [["Songs with a YouTube Music track", len(rows), pct(len(rows))],
                        ["YouTube Music plays", sum(r["plays"] or 0 for r in rows), "separate audio tracks only; plays of a label's video are in YouTube views"],
                        ["Plays in the last day", sum(r["delta"] or 0 for r in rows) if any(r["delta"] is not None for r in rows) else None, "after two daily readings"],
-                       ["Songs searched", looked, f"{max(songs - looked, 0):,} still to search (300 a run)"]]
+                       ["Songs searched", looked, f"{max(songs - looked, 0):,} still to search (40 a run)"]]
         out["chart"] = {"title": "YouTube Music plays by label", "bars": [{"label": k, "value": v} for k, v in sorted(by.items(), key=lambda x: -x[1])]}
         out["table"] = {"title": "Top songs by YouTube Music plays", "cols": ["Song", "Topic channel", "YT Music plays", "Δ day", "YouTube views"],
                         "rows": [[r["id"], r["title"], r["topic"], r["plays"], r["delta"], r["yt_views"]] for r in rows[:25]]}
