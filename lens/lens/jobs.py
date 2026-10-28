@@ -5,24 +5,26 @@ import time
 import traceback
 from datetime import datetime, timedelta
 
-from . import config, db, discover_spotify, health, songs, sync_youtube
+from . import config, db, discover_spotify, health, songs, sync_youtube, youtube_music
 from .spotify import SpotifyError
 from .youtube import YouTubeError
 
 JOBS = {
-    "pipeline": "Pipeline: YouTube sync, then songs (Spotify metadata, Deezer rank)",
+    "pipeline": "Pipeline: YouTube sync, then songs (Spotify metadata, Deezer rank), then YouTube Music",
     "youtube_sync": "YouTube sync only (new videos, views/likes/comments)",
     "songs": "Songs only (group videos, Spotify lookup, Deezer rank)",
     "spotify_discovery": "Spotify label crawl (heavy on Spotify quota, manual only)",
+    "ytmusic": "YouTube Music only (find songs' audio tracks, read their plays)",
 }
 STEPS = {
-    "pipeline": [("youtube", sync_youtube.run), ("songs", songs.run)],
+    "pipeline": [("youtube", sync_youtube.run), ("songs", songs.run), ("ytmusic", youtube_music.run)],
+    "ytmusic": [("ytmusic", youtube_music.run)],
     "youtube_sync": [("youtube", sync_youtube.run)],
     "songs": [("songs", songs.run)],
     "spotify_discovery": [("spotify", discover_spotify.run)],
 }
 SEVERITY = ["ok", "partial", "quota_exceeded", "cancelled", "failed"]
-CANCELLED = (discover_spotify.Cancelled, sync_youtube.Cancelled, songs.Cancelled)
+CANCELLED = (discover_spotify.Cancelled, sync_youtube.Cancelled, songs.Cancelled, youtube_music.Cancelled)
 
 
 class JobManager:

@@ -92,7 +92,7 @@ def api_overview(conn, _):
     kpi["on_platform"] = {r["platform"]: r["songs"] for r in q(conn, f"""
         SELECT pi.platform, count(DISTINCT pi.track_id) songs FROM platform_item pi
         WHERE pi.track_id IN (SELECT id FROM ({W})) AND pi.review_state IN ('auto','approved','song')
-          AND pi.platform IN ('youtube','spotify','apple','deezer') GROUP BY pi.platform""", a)}
+          AND pi.platform IN ('youtube','ytmusic','spotify','apple','deezer') GROUP BY pi.platform""", a)}
     kpi.update(q(conn, f"""SELECT """ + ", ".join(f"sum(yt_views_{t}) views_{t}" for t in
                                                   ("video", "lyric", "audio", "short", "teaser", "other")) + f" FROM ({W})", a)[0])
     by_day = q(conn, f"""SELECT song_date day, count(*) songs, sum(release_status='new') new FROM ({W})
@@ -170,6 +170,26 @@ def api_platform(conn, qs):
         else:
             out["table"] = {"title": f"Our songs on the Spotify India Top 200 ({last or '–'})", "cols": ["Song", "Rank", "Days on chart (all-time)", "First upload", "YouTube views"],
                             "rows": [[r["id"], r["title"], r["rank"], r["appearances"], r["song_date"], r["yt_views"]] for r in on[:25]]}
+    elif p == "ytmusic":
+        rows = q(conn, f"""WITH ym AS (
+              SELECT pi.track_id, pi.channel,
+                     (SELECT value FROM snapshot s WHERE s.platform_item_id=pi.id AND metric='plays' ORDER BY capture_date DESC LIMIT 1) now,
+                     (SELECT value FROM snapshot s WHERE s.platform_item_id=pi.id AND metric='plays' ORDER BY capture_date DESC LIMIT 1 OFFSET 1) prev
+              FROM platform_item pi WHERE pi.platform='ytmusic' AND pi.track_id IS NOT NULL)
+            SELECT t.id, t.title, t.yt_channel, t.yt_views, max(ym.channel) topic, sum(ym.now) plays, sum(ym.now - ym.prev) delta
+            FROM ({W}) t JOIN ym ON ym.track_id=t.id GROUP BY t.id ORDER BY plays DESC""", a)
+        looked = q(conn, "SELECT count(*) n FROM state WHERE key LIKE 'ytm_lookup:%'")[0]["n"]
+        lab = config.channel_labels(config.load())
+        by = {}
+        for r in rows:
+            by[lab.get(r["yt_channel"], "Other")] = by.get(lab.get(r["yt_channel"], "Other"), 0) + (r["plays"] or 0)
+        out["kpis"] = [["Songs with a YouTube Music track", len(rows), pct(len(rows))],
+                       ["YouTube Music plays", sum(r["plays"] or 0 for r in rows), "separate audio tracks only; plays of a label's video are in YouTube views"],
+                       ["Plays in the last day", sum(r["delta"] or 0 for r in rows) if any(r["delta"] is not None for r in rows) else None, "after two daily readings"],
+                       ["Songs searched", looked, f"{max(songs - looked, 0):,} still to search (300 a run)"]]
+        out["chart"] = {"title": "YouTube Music plays by label", "bars": [{"label": k, "value": v} for k, v in sorted(by.items(), key=lambda x: -x[1])]}
+        out["table"] = {"title": "Top songs by YouTube Music plays", "cols": ["Song", "Topic channel", "YT Music plays", "Δ day", "YouTube views"],
+                        "rows": [[r["id"], r["title"], r["topic"], r["plays"], r["delta"], r["yt_views"]] for r in rows[:25]]}
     elif p == "apple":
         k = q(conn, f"""SELECT count(DISTINCT t.id) n, sum(t.release_status='not_on_spotify') gap FROM ({W}) t
                         WHERE EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='apple')""", a)[0]

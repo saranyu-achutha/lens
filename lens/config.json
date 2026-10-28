@@ -48,6 +48,10 @@
       {
         "name": "Zee Music Company",
         "enabled": true
+      },
+      {
+        "name": "Times Music",
+        "enabled": true
       }
     ],
     "channels": [
@@ -430,12 +434,54 @@
         "id": "UCMhbxWhyv3LWWVpBI1J6Esg",
         "title": "Zee Music Ibadat",
         "label": "Zee Music Company"
+      },
+      {
+        "id": "UCo07fumrTn1w4AxcU4j_uDw",
+        "title": "Times Music",
+        "label": "Times Music"
+      },
+      {
+        "id": "UCn9WB2Eb1QRSYkFxuPQHkxg",
+        "title": "Times Music Spiritual",
+        "label": "Times Music"
+      },
+      {
+        "id": "UCoXCrCeyIEU4z6xCAds7utQ",
+        "title": "Times Music Axom",
+        "label": "Times Music"
+      },
+      {
+        "id": "UCjXLxyq15uXvXKVO6lgsbDA",
+        "title": "Times Music Bangla",
+        "label": "Times Music"
+      },
+      {
+        "id": "UCXZ0grYBREBl4gZPXWkp7kg",
+        "title": "Times Music Haryanvi",
+        "label": "Times Music"
+      },
+      {
+        "id": "UCb5RPlAkBA6UNpVLmgn-rcA",
+        "title": "Times Music Bhojpuri",
+        "label": "Times Music"
+      },
+      {
+        "id": "UCu4o1ky4M0eAklHZrWNtokA",
+        "title": "Times Music Bhakthi",
+        "label": "Times Music"
+      },
+      {
+        "id": "UCz-iAABRK6sicPI2zskD9bg",
+        "title": "Times Music Marathi",
+        "label": "Times Music"
       }
     ]
   },
   "songs": {
     "spotify_searches_per_run": 1100,
-    "spotify_recheck_days": 3
+    "spotify_recheck_days": 3,
+    "spotify_artist_calls_per_run": 700,
+    "musicbrainz_contact": ""
   },
   "merge": {
     "across_labels": false,

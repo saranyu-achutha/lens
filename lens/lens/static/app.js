@@ -207,7 +207,7 @@ async function loadOverview() {
   const pct = (n, d) => (d ? Math.round((100 * (n || 0)) / d) : 0);
   const rise = ov.risers[0];
   const on = k.on_platform || {};
-  const tiles = [["Total songs", fmt(k.songs), [["youtube", "YouTube"], ["spotify", "Spotify"], ["apple", "Apple Music"], ["deezer", "Deezer"]]
+  const tiles = [["Total songs", fmt(k.songs), [["youtube", "YouTube"], ["ytmusic", "YouTube Music"], ["spotify", "Spotify"], ["apple", "Apple Music"], ["deezer", "Deezer"]]
       .map(([p, l]) => `${l} ${fmt(on[p] || 0)}`).join(" · ")],
     ["Fastest riser", rise ? rise.title : "–", rise ? `+${compact(rise.yt_delta)} views in the last day${rise.music_label ? ` · ${rise.music_label}` : ""}` : "shown after the next daily reading"],
     ["Total YouTube views", compact(k.views), `about ${compact(k.songs ? k.views / k.songs : 0)} per song`],
@@ -577,7 +577,8 @@ async function openTrack(id) {
     return Object.keys(byDay).sort().map((x) => ({ x, y: byDay[x] }));
   };
   const METRICS = [["views", "YouTube views", "youtube"], ["likes", "YouTube likes", "youtube"], ["comments", "YouTube comments", "youtube"], ["rank", "Deezer rank", "deezer"]];
-  if (d.history.some((h) => h.metric === "plays")) METRICS.push(["plays", "Spotify plays", "spotify"]);
+  if (d.history.some((h) => h.platform === "spotify" && h.metric === "plays")) METRICS.push(["plays", "Spotify plays", "spotify"]);
+  if (d.history.some((h) => h.platform === "ytmusic")) METRICS.push(["ytm", "YouTube Music plays", "ytmusic", "plays"]);
   if (d.chart) METRICS.push(["chart_rank", "Spotify India rank", "spotify_chart"]);
   const ch = d.chart;
   $("#drawer").innerHTML = `
@@ -644,8 +645,8 @@ async function openTrack(id) {
       : `<span class="muted">Not in the current window or no views yet.</span>`;
   }).catch(() => {});
   const draw = (m) => {
-    const [, label, platform] = METRICS.find((x) => x[0] === m);
-    const pts = series(platform, m);
+    const [, label, platform, metric] = METRICS.find((x) => x[0] === m);  // optional 4th: stored metric name
+    const pts = series(platform, metric || m);
     lineChart($("#dr-chart"), pts, { label });
     $("#dr-chart-note").textContent = pts.length === 1 ? "One reading so far; the line builds up with each sync." : "";
     document.querySelectorAll("#dr-metric button").forEach((b) => b.classList.toggle("on", b.dataset.m === m));
