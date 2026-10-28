@@ -94,9 +94,9 @@ The code lives in `lens/` and runs on the server as `/home/ubuntu/lens`. This la
 - Add HTTPS.
 - Rotate the keys that were pasted in chat.
 - Optional sources: Last.fm (needs a key), and JioSaavn (unofficial, needs a terms-of-service sign-off).
-- YouTube uses 21 keys since 2026-10-26 (comma-separated `YOUTUBE_API_KEY`, used in order; a key whose quota runs out is set aside until midnight Pacific time). Set on both the laptop and the server.
-  - **Quota is per Google Cloud project, not per key.** Checked 2026-10-28: 20 of the 21 keys are in one project (421586835201) and key 1 in another (887372396500). On 2026-10-28 ten more keys were added (31 in all) from two more projects (5 keys each, same Google account), so there are now about 4 projects: roughly 40,000 units and 400 searches a day (search.list costs 100 units and is capped at ~100 a day per project). More capacity needs keys from more projects; extra keys in one project add nothing.
-  - The client sets a key aside for searches only when it hits the daily search cap (`rateLimitExceeded`, "Search Queries per day").
+- YouTube keys (`YOUTUBE_API_KEY`, comma-separated, used in order; a key whose quota runs out is set aside until midnight Pacific time; a key that hits the daily search cap is set aside for searches only).
+  - **Quota is per Google Cloud project, not per key.** Since 2026-10-28 there is **one key per project, 4 keys** (projects 887372396500, 421586835201, 834007049812, 701726783900): about 40,000 units and 400 searches a day. The 27 extra keys that shared those projects were removed (the full list is in the `.env.bak.*` backups). More capacity needs a key from a new project; a second key in the same project adds nothing.
+  - To find a key's project: call any Google API the project has not enabled (e.g. Books); the 403 names `projects/<number>`.
 
 ## Server-only actions
 
