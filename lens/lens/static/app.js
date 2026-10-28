@@ -296,7 +296,7 @@ $("#rp-next").onclick = () => { RP.offset += RP.limit; loadReport(); };
 $("#rp-table").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-id]"); if (tr) openTrack(tr.dataset.id); });
 
 /* ---------- Daily data: song_daily by day (all songs) or by song (all days) ---------- */
-const DD = { day: "", label: "", sort: "yt_views_delta", q: "", song: "", offset: 0, limit: 100 };
+const DD = { day: "", label: "", sort: "yt_views_delta", q: "", song: "", metric: "yt_views", offset: 0, limit: 100 };
 const GAIN_KEYS = ["yt_views", "yt_likes", "yt_comments", "ytm_plays", "sp_plays", "js_plays"];
 const ddChange = (r, k) => GAIN_KEYS.includes(k) ? r[k + "_gain"] : (r[k] != null && r["prev_" + k] != null ? r[k] - r["prev_" + k] : null);
 async function loadDaily() {
@@ -309,8 +309,21 @@ async function loadDaily() {
   const val = (v) => v == null ? '<span class="muted">–</span>' : (Math.abs(v) >= 1e5 ? compact(v) : fmt(v));
   const head = d.cols.map((c) => `<th class="num">${esc(c.label)}</th><th class="num">Change</th>`).join("");
   const cells = (r) => d.cols.map((c) => `<td class="num">${val(r[c.key])}</td><td class="num ${(ddChange(r, c.key) || 0) > 0 ? "delta-up" : ""}">${sign(ddChange(r, c.key))}</td>`).join("");
+  $("#dd-charts").style.display = song ? "" : "none";
   if (song) {
     $("#dd-song").textContent = d.song ? d.song.title : "Song";
+    // Graphs: the chosen metric's total by day (line) and its gain each day (bars), oldest day first.
+    const days = d.rows.slice().reverse();
+    const avail = d.cols.filter((c) => days.some((r) => r[c.key] != null));
+    if (!avail.some((c) => c.key === DD.metric) && avail.length) DD.metric = avail[0].key;
+    $("#dd-metric").innerHTML = avail.map((c) => `<button class="small${c.key === DD.metric ? " on" : ""}" data-m="${c.key}">${esc(c.label)}</button>`).join("") || '<span class="muted">No readings yet</span>';
+    const col = d.cols.find((c) => c.key === DD.metric) || { label: "" };
+    $("#dd-total-title").textContent = `${col.label}: total by day`;
+    lineChart($("#dd-total"), days.filter((r) => r[DD.metric] != null).map((r) => ({ x: r.day, y: r[DD.metric] })), { label: col.label });
+    const isRank = DD.metric === "dz_rank" || DD.metric === "chart_rank";
+    $("#dd-gain-title").textContent = isRank ? `${col.label}: change each day` : `${col.label}: gain each day`;
+    barChart($("#dd-gain"), days.map((r) => ({ label: r.day.slice(5), day: r.day, value: ddChange(r, DD.metric) || 0, missing: ddChange(r, DD.metric) == null })),
+      { tip: (b) => `<b>${esc(b.day)}</b><br>${b.missing ? "no reading the day before" : (b.value > 0 ? "+" : "") + fmt(b.value)}` });
     $("#dd-csv").href = `/api/daily.csv?song=${song}`;
     $("#dd-table").innerHTML = `<thead><tr><th>Day</th><th class="num">Uploads read</th>${head}</tr></thead><tbody>` +
       (d.rows.map((r) => `<tr><td>${esc(r.day)}</td><td class="num">${fmt(r.yt_uploads_read)}</td>${cells(r)}</tr>`).join("") || `<tr><td class="empty" colspan="${2 + d.cols.length * 2}">No daily data for this song yet.</td></tr>`) + "</tbody>";
@@ -335,6 +348,7 @@ $("#dd-q").addEventListener("input", (e) => { clearTimeout(ddTimer); ddTimer = s
 $("#dd-prev").onclick = () => { DD.offset = Math.max(0, DD.offset - DD.limit); loadDaily(); };
 $("#dd-next").onclick = () => { DD.offset += DD.limit; loadDaily(); };
 $("#dd-back").onclick = () => { DD.song = ""; loadDaily(); };
+$("#dd-metric").addEventListener("click", (e) => { const b = e.target.closest("button[data-m]"); if (b) { DD.metric = b.dataset.m; loadDaily(); } });
 $("#dd-table").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-song]"); if (tr) { DD.song = tr.dataset.song; loadDaily(); } });
 
 /* ---------- Player ---------- */
@@ -663,7 +677,7 @@ async function openTrack(id) {
   if (d.chart) METRICS.push(["chart_rank", "Spotify India rank", "spotify_chart"]);
   const ch = d.chart;
   $("#drawer").innerHTML = `
-    <div class="row"><div style="flex:1"><h1>${esc(t.title)}</h1><div class="muted">${esc(t.artists || t.yt_channel || "")}</div></div><button class="small" id="dr-close">✕</button></div>
+    <div class="row"><div style="flex:1"><h1>${esc(t.title)}</h1><div class="muted">${esc(t.artists || t.yt_channel || "")}</div></div><button class="small" id="dr-daily" title="Every day's totals and gains, with graphs">📈 Daily history</button><button class="small" id="dr-close">✕</button></div>
     <div style="margin-top:8px">${statusChip(t.release_status)}</div>
     <dl class="kv">
       <dt>First on YouTube</dt><dd>${esc(t.first_published ? t.first_published.slice(0, 10) : "–")}${t.yt_channel ? ` · ${esc(t.yt_channel)}` : ""}</dd>
@@ -721,9 +735,10 @@ async function openTrack(id) {
         <td class="num" style="white-space:nowrap">${compact(i.views)} views<div class="t2">${compact(i.likes)} likes · ${compact(i.comments)} comments</div></td>
         <td style="white-space:nowrap">${i.review_state === "pending" ? `<button class="small" data-decide="approve" data-item="${i.id}">✓</button> ` : ""}<button class="small" data-decide="reject" data-item="${i.id}" title="Not this song">✕</button></td></tr>`).join("")}</tbody></table>`
       : `<div class="empty">No YouTube video linked.</div>`}</div>
-    <p class="muted" style="font-size:12px;margin-top:14px">Spotify gives no play counts or popularity to this app (development mode); Deezer rank is Deezer's own popularity score (higher = more popular).</p>`;
+    <p class="muted" style="font-size:12px;margin-top:14px">Spotify plays are read daily from the public track page (counts under 1,000 are hidden by Spotify); Deezer rank is Deezer's own popularity score (higher = more popular). “Daily history” shows every stored day with its gain.</p>`;
   $("#drawer").classList.add("open"); $("#drawer-bg").classList.add("open");
   $("#dr-close").onclick = closeDrawer;
+  $("#dr-daily").onclick = () => { closeDrawer(); DD.song = String(id); if (location.hash.startsWith("#daily")) loadDaily(); else location.hash = "#daily"; };
   api(`/api/insights/song?id=${id}`).then((b) => {
     const el = $("#dr-bench"); if (!el) return;
     const bm = b.benchmark;

@@ -216,6 +216,13 @@
       <h2 id="dd-song" style="display:none;margin:0;align-self:flex-end;flex:1"></h2>
       <a class="btn" id="dd-csv" href="#" style="align-self:flex-end;background:var(--accent);border-color:var(--accent);color:#fff;padding:7px 14px;text-decoration:none">⬇ Download CSV</a>
     </div></div>
+    <div class="card" id="dd-charts" style="display:none;margin-bottom:16px">
+      <div class="row" style="flex-wrap:wrap;gap:6px;margin-bottom:10px"><div class="seg" id="dd-metric"></div></div>
+      <div class="grid g2">
+        <div><h3 style="margin:0 0 6px" id="dd-total-title">Total by day</h3><div class="chart" id="dd-total"></div></div>
+        <div><h3 style="margin:0 0 6px" id="dd-gain-title">Gain each day</h3><div class="chart" id="dd-gain"></div></div>
+      </div>
+    </div>
     <div class="card flush"><div class="table-wrap"><table id="dd-table"></table></div>
       <div class="pager" id="dd-pager"><span id="dd-count"></span><span class="spacer"></span><button class="small" id="dd-prev">‹ Prev</button><button class="small" id="dd-next">Next ›</button></div></div>
   </section>
