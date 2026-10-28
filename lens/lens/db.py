@@ -226,6 +226,8 @@ def _migrate(conn):
     if conn.execute("SELECT 1 FROM track WHERE source IS NULL LIMIT 1").fetchone():
         conn.execute("UPDATE track SET source='spotify' WHERE source IS NULL")
     conn.execute("CREATE INDEX IF NOT EXISTS reading_item ON reading(platform_item_id, metric, captured_at)")
+    # Day-first lookups (Platform data page, daily table): every item's value on a given day.
+    conn.execute("CREATE INDEX IF NOT EXISTS snapshot_day ON snapshot(capture_date, metric, platform_item_id)")
     if "retry_at" not in {r["name"] for r in conn.execute("PRAGMA table_info(api_check)")}:
         conn.execute("ALTER TABLE api_check ADD COLUMN retry_at TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS api_check_source ON api_check(source, id)")

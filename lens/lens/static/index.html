@@ -13,6 +13,7 @@
   <a class="nav" href="#platforms"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 15v3M11 11v7M15 7v11M19 13v5"/></svg>Platforms</a>
   <a class="nav" href="#reports"><svg viewBox="0 0 24 24"><path d="M4 4h16v16H4z"/><path d="M8 15l3-3 2 2 4-5"/></svg>Reports</a>
   <a class="nav" href="#daily"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4M7 13h4M7 17h7"/></svg>Daily data</a>
+  <a class="nav" href="#pdata"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>Platform data</a>
   <a class="nav" href="#catalogue"><svg viewBox="0 0 24 24"><circle cx="7" cy="17" r="3"/><path d="M10 17V5l10-2v12"/><circle cx="17" cy="15" r="3"/></svg>Songs</a>
   <a class="nav" href="#explore"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6M11 8v6"/></svg>Explore</a>
   <a class="nav" href="#insights"><svg viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>AI Insights</a>
@@ -216,6 +217,11 @@
       <h2 id="dd-song" style="display:none;margin:0;align-self:flex-end;flex:1"></h2>
       <a class="btn" id="dd-csv" href="#" style="align-self:flex-end;background:var(--accent);border-color:var(--accent);color:#fff;padding:7px 14px;text-decoration:none">⬇ Download CSV</a>
     </div></div>
+    <div class="card" id="dd-compare" style="display:none;margin-bottom:16px">
+      <div class="card-head"><h2>Cross-platform comparison</h2><span class="spacer"></span><span class="muted" style="font-size:12px" id="dd-compare-note"></span></div>
+      <div class="table-wrap"><table id="dd-compare-table"></table></div>
+      <h3 style="margin:14px 0 6px">Daily gain by platform</h3><div class="chart" id="dd-compare-chart"></div><div id="dd-compare-legend" class="row" style="gap:14px;flex-wrap:wrap;margin-top:6px;font-size:12px"></div>
+    </div>
     <div class="card" id="dd-charts" style="display:none;margin-bottom:16px">
       <div class="row" style="flex-wrap:wrap;gap:6px;margin-bottom:10px"><div class="seg" id="dd-metric"></div></div>
       <div class="grid g2">
@@ -225,6 +231,26 @@
     </div>
     <div class="card flush"><div class="table-wrap"><table id="dd-table"></table></div>
       <div class="pager" id="dd-pager"><span id="dd-count"></span><span class="spacer"></span><button class="small" id="dd-prev">‹ Prev</button><button class="small" id="dd-next">Next ›</button></div></div>
+  </section>
+
+  <!-- PLATFORM DATA -->
+  <section class="page" id="page-pdata">
+    <div class="page-head"><div><h1>Platform data</h1><p id="pd-sub">Every video and track on each platform: its release date, the date we first saw it, and its stats on any day compared with another. Stored every day and kept indefinitely.</p></div></div>
+    <div class="tabs" id="pd-tabs"></div>
+    <div class="card" style="margin-bottom:16px"><div class="row" style="flex-wrap:wrap;gap:12px">
+      <label class="field" style="margin:0"><span>Day</span><select id="pd-day"></select></label>
+      <label class="field" style="margin:0"><span>Compared with</span><select id="pd-cmp"></select></label>
+      <label class="field" style="margin:0"><span>Label</span><select id="pd-label"><option value="">All labels</option></select></label>
+      <label class="field" style="margin:0"><span>Released from</span><input id="pd-rfrom" type="date"></label>
+      <label class="field" style="margin:0"><span>Released to</span><input id="pd-rto" type="date"></label>
+      <label class="field" style="margin:0"><span>Show</span><select id="pd-read"><option value="">Read on that day</option><option value="all">All tracked items</option></select></label>
+      <label class="field" style="margin:0;flex:1;min-width:180px"><span>Song or title</span><input id="pd-q" placeholder="Search…"></label>
+      <label class="field" style="margin:0"><span>Rows</span><select id="pd-limit"><option>50</option><option selected>100</option><option>500</option></select></label>
+      <a class="btn" id="pd-csv" href="#" style="align-self:flex-end;background:var(--accent);border-color:var(--accent);color:#fff;padding:7px 14px;text-decoration:none">⬇ Download CSV</a>
+    </div></div>
+    <div class="grid g6" id="pd-kpis"></div>
+    <div class="card flush" style="margin-top:16px"><div class="table-wrap" style="max-height:640px"><table id="pd-table" class="sticky-head"></table></div>
+      <div class="pager"><span id="pd-count"></span><span class="spacer"></span><button class="small" id="pd-first">« First</button><button class="small" id="pd-prev">‹ Prev</button><button class="small" id="pd-next">Next ›</button></div></div>
   </section>
 
   <!-- OUTPUTS -->

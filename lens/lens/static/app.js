@@ -28,14 +28,14 @@ function toast(msg, bad = false) {
 let STATUS = null;
 
 /* ---------- Router ---------- */
-const PAGES = ["overview", "platforms", "reports", "daily", "catalogue", "explore", "insights", "review", "runs", "outputs", "sources", "settings"];
+const PAGES = ["overview", "platforms", "reports", "daily", "pdata", "catalogue", "explore", "insights", "review", "runs", "outputs", "sources", "settings"];
 const hashParams = () => new URLSearchParams(location.hash.split("?")[1] || "");
 function route() {
   const page = (location.hash.slice(1).split("?")[0]) || "overview";
   const p = PAGES.includes(page) ? page : "overview";
   document.querySelectorAll("section.page").forEach((s) => s.classList.toggle("active", s.id === `page-${p}`));
   document.querySelectorAll("a.nav").forEach((a) => a.classList.toggle("active", a.getAttribute("href") === `#${p}`));
-  ({ overview: loadOverview, platforms: loadPlatform, reports: loadReport, daily: loadDaily, catalogue: loadCatalogue, explore: loadExplore, insights: loadInsights, review: loadReview, runs: loadRuns, outputs: loadOutputs, sources: loadSources, settings: loadSettings })[p]();
+  ({ overview: loadOverview, platforms: loadPlatform, reports: loadReport, daily: loadDaily, pdata: loadPData, catalogue: loadCatalogue, explore: loadExplore, insights: loadInsights, review: loadReview, runs: loadRuns, outputs: loadOutputs, sources: loadSources, settings: loadSettings })[p]();
   const track = new URLSearchParams(location.hash.split("?")[1] || "").get("track");
   if (track) openTrack(track);
   const meta = new URLSearchParams(location.hash.split("?")[1] || "").get("meta");  // e.g. #explore?meta=singer:arijit singh
@@ -309,7 +309,8 @@ async function loadDaily() {
   const val = (v) => v == null ? '<span class="muted">–</span>' : (Math.abs(v) >= 1e5 ? compact(v) : fmt(v));
   const head = d.cols.map((c) => `<th class="num">${esc(c.label)}</th><th class="num">Change</th>`).join("");
   const cells = (r) => d.cols.map((c) => `<td class="num">${val(r[c.key])}</td><td class="num ${(ddChange(r, c.key) || 0) > 0 ? "delta-up" : ""}">${sign(ddChange(r, c.key))}</td>`).join("");
-  $("#dd-charts").style.display = song ? "" : "none";
+  $("#dd-charts").style.display = $("#dd-compare").style.display = song ? "" : "none";
+  if (song) loadCompare(song);
   if (song) {
     $("#dd-song").textContent = d.song ? d.song.title : "Song";
     // Graphs: the chosen metric's total by day (line) and its gain each day (bars), oldest day first.
@@ -350,6 +351,114 @@ $("#dd-next").onclick = () => { DD.offset += DD.limit; loadDaily(); };
 $("#dd-back").onclick = () => { DD.song = ""; loadDaily(); };
 $("#dd-metric").addEventListener("click", (e) => { const b = e.target.closest("button[data-m]"); if (b) { DD.metric = b.dataset.m; loadDaily(); } });
 $("#dd-table").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-song]"); if (tr) { DD.song = tr.dataset.song; loadDaily(); } });
+
+/* ---------- Cross-platform comparison of one song ---------- */
+const PCOLOR = { youtube: "#e62117", ytmusic: "#ff6b81", spotify: "#1db954", jiosaavn: "#2bc5b4", deezer: "#a238ff" };
+function multiLine(el, series, { height = 220 } = {}) {  // series: [{name, color, points:[{x, y}]}], shared x (days)
+  el.innerHTML = "";
+  const xs = [...new Set(series.flatMap((s) => s.points.map((p) => p.x)))].sort();
+  const ys = series.flatMap((s) => s.points.map((p) => p.y));
+  if (!xs.length || !ys.length) { el.innerHTML = `<div class="empty">Daily gains appear after two consecutive days of readings.</div>`; return; }
+  const yMax = niceMax(Math.max(...ys, 1)), yMin = Math.min(0, ...ys);
+  const W = el.clientWidth || 600, H = height, m = { t: 12, r: 14, b: 26, l: 52 }, iw = W - m.l - m.r, ih = H - m.t - m.b;
+  const X = (x) => m.l + (xs.length === 1 ? iw / 2 : (iw * xs.indexOf(x)) / (xs.length - 1)), Y = (y) => m.t + ih - (ih * (y - yMin)) / (yMax - yMin || 1);
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, height: H, role: "img", "aria-label": "Daily gain by platform" }, el);
+  const g = svgEl("g", { class: "grid" }, svg), ax = svgEl("g", { class: "axis" }, svg);
+  for (let i = 0; i <= 4; i++) { const v = yMin + ((yMax - yMin) * i) / 4, y = Y(v);
+    svgEl("line", { x1: m.l, x2: W - m.r, y1: y, y2: y }, g); svgEl("text", { x: m.l - 8, y: y + 4, "text-anchor": "end" }, ax).textContent = compact(v); }
+  const step = Math.max(1, Math.ceil(xs.length / 8));
+  xs.forEach((x, i) => { if (i % step === 0) svgEl("text", { x: X(x), y: H - 8, "text-anchor": "middle" }, ax).textContent = x.slice(5); });
+  series.forEach((s) => {
+    const pts = s.points.filter((p) => p.y != null);
+    if (pts.length > 1) svgEl("path", { d: pts.map((p, i) => `${i ? "L" : "M"}${X(p.x)},${Y(p.y)}`).join(" "), fill: "none", stroke: s.color, "stroke-width": 2 }, svg);
+    pts.forEach((p) => { const c = svgEl("circle", { cx: X(p.x), cy: Y(p.y), r: 3, fill: s.color }, svg); svgEl("title", {}, c).textContent = `${s.name} ${p.x}: ${p.y > 0 ? "+" : ""}${fmt(p.y)}`; });
+  });
+}
+async function loadCompare(song) {
+  const d = await api(`/api/song/compare?id=${song}`);
+  const sign = (v) => v == null ? '<span class="muted">–</span>' : (v > 0 ? "+" : "") + (Math.abs(v) >= 1e5 ? compact(v) : fmt(v));
+  const val = (v) => v == null ? '<span class="muted">–</span>' : (Math.abs(v) >= 1e5 ? compact(v) : fmt(v));
+  $("#dd-compare-note").textContent = d.total_plays ? `${compact(d.total_plays)} views and plays in all (Deezer is a rank, not counted)` : "";
+  $("#dd-compare-table").innerHTML = `<thead><tr><th>Platform</th><th>Released there</th><th class="num">Latest</th><th class="num">Gain last day</th><th class="num">Gain 7 days</th><th class="num">Share of plays</th><th>Link</th></tr></thead><tbody>` +
+    d.platforms.map((p) => `<tr><td><span class="dot" style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${PCOLOR[p.platform]};margin-right:6px"></span>${esc(p.label)}${p.items > 1 ? ` <span class="muted">(${p.items})</span>` : ""}</td>
+      <td class="muted">${esc(p.released || "–")}</td><td class="num">${val(p.latest)}${p.unit === "rank" && p.latest != null ? ' <span class="muted">rank</span>' : ""}</td>
+      <td class="num">${sign(p.gain_1d)}</td><td class="num">${sign(p.gain_7d)}</td>
+      <td class="num">${p.share == null ? '<span class="muted">–</span>' : `<span class="share-bar" style="--w:${p.share}%;--c:${PCOLOR[p.platform]}">${p.share}%</span>`}</td>
+      <td>${p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener">open ↗</a>` : '<span class="muted">not found yet</span>'}</td></tr>`).join("") + "</tbody>";
+  const series = d.platforms.filter((p) => p.unit !== "rank").map((p) => ({ name: p.label, color: PCOLOR[p.platform], points: p.series.filter((x) => x.gain != null).map((x) => ({ x: x.day, y: x.gain })) }))
+    .filter((s) => s.points.length);
+  multiLine($("#dd-compare-chart"), series);
+  $("#dd-compare-legend").innerHTML = series.map((s) => `<span><span style="display:inline-block;width:12px;height:3px;background:${s.color};vertical-align:middle;margin-right:5px"></span>${esc(s.name)}</span>`).join("");
+}
+
+/* ---------- Platform data: every item of a platform, its dates and its stats on a day vs another ---------- */
+const PD = { platform: "youtube", day: "", cmp: "", label: "", rfrom: "", rto: "", read: "", q: "", sort: "", order: "desc", offset: 0, limit: 100 };
+const PD_COLS = { views: "Views", likes: "Likes", comments: "Comments", plays: "Plays", rank: "Rank" };
+const pdParams = (extra = {}) => new URLSearchParams(Object.fromEntries(Object.entries({ platform: PD.platform, day: PD.day, cmp: PD.cmp, label: PD.label,
+  rel_from: PD.rfrom, rel_to: PD.rto, read: PD.read, q: PD.q, sort: PD.sort, order: PD.order, ...extra }).filter(([, v]) => v !== "" && v != null)));
+async function loadPData() {
+  const d = await api(`/api/items?${pdParams({ offset: PD.offset, limit: PD.limit })}`);
+  PD.day = d.day; PD.cmp = d.cmp || ""; PD.sort = d.sort; PD.order = d.order;
+  $("#pd-tabs").innerHTML = d.platforms.map((p) => `<button class="tab${p.key === d.platform ? " active" : ""}" data-pd="${p.key}">${esc(p.label)}</button>`).join("");
+  const opts = (sel, withNone) => (withNone ? `<option value="">–</option>` : "") + d.days.slice().reverse().map((x) => `<option ${x === sel ? "selected" : ""}>${x}</option>`).join("");
+  $("#pd-day").innerHTML = opts(d.day) || `<option>${esc(d.day)}</option>`; $("#pd-cmp").innerHTML = opts(d.cmp, true);
+  if ($("#pd-label").options.length === 1) d.labels.forEach((l) => $("#pd-label").insertAdjacentHTML("beforeend", `<option>${esc(l)}</option>`));
+  $("#pd-csv").href = `/api/items.csv?${pdParams()}`;
+  const t = d.totals || {}, sign = (v) => v == null ? "–" : (v > 0 ? "+" : "") + (Math.abs(v) >= 1e5 ? compact(v) : fmt(v));
+  const tiles = [["Items", fmt(d.total), `${fmt(d.tracked)} tracked · ${d.tracked ? Math.round((100 * d.total) / d.tracked) : 0}% read on ${d.day}`]];
+  d.metrics.filter((m) => m !== "rank").forEach((m) => tiles.push([`${PD_COLS[m]} on ${d.day}`, compact(t[m]), d.cmp ? `${sign(t[m + "_change"])} vs ${d.cmp}` : "no comparison day"]));
+  tiles.push(["Released that day", fmt(t.new_on_day || 0), `${d.label} items released on ${d.day}`]);
+  $("#pd-kpis").innerHTML = tiles.slice(0, 6).map(([l, v, x]) => `<div class="card kpi"><div class="label">${esc(l)}</div><div class="value">${esc(v)}</div><div class="sub">${esc(x)}</div></div>`).join("");
+  const head = [["song", "Song"], ["title", d.platform === "youtube" ? "Upload" : "Title"], ["channel", d.platform === "youtube" ? "Channel" : "Label"], ["released", "Released"], ["first_seen", "First seen"], ["days_tracked", "Days tracked"]]
+    .concat(d.metrics.flatMap((m) => [[m, `${PD_COLS[m]} ${d.day.slice(5)}`], [m + "_change", d.cmp ? `Change vs ${d.cmp.slice(5)}` : "Change"]]));
+  const arrow = (k) => (k === d.sort ? (d.order === "asc" ? " ↑" : " ↓") : "");
+  const num = (v) => v == null ? '<span class="muted">–</span>' : (Math.abs(v) >= 1e5 ? compact(v) : fmt(v));
+  $("#pd-table").innerHTML = `<thead><tr>${head.map(([k, l]) => `<th class="sortable${["days_tracked"].includes(k) || d.metrics.some((m) => k.startsWith(m)) ? " num" : ""}" data-sort="${k}">${esc(l)}${arrow(k)}</th>`).join("")}</tr></thead><tbody>` +
+    (d.rows.map((r) => `<tr class="click" data-item="${r.id}"><td>${r.song ? `<div class="t1">${esc(r.song)}</div>` : '<span class="muted">not a song</span>'}</td>
+      <td><a href="${esc(r.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc((r.title || "").slice(0, 80))}</a>${r.asset_type ? `<div class="t2">${esc(r.asset_type)}</div>` : ""}</td>
+      <td>${esc(r.channel || "")}${r.label ? `<div class="t2">${esc(r.label)}</div>` : ""}</td><td class="muted">${esc(r.released || "–")}</td><td class="muted">${esc(r.first_seen || "–")}</td>
+      <td class="num">${fmt(r.days_tracked)}</td>${d.metrics.map((m) => `<td class="num">${num(r[m])}</td><td class="num ${(r[m + "_change"] || 0) > 0 ? "delta-up" : ""}">${r[m + "_change"] == null ? '<span class="muted">–</span>' : sign(r[m + "_change"])}</td>`).join("")}</tr>`).join("")
+      || `<tr><td class="empty" colspan="${head.length}">No ${esc(d.label)} items match.</td></tr>`) + "</tbody>";
+  $("#pd-count").textContent = d.total ? `${fmt(PD.offset + 1)}–${fmt(Math.min(PD.offset + PD.limit, d.total))} of ${fmt(d.total)}` : "0";
+  $("#pd-prev").disabled = $("#pd-first").disabled = PD.offset === 0; $("#pd-next").disabled = PD.offset + PD.limit >= d.total;
+}
+async function openItem(id) {
+  const d = await api(`/api/items/history?id=${id}`), it = d.item, ms = d.metrics;
+  let metric = ms[0];
+  const render = () => {
+    const pts = d.history.filter((h) => h[metric] != null);
+    lineChart($("#it-total"), pts.map((h) => ({ x: h.day, y: h[metric] })), { label: PD_COLS[metric] || metric });
+    barChart($("#it-gain"), d.history.map((h) => ({ label: h.day.slice(5), day: h.day, value: h[metric + "_change"] || 0, missing: h[metric + "_change"] == null })),
+      { tip: (b) => `<b>${esc(b.day)}</b><br>${b.missing ? "no reading the day before" : (b.value > 0 ? "+" : "") + fmt(b.value)}` });
+    document.querySelectorAll("#it-metric button").forEach((b) => b.classList.toggle("on", b.dataset.m === metric));
+  };
+  $("#drawer").innerHTML = `<div class="row"><div style="flex:1"><h1>${esc(it.title || "")}</h1><div class="muted">${esc(it.platform)} · ${esc(it.channel || "")}</div></div>
+      ${it.song_id ? `<button class="small" id="it-song">Song details</button>` : ""}<button class="small" id="dr-close">✕</button></div>
+    <dl class="kv"><dt>Song</dt><dd>${esc(it.song || "–")}</dd><dt>Released</dt><dd>${esc(it.released || "–")}</dd><dt>First seen</dt><dd>${esc(it.first_seen || "–")}</dd>
+      <dt>Link</dt><dd><a href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.url || "")}</a></dd><dt>Days with stats</dt><dd>${fmt(d.history.length)}</dd></dl>
+    ${ms.length ? `<div class="seg" id="it-metric" style="margin:8px 0">${ms.map((m) => `<button class="small" data-m="${m}">${esc(PD_COLS[m] || m)}</button>`).join("")}</div>
+      <h3>Total by day</h3><div class="chart" id="it-total"></div><h3>Change each day</h3><div class="chart" id="it-gain"></div>` : '<p class="muted">This platform has no daily numbers (metadata only).</p>'}
+    <h3>Every day</h3><div class="card flush"><table><thead><tr><th>Day</th>${ms.map((m) => `<th class="num">${esc(PD_COLS[m] || m)}</th><th class="num">Change</th>`).join("")}</tr></thead><tbody>
+      ${d.history.slice().reverse().map((h) => `<tr><td>${esc(h.day)}</td>${ms.map((m) => `<td class="num">${h[m] == null ? "–" : fmt(h[m])}</td><td class="num">${h[m + "_change"] == null ? "–" : (h[m + "_change"] > 0 ? "+" : "") + fmt(h[m + "_change"])}</td>`).join("")}</tr>`).join("") || `<tr><td class="empty">No readings yet.</td></tr>`}</tbody></table></div>`;
+  $("#drawer").classList.add("open"); $("#drawer-bg").classList.add("open");
+  $("#dr-close").onclick = closeDrawer;
+  if ($("#it-song")) $("#it-song").onclick = () => openTrack(it.song_id);
+  if (ms.length) { $("#it-metric").onclick = (e) => { const b = e.target.closest("button[data-m]"); if (b) { metric = b.dataset.m; render(); } }; render(); }
+}
+$("#pd-tabs").addEventListener("click", (e) => { const b = e.target.closest("[data-pd]"); if (b) { Object.assign(PD, { platform: b.dataset.pd, day: "", cmp: "", sort: "", offset: 0 }); loadPData(); } });
+[["day", "pd-day"], ["cmp", "pd-cmp"], ["label", "pd-label"], ["rfrom", "pd-rfrom"], ["rto", "pd-rto"], ["read", "pd-read"]]
+  .forEach(([k, id]) => ($(`#${id}`).onchange = (e) => { PD[k] = e.target.value; PD.offset = 0; loadPData(); }));
+$("#pd-limit").onchange = (e) => { PD.limit = +e.target.value; PD.offset = 0; loadPData(); };
+let pdTimer;
+$("#pd-q").addEventListener("input", (e) => { clearTimeout(pdTimer); pdTimer = setTimeout(() => { PD.q = e.target.value; PD.offset = 0; loadPData(); }, 300); });
+$("#pd-first").onclick = () => { PD.offset = 0; loadPData(); };
+$("#pd-prev").onclick = () => { PD.offset = Math.max(0, PD.offset - PD.limit); loadPData(); };
+$("#pd-next").onclick = () => { PD.offset += PD.limit; loadPData(); };
+$("#pd-table").addEventListener("click", (e) => {
+  const th = e.target.closest("th[data-sort]");
+  if (th) { const k = th.dataset.sort; PD.order = PD.sort === k && PD.order === "desc" ? "asc" : "desc"; PD.sort = k; PD.offset = 0; loadPData(); return; }
+  const tr = e.target.closest("tr[data-item]"); if (tr) openItem(tr.dataset.item);
+});
 
 /* ---------- Player ---------- */
 // Embedded players: YouTube plays the full video; Spotify plays the full track when the viewer is

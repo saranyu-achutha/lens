@@ -331,3 +331,8 @@ a.mchip:hover { border-color: var(--accent); text-decoration: none; }
 .kpi-song { cursor: pointer; }
 .kpi-song .value { font-size: 20px; line-height: 34px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .kpi-song:hover .value { color: var(--accent, inherit); }
+
+/* Platform data: header stays visible while scrolling long tables */
+table.sticky-head thead th { position: sticky; top: 0; background: var(--surface-2, var(--surface)); z-index: 1; }
+.share-bar { display: inline-block; min-width: 64px; padding: 1px 6px; border-radius: 4px; text-align: right;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--c) 35%, transparent) var(--w), transparent var(--w)); }

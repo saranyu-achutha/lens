@@ -542,6 +542,153 @@ def api_tracks(conn, qs):
             "labels": [lb["name"] for lb in cfg["youtube"]["labels"]]}
 
 
+# Platform data page: every item (video / track) of one platform with its dates and its stats on a chosen day,
+# compared with another day. Filtering, sorting and paging run in SQL, so only one page leaves the server.
+ITEM_PLATFORMS = {  # platform: (label, metrics, review states that count)
+    "youtube": ("YouTube", ["views", "likes", "comments"], ("auto", "approved", "song")),
+    "ytmusic": ("YouTube Music", ["plays"], ("auto", "approved")),
+    "spotify": ("Spotify", ["plays"], ("auto", "approved")),
+    "jiosaavn": ("JioSaavn", ["plays"], ("auto", "approved")),
+    "apple": ("Apple Music", [], ("auto", "approved")),
+    "deezer": ("Deezer", ["rank"], ("auto", "approved")),
+}
+
+
+def _items_query(conn, qs):
+    plat = qs.get("platform") if qs.get("platform") in ITEM_PLATFORMS else "youtube"
+    _, metrics, states = ITEM_PLATFORMS[plat]
+    # Days this platform has readings for (uses the day-first index); the default is its latest.
+    days = [r[0] for r in conn.execute("""SELECT DISTINCT s.capture_date FROM snapshot s JOIN platform_item p ON p.id=s.platform_item_id
+                                          WHERE s.metric=? AND p.platform=? ORDER BY 1""", (metrics[0], plat))] if metrics else []
+    day = qs.get("day") or (days[-1] if days else date.today().isoformat())
+    cmp = qs.get("cmp") or max((d for d in days if d < day), default=None)
+    joins, cols, args = [], [], []
+    for m in metrics:
+        joins.append(f"LEFT JOIN snapshot a_{m} ON a_{m}.platform_item_id=p.id AND a_{m}.metric=? AND a_{m}.capture_date=?")
+        joins.append(f"LEFT JOIN snapshot b_{m} ON b_{m}.platform_item_id=p.id AND b_{m}.metric=? AND b_{m}.capture_date=?")
+        args += [m, day, m, cmp or ""]
+        cols.append(f"a_{m}.value {m}, CASE WHEN a_{m}.value IS NOT NULL AND b_{m}.value IS NOT NULL THEN a_{m}.value - b_{m}.value END {m}_change")
+    where = ["p.platform=?"]
+    wargs = [plat]
+    if plat == "youtube":  # every collected upload of the period; linked ones show their song
+        where.append("p.published_at >= ?")
+        wargs.append(config.window(config.load())[0])
+    else:
+        where.append(f"p.track_id IS NOT NULL AND p.review_state IN ({','.join('?' * len(states))})")
+        wargs += list(states)
+    if qs.get("q"):
+        where.append("(p.title LIKE ? OR t.title LIKE ?)")
+        wargs += [f"%{qs['q']}%"] * 2
+    lab = config.channel_labels(config.load())
+    if qs.get("label"):
+        chans = [c for c, l in lab.items() if l == qs["label"]] or ["-"]
+        ch_expr = "p.channel" if plat == "youtube" else "(SELECT y.channel FROM platform_item y WHERE y.track_id=p.track_id AND y.platform='youtube' ORDER BY y.published_at LIMIT 1)"
+        where.append(f"{ch_expr} IN ({','.join('?' * len(chans))})")
+        wargs += chans
+    if qs.get("rel_from"):
+        where.append("substr(p.published_at,1,10) >= ?")
+        wargs.append(qs["rel_from"])
+    if qs.get("rel_to"):
+        where.append("substr(p.published_at,1,10) <= ?")
+        wargs.append(qs["rel_to"])
+    all_where = list(where)
+    if metrics and qs.get("read") != "all":  # default: only items read on the chosen day
+        where.append(f"a_{metrics[0]}.value IS NOT NULL")
+    base = f"""FROM platform_item p LEFT JOIN track t ON t.id=p.track_id {' '.join(joins)} WHERE {' AND '.join(where)}"""
+    base_all = f"""FROM platform_item p LEFT JOIN track t ON t.id=p.track_id {' '.join(joins)} WHERE {' AND '.join(all_where)}"""
+    select = f"""SELECT p.id, p.platform_id, p.title, p.url, p.channel, p.asset_type, substr(p.published_at,1,10) released,
+                        substr(p.first_seen_at,1,10) first_seen, p.track_id song_id, t.title song,
+                        (SELECT count(DISTINCT capture_date) FROM snapshot s WHERE s.platform_item_id=p.id) days_tracked
+                        {', ' + ', '.join(cols) if cols else ''} {base}"""
+    sortable = {"song", "title", "released", "first_seen", "days_tracked", "channel"} | set(metrics) | {f"{m}_change" for m in metrics}
+    sort = qs.get("sort") if qs.get("sort") in sortable else (f"{metrics[0]}_change" if metrics else "released")
+    order = "ASC" if qs.get("order") == "asc" else "DESC"
+    return plat, metrics, day, cmp, days, select, (base, base_all), args + wargs, sort, order
+
+
+# Cross-platform comparison of one song: per platform its release date, latest total, recent gains, share of all
+# plays, link, and the daily series (from song_daily) for a chart.
+COMPARE = [("youtube", "YouTube", "yt_views", "views"), ("ytmusic", "YouTube Music", "ytm_plays", "plays"),
+           ("spotify", "Spotify", "sp_plays", "plays"), ("jiosaavn", "JioSaavn", "js_plays", "plays"), ("deezer", "Deezer", "dz_rank", "rank")]
+
+
+def api_song_compare(conn, qs):
+    sid = int(qs["id"])
+    song_daily.ensure(conn)
+    days = q(conn, "SELECT * FROM song_daily WHERE song_id=? ORDER BY day", (sid,))
+    t = q(conn, "SELECT id, title FROM track WHERE id=?", (sid,))
+    out = []
+    for plat, label, col, unit in COMPARE:
+        info = q(conn, f"""SELECT min(substr(published_at,1,10)) released, count(*) items,
+                              (SELECT url FROM platform_item x WHERE x.track_id=? AND x.platform=? ORDER BY
+                                 {"(SELECT max(value) FROM snapshot s WHERE s.platform_item_id=x.id AND s.metric='views') DESC" if plat == "youtube" else "x.id"} LIMIT 1) url
+                           FROM platform_item WHERE track_id=? AND platform=?
+                             AND (platform NOT IN ('youtube','spotify') OR review_state IN ('auto','approved','song'))""", (sid, plat, sid, plat))[0]
+        series = [{"day": d["day"], "total": d.get(col), "gain": d.get(col + "_gain") if col != "dz_rank" else None} for d in days]
+        have = [x for x in series if x["total"] is not None]
+        last = have[-1] if have else None
+        week = [x["gain"] for x in series[-7:] if x["gain"] is not None]
+        out.append({"platform": plat, "label": label, "unit": unit, "released": info["released"], "items": info["items"], "url": info["url"],
+                    "latest": last["total"] if last else None, "latest_day": last["day"] if last else None,
+                    "gain_1d": series[-1]["gain"] if series else None, "gain_7d": sum(week) if week else None, "series": series})
+    plays = [o for o in out if o["unit"] != "rank" and o["latest"]]
+    tot = sum(o["latest"] for o in plays)
+    for o in out:
+        o["share"] = round(100 * o["latest"] / tot, 1) if tot and o in plays else None
+    return {"song": t[0] if t else None, "platforms": out, "days": [d["day"] for d in days], "total_plays": tot}
+
+
+def api_items(conn, qs):
+    plat, metrics, day, cmp, days, select, base, args, sort, order = _items_query(conn, qs)
+    off, lim = max(int(qs.get("offset") or 0), 0), min(max(int(qs.get("limit") or 100), 1), 500)
+    rows = q(conn, f"{select} ORDER BY {sort} IS NULL, {sort} {order} LIMIT ? OFFSET ?", args + [lim, off])
+    lab = config.channel_labels(config.load())
+    for r in rows:
+        r["label"] = lab.get(r["channel"], "")
+    base, base_all = base
+    agg = "".join(f", sum(a_{m}.value) {m}, sum(CASE WHEN a_{m}.value IS NOT NULL AND b_{m}.value IS NOT NULL THEN a_{m}.value - b_{m}.value END) {m}_change"
+                  for m in metrics if m != "rank")
+    tot = q(conn, f"SELECT count(*) n{agg}, sum(substr(p.published_at,1,10)=?) new_on_day {base}", [day] + args)[0]
+    tracked = q(conn, f"SELECT count(*) n {base_all}", args)[0]["n"] if metrics and qs.get("read") != "all" else tot["n"]
+    return {"platform": plat, "label": ITEM_PLATFORMS[plat][0], "metrics": metrics, "day": day, "cmp": cmp, "days": days,
+            "sort": sort, "order": order.lower(), "total": tot["n"], "totals": tot, "tracked": tracked, "rows": rows,
+            "platforms": [{"key": k, "label": v[0]} for k, v in ITEM_PLATFORMS.items()],
+            "labels": sorted(set(lab.values()))}
+
+
+def api_item_history(conn, qs):
+    iid = int(qs["id"])
+    item = q(conn, """SELECT p.id, p.platform, p.platform_id, p.title, p.url, p.channel, substr(p.published_at,1,10) released,
+                             substr(p.first_seen_at,1,10) first_seen, t.title song, p.track_id song_id
+                      FROM platform_item p LEFT JOIN track t ON t.id=p.track_id WHERE p.id=?""", (iid,))
+    if not item:
+        raise ValueError("item not found")
+    rows = q(conn, "SELECT capture_date day, metric, value FROM snapshot WHERE platform_item_id=? ORDER BY capture_date", (iid,))
+    by = {}
+    for r in rows:
+        by.setdefault(r["day"], {"day": r["day"]})[r["metric"]] = r["value"]
+    hist = [by[d] for d in sorted(by)]
+    for i, h in enumerate(hist):  # change from the previous calendar day only (a gap leaves it empty)
+        prev = hist[i - 1] if i and (date.fromisoformat(h["day"]) - date.fromisoformat(hist[i - 1]["day"])).days == 1 else None
+        for m in ITEM_PLATFORMS.get(item[0]["platform"], ("", [], ()))[1]:
+            h[m + "_change"] = (h[m] - prev[m]) if prev and h.get(m) is not None and prev.get(m) is not None else None
+    return {"item": item[0], "metrics": ITEM_PLATFORMS.get(item[0]["platform"], ("", [], ()))[1], "history": hist}
+
+
+def items_csv(conn, qs):
+    plat, metrics, day, cmp, days, select, _, args, sort, order = _items_query(conn, qs)
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    head = ["item_id", "platform_id", "song_id", "song", "title", "url", "channel", "released", "first_seen", "days_tracked"]
+    head += [x for m in metrics for x in (f"{m} {day}", f"{m} change vs {cmp}")]
+    w.writerow(head)
+    for r in conn.execute(f"{select} ORDER BY {sort} IS NULL, {sort} {order}", args):
+        r = dict(r)
+        w.writerow([r["id"], r["platform_id"], r["song_id"], r["song"], r["title"], r["url"], r["channel"], r["released"],
+                    r["first_seen"], r["days_tracked"]] + [x for m in metrics for x in (r[m], r[m + "_change"])])
+    return buf.getvalue(), f"market_lens_{plat}_{day}.csv"
+
+
 def api_track(conn, qs):
     tid = int(qs["id"])
     t = q(conn, TRACKS_SQL + " WHERE id=?", tracks_args() + [tid])
@@ -1290,7 +1437,7 @@ def api_youtube_status(conn, _):
 GET = {"/api/coverage": api_coverage, "/api/insights": api_insights, "/api/insights/song": api_insights_song, "/api/ai/status": api_ai_status, "/api/ai/assist": api_ai_assist,
        "/api/meta/top": api_meta_top, "/api/meta/detail": api_meta_detail,
        "/api/merge/suggestions": api_merge_suggestions, "/api/status": api_status, "/api/overview": api_overview, "/api/tracks": api_tracks,
-       "/api/track": api_track, "/api/platform": api_platform, "/api/report": api_report, "/api/daily": api_daily, "/api/runs": api_runs, "/api/seeds": api_seeds,
+       "/api/track": api_track, "/api/platform": api_platform, "/api/report": api_report, "/api/daily": api_daily, "/api/items": api_items, "/api/song/compare": api_song_compare, "/api/items/history": api_item_history, "/api/runs": api_runs, "/api/seeds": api_seeds,
        "/api/artist_search": api_artist_search, "/api/health": api_health, "/api/outputs": api_outputs,
        "/api/outputs/preview": api_output_preview, "/api/raw": api_raw, "/api/raw/item": api_raw_item,
        "/api/matching": api_matching, "/api/matching/candidates": api_match_candidates,
@@ -1380,6 +1527,11 @@ class Handler(BaseHTTPRequestHandler):
             songs.write_csv(rows, buf)
             return self._send(200, buf.getvalue().encode("utf-8-sig"), "text/csv; charset=utf-8",
                               {"Content-Disposition": f'attachment; filename="market_lens_songs_{date.today()}.csv"'})
+        if url.path == "/api/items.csv":
+            conn = db.connect(str(config.DB_FILE))
+            text, name = items_csv(conn, qs)
+            conn.close()
+            return self._send(200, text.encode("utf-8-sig"), "text/csv; charset=utf-8", {"Content-Disposition": f'attachment; filename="{name}"'})
         if url.path == "/api/daily.csv":
             conn = db.connect(str(config.DB_FILE))
             text, name = daily_csv(conn, qs)
