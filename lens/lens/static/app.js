@@ -75,7 +75,7 @@ async function refreshStatus() {
   if (isClient()) {  // no jobs, schedule, review or settings for the client login
     $("#side-asof").textContent = STATUS.counts.last_capture ? `Data as of ${STATUS.counts.last_capture}` : "";
     $("#side-scope").textContent = STATUS.config.youtube.labels.filter((l) => l.enabled).map((l) => l.name).join(", ") || "none";
-    $("#top-lastok").textContent = STATUS.last_ok ? `Updated ${new Date(STATUS.last_ok).toLocaleString()}` : "";
+    $("#top-lastok").textContent = STATUS.last_ok ? `Updated ${new Date(STATUS.last_ok).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}` : "";
     return;
   }
   const j = STATUS.job, pill = $("#job-pill");
@@ -88,7 +88,7 @@ async function refreshStatus() {
   if (sc.youtube.enabled) parts.push(`YouTube every ${sc.youtube.every_hours} h`);
   sp.className = "pill" + (parts.length ? " ok" : "");
   sp.innerHTML = `<span class="dot"></span>${parts.length ? parts.join(" · ") : "Schedule off"}`;
-  $("#top-lastok").textContent = STATUS.last_ok ? `Last successful run ${new Date(STATUS.last_ok).toLocaleString()}` : "";
+  $("#top-lastok").textContent = STATUS.last_ok ? `Last run ${new Date(STATUS.last_ok).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}` : "";
   $("#side-asof").textContent = STATUS.counts.last_capture ? `Data as of ${STATUS.counts.last_capture}` : "";
   $("#side-scope").textContent = STATUS.config.youtube.labels.filter((l) => l.enabled).map((l) => l.name).join(", ") || "none";
   $("#top-run").disabled = j.running;

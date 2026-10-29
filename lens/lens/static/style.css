@@ -542,3 +542,128 @@ nav.side a.nav.active { background: linear-gradient(90deg, color-mix(in srgb, va
 .drawer { background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 6%, var(--surface-1)), var(--surface-1) 240px); }
 .pill { backdrop-filter: blur(6px); }
 .page-head h1 { display: inline-block; }
+
+/* ===== Gradient theme refinements ===== */
+/* Titles: one full accent gradient (a text-to-accent fade left short words half coloured) */
+.page-head h1, #page-dashboard .page-head h1, #page-dev .page-head h1 {
+  background: linear-gradient(95deg, var(--accent) 0%, var(--accent-2) 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+/* Top bar: one line, no wrapping */
+#top-lastok { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; font-size: 12.5px; }
+@media (max-width: 1350px) { #top-lastok { display: none; } }
+header.top { flex-wrap: nowrap; }
+/* Tabs scroll sideways instead of running off the page */
+.tabs { overflow-x: auto; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tab { flex: none; }
+/* Table headers carry a faint accent gradient */
+thead th { background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 5%, var(--surface-1)), var(--surface-1)); }
+/* Live console: gradient frame */
+.console { border: 1px solid transparent; background: linear-gradient(var(--console-bg), var(--console-bg)) padding-box,
+           linear-gradient(135deg, color-mix(in srgb, var(--accent) 55%, transparent), color-mix(in srgb, var(--accent-2) 45%, transparent)) border-box; }
+/* Selection and focus follow the gradient accents */
+::selection { background: color-mix(in srgb, var(--accent-2) 30%, transparent); }
+input:focus, select:focus, textarea:focus { border-color: color-mix(in srgb, var(--accent) 60%, var(--accent-2)); }
+/* Secondary buttons: soft gradient on hover */
+button:not(.primary):not(.pbtn):not(.tab):hover, .btn:hover { background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 10%, var(--surface-2)), color-mix(in srgb, var(--accent-2) 8%, var(--surface-2))); text-decoration: none; }
+/* Song profile tiles and source cards pick up the glass look */
+.sp-tile { background: linear-gradient(150deg, color-mix(in srgb, var(--c, var(--accent)) 10%, var(--surface-1)), var(--surface-1) 70%); }
+.health-now { background: color-mix(in srgb, var(--surface-2) 80%, transparent); }
+
+/* ===== Saranyu (Lumos) palette: pink -> purple -> cyan, for both themes ===== */
+:root {
+  --bg: #07070c;
+  --surface-1: #0f0f17;
+  --surface-2: #161621;
+  --surface-3: #21212f;
+  --border: #23222f;
+  --text-primary: #f4f2fa;
+  --text-secondary: #bcb7cc;
+  --text-muted: #817c95;
+  --accent: #8b5cf6;
+  --accent-2: #ff2d87;
+  --accent-3: #22d3ee;
+  --accent-soft: rgba(139, 92, 246, .16);
+  --series-1: #b795ff;
+  --series-1-hover: #d3bdff;
+  --st-new-text: #c9b3ff;
+  --header-bg: rgba(7, 7, 12, .72);
+  --bg-grad: linear-gradient(160deg, #0b0816 0%, #07070c 45%, #060a10 100%);
+  --glow: rgba(255, 45, 135, .16);
+  --glow-2: rgba(139, 92, 246, .20);
+  --glow-3: rgba(34, 211, 238, .09);
+  --card-sheen: linear-gradient(160deg, rgba(255, 255, 255, .05), rgba(255, 255, 255, .012) 60%);
+  --brand-grad: linear-gradient(135deg, #ff2d87 0%, #8b5cf6 50%, #22d3ee 100%);
+  --brand-grad-2: linear-gradient(135deg, #ff2d87 0%, #8b5cf6 100%);
+  --brand-text: linear-gradient(90deg, #ff6fb1, #b795ff 55%, #22d3ee);
+  --glass: .74;
+  --head-font: "Space Grotesk", "Inter", system-ui, sans-serif;
+}
+:root[data-theme="light"] {
+  --bg: #fbf9ff;
+  --surface-1: #ffffff;
+  --surface-2: #f6f3fd;
+  --surface-3: #ebe6f7;
+  --border: #e9e4f4;
+  --text-primary: #16121f;
+  --text-secondary: #463f57;
+  --text-muted: #736c86;
+  --accent: #7c3aed;
+  --accent-2: #e11d74;
+  --accent-3: #0891b2;
+  --accent-soft: rgba(124, 58, 237, .09);
+  --series-1: #7c3aed;
+  --series-1-hover: #6d28d9;
+  --st-new-text: #6d28d9;
+  --header-bg: rgba(251, 249, 255, .78);
+  --bg-grad: linear-gradient(150deg, #fff3f9 0%, #f7f3ff 45%, #eefbfe 100%);
+  --glow: rgba(255, 45, 135, .12);
+  --glow-2: rgba(139, 92, 246, .14);
+  --glow-3: rgba(34, 211, 238, .12);
+  --card-sheen: linear-gradient(160deg, rgba(255, 255, 255, .92), rgba(255, 255, 255, .6));
+  --brand-grad: linear-gradient(135deg, #e11d74 0%, #7c3aed 50%, #0891b2 100%);
+  --brand-grad-2: linear-gradient(135deg, #e11d74 0%, #7c3aed 100%);
+  --brand-text: linear-gradient(90deg, #e11d74, #7c3aed 55%, #0891b2);
+  --glass: .74;
+}
+h1, h2, .kpi .value, .brand b, .sp-v { font-family: var(--head-font); }
+h1 { letter-spacing: -.02em; }
+.brand .logo { background: var(--brand-grad); box-shadow: 0 6px 22px rgba(255, 45, 135, .35); }
+.brand-tag { color: var(--accent-2); border-color: color-mix(in srgb, var(--accent-2) 60%, transparent); }
+.brand b { background: var(--brand-text); -webkit-background-clip: text; background-clip: text; color: transparent; }
+/* Titles in the brand gradient (like "MicroDrama") */
+.page-head h1, #page-dashboard .page-head h1, #page-dev .page-head h1 { background: var(--brand-text); -webkit-background-clip: text; background-clip: text; color: transparent; }
+/* Primary actions: pink -> purple pill with a glow */
+button.primary, .btn.primary { background: var(--brand-grad-2); border: 0; border-radius: 999px; padding-left: 18px; padding-right: 18px;
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--accent-2) 35%, transparent); }
+button.primary:hover { filter: brightness(1.08) saturate(1.1); }
+button, .btn { border-radius: 999px; }
+button.small { border-radius: 999px; }
+.icon-btn { border-radius: 999px; }
+.tab, .seg button { border-radius: 0; }
+.seg button { border-radius: 999px; }
+/* Navigation and tabs */
+nav.side a.nav.active::before { background: var(--brand-grad); }
+nav.side a.nav.active { background: linear-gradient(90deg, color-mix(in srgb, var(--accent-2) 14%, transparent), color-mix(in srgb, var(--accent) 10%, transparent) 60%, transparent); }
+nav.side a.nav.active svg { stroke: var(--accent-2); }
+.tabs .tab.active { border-image: var(--brand-grad) 1; }
+/* Hero bands and tiles */
+#page-dashboard .page-head, #page-dev .page-head {
+  background: radial-gradient(ellipse 60% 120% at 100% 0%, color-mix(in srgb, var(--accent-2) 22%, transparent), transparent 60%),
+              radial-gradient(ellipse 50% 120% at 0% 100%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 60%),
+              radial-gradient(ellipse 40% 100% at 70% 120%, color-mix(in srgb, var(--accent-3) 14%, transparent), transparent 60%),
+              color-mix(in srgb, var(--surface-1) calc(var(--glass) * 100%), transparent); }
+.grid > .kpi:nth-child(6n+1) { --kpi-c: var(--accent-2); }
+.grid > .kpi:nth-child(6n+2) { --kpi-c: var(--accent); }
+.grid > .kpi:nth-child(6n+3) { --kpi-c: var(--accent-3); }
+.grid > .kpi:nth-child(6n+4) { --kpi-c: #ffb547; }
+.grid > .kpi:nth-child(6n+5) { --kpi-c: #ff6fb1; }
+.grid > .kpi:nth-child(6n+6) { --kpi-c: #b795ff; }
+.kpi.target.on { --kpi-c: var(--good); }
+.kpi.target.off { --kpi-c: var(--warning); }
+.bar-fill { background: var(--brand-grad); }
+.pill.run .dot { background: var(--accent-2); }
+.st-new { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+::selection { background: color-mix(in srgb, var(--accent-2) 28%, transparent); }
+input:focus, select:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+.console { background: linear-gradient(var(--console-bg), var(--console-bg)) padding-box, var(--brand-grad) border-box; }
+.selbar { background: linear-gradient(90deg, color-mix(in srgb, var(--accent-2) 10%, transparent), color-mix(in srgb, var(--accent) 10%, transparent)); }
