@@ -8,8 +8,9 @@ const dur = (ms) => { if (!ms) return "–"; const t = Math.round(ms / 1000); re
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const monthLabel = (ym) => (ym && ym.length >= 7 ? `${MONTHS[+ym.slice(5, 7) - 1]} ${ym.slice(2, 4)}` : ym || "?");
 
-// Focus: new releases only (default) or all songs; remembered per browser and sent with every read.
-let FOCUS_ALL = (() => { try { return localStorage.getItem("lens_focus") === "all"; } catch { return false; } })();
+// Focus: new releases only. Older songs (re-uploads of earlier releases) are always hidden unless the
+// "Include older songs" box is ticked; it starts unticked on every load and is not remembered.
+let FOCUS_ALL = false;
 async function api(path, body) {
   const opt = body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
   if (body === undefined && FOCUS_ALL && path.startsWith("/api/")) path += (path.includes("?") ? "&" : "?") + "focus=all";
@@ -48,17 +49,12 @@ function route() {
 }
 window.addEventListener("hashchange", route);
 function renderFocus() {
-  const b = $("#focus-toggle"); if (!b) return;
-  b.innerHTML = FOCUS_ALL ? "Showing: <b>all songs</b>" : "Showing: <b>new releases</b>";
-  b.title = FOCUS_ALL ? "Older songs re-uploaded in the period are included. Click to show new releases only."
-    : "Only songs released in the period (Spotify release date, else the release-year check). Click to include older re-uploads.";
-  b.classList.toggle("on", !FOCUS_ALL);
+  const b = $("#focus-older"); if (b) b.checked = FOCUS_ALL;
 }
-document.addEventListener("click", (e) => {
-  if (!e.target.closest("#focus-toggle")) return;
-  FOCUS_ALL = !FOCUS_ALL;
-  try { localStorage.setItem("lens_focus", FOCUS_ALL ? "all" : "new"); } catch {}
-  renderFocus(); route();
+document.addEventListener("change", (e) => {
+  if (e.target.id !== "focus-older") return;
+  FOCUS_ALL = e.target.checked;
+  route();
 });
 renderFocus();
 
