@@ -1691,6 +1691,18 @@ POST = {"/api/config": post_config, "/api/secrets": post_secrets, "/api/test/spo
         "/api/merge/apply": post_merge_apply, "/api/merge/reject": post_merge_reject, "/api/review/undo": post_undo}
 
 
+LOGOUT_PAGE = b"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Market Lens</title><style>body{font:15px system-ui,sans-serif;background:#141414;color:#eee;display:grid;place-items:center;height:100vh;margin:0}
+a{color:#6aa8ff}</style></head><body><div id="m">Signing out...</div><script>
+// The browser keeps a Basic-auth login until it is closed. Logging in once with a throwaway user that the server accepts
+// only on this request replaces the saved login, so the next visit asks for a username and password again.
+var x = new XMLHttpRequest();
+x.open("GET", "/?signout=" + Date.now(), true, "signout", "signout");
+x.onloadend = function () { document.getElementById("m").innerHTML = 'You are logged out. <a href="/">Sign in again</a>'; };
+x.send();
+</script></body></html>"""
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "MarketLens"
 
@@ -1757,6 +1769,11 @@ class Handler(BaseHTTPRequestHandler):
             conn.close()
 
     def do_GET(self):
+        url = urllib.parse.urlparse(self.path)
+        if url.path == "/logout":  # no login needed: the page itself signs the browser out
+            return self._send(200, LOGOUT_PAGE, "text/html; charset=utf-8")
+        if "signout=" in url.query and self.headers.get("Authorization", "") == "Basic " + base64.b64encode(b"signout:signout").decode():
+            return self._send(200, b"signed out", "text/plain")
         role = self._role()
         if not role:
             return

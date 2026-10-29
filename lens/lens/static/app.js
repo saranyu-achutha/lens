@@ -66,6 +66,7 @@ renderFocus();
 async function refreshStatus() {
   try { STATUS = await api("/api/status"); } catch { return; }
   document.body.classList.toggle("role-client", isClient());
+  $("#who").textContent = isClient() ? "Client" : "Developer";
   if (isClient()) {  // no jobs, schedule, review or settings for the client login
     $("#side-asof").textContent = STATUS.counts.last_capture ? `Data as of ${STATUS.counts.last_capture}` : "";
     $("#side-scope").textContent = STATUS.config.youtube.labels.filter((l) => l.enabled).map((l) => l.name).join(", ") || "none";
