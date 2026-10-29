@@ -100,6 +100,12 @@ DEFAULTS = {
         "spotify_artist_calls_per_run": 700,
         # Optional contact (URL or email) MusicBrainz asks for in the User-Agent; blank sends just "MarketLens/0.1".
         "musicbrainz_contact": "",
+        # Per-run limits of the other sources (each respects its own rate or quota; a backlog spreads over runs).
+        "itunes_per_run": 300,              # ~20 calls a minute
+        "musicbrainz_per_run": 600,         # 1 call a second
+        "ytmusic_searches_per_run": 200,    # YouTube search: ~100 a day per Google project (6 projects)
+        "jiosaavn_searches_per_run": 400,   # ~1 call a second
+        "spotify_plays_tabs": 2,            # headless-browser tabs for Spotify play counts on this machine
     },
     "merge": {
         # Rules that find one song stored as several (Review -> Duplicate songs). action "suggest" lists the
