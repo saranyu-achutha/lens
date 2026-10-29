@@ -203,6 +203,11 @@ def refresh_song_dates_and_status(conn):
                         SELECT CASE WHEN r.album_type='compilation' THEN 'catalogue'
                                     WHEN julianday(substr(track.first_published,1,10)) - julianday(r.release_date)
                                          > {CATALOGUE_DAYS} THEN 'catalogue'
+                                    -- a copy of the same recording on Spotify came out earlier (the original of a new compilation)
+                                    WHEN EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=track.id AND p.platform='spotify'
+                                                   AND p.review_state IN ('auto','approved') AND length(p.published_at) >= 10
+                                                   AND julianday(substr(track.first_published,1,10)) - julianday(substr(p.published_at,1,10))
+                                                       > {CATALOGUE_DAYS}) THEN 'catalogue'
                                     ELSE 'new' END
                         FROM release r WHERE r.id=track.release_id)
                     WHERE release_id IS NOT NULL AND first_published IS NOT NULL
