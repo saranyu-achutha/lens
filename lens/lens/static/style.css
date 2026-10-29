@@ -367,3 +367,5 @@ table.sticky-head thead th { position: sticky; top: 0; background: var(--surface
 .kv { display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; font-size: 13px; margin-top: 10px; align-items: baseline; }
 .warn-text { color: var(--warning); }
 .kpi-text .value { font-size: 20px; line-height: 34px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Client login: developer-only controls hidden (the server also refuses them) */
+body.role-client .dev-only, body.role-client #cat-table .sel, body.role-client #drawer [data-decide], body.role-client #drawer .warn-card { display: none !important; }

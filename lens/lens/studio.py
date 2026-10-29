@@ -3,8 +3,9 @@
 Usage:
     python3 -m lens.studio [--host 127.0.0.1] [--port 3000]
 
-Binding to a non-loopback host requires STUDIO_PASSWORD (env or .env); the UI then
-asks for it via HTTP basic auth (any username).
+Binding to a non-loopback host requires STUDIO_PASSWORD (env or .env); the UI then asks for a login (HTTP basic auth):
+  client     any username with STUDIO_PASSWORD: Client dashboard, Platforms, Reports, Daily data and Songs, read-only
+  developer  DEVELOPER_USERNAME + DEVELOPER_PASSWORD (.env): every page and action
 """
 import argparse
 import base64
@@ -31,7 +32,12 @@ STATIC = Path(__file__).resolve().parent / "static"
 DOCS = Path(__file__).resolve().parent.parent / "docs"
 REQUEST = threading.local()  # who is making the current request (for the decision log)
 MANAGER = jobs.JobManager()
-PASSWORD = None
+PASSWORD = None  # client login: any username with STUDIO_PASSWORD
+DEV_LOGIN = (None, None)  # developer login: DEVELOPER_USERNAME + DEVELOPER_PASSWORD (.env)
+# What the client login may read: its dashboard, platforms, reports, daily data and songs. Everything else
+# (developer pages, raw data, review, runs, settings, docs) and every change (POST) is for the developer login only.
+CLIENT_GET = {"/api/status", "/api/client", "/api/platform", "/api/report", "/api/report.csv", "/api/daily", "/api/daily.csv",
+              "/api/song/compare", "/api/tracks", "/api/track", "/api/insights/song", "/api/meta/detail", "/api/export.csv"}
 
 SORTS = {"song_date": "song_date", "release_date": "release_date", "title": "title", "artists": "artists",
          "yt_views": "yt_views", "yt_delta": "yt_delta", "yt_likes": "yt_likes", "yt_comments": "yt_comments",
@@ -56,13 +62,20 @@ def secret_status():
 
 def api_status(conn, _):
     cfg = config.load()
+    if getattr(REQUEST, "role", "developer") == "client":  # no settings, keys or job details for the client login
+        last_ok = q(conn, "SELECT finished_at FROM run_log WHERE status='ok' ORDER BY id DESC LIMIT 1")
+        return {"role": "client", "today": date.today().isoformat(), "last_ok": last_ok[0]["finished_at"] if last_ok else None,
+                "counts": {"last_capture": conn.execute("SELECT max(capture_date) FROM snapshot").fetchone()[0]},
+                "config": {"youtube": {"labels": [{"name": l["name"], "enabled": l.get("enabled", True)} for l in cfg["youtube"]["labels"]]},
+                           "discovery": {"since": cfg["discovery"]["since"], "until": cfg["discovery"].get("until")}},
+                "meta_fields": metadata.FIELDS, "explore_fields": metadata.EXPLORE}
     nxt = jobs.next_scheduled(cfg)
     counts = q(conn, """SELECT (SELECT count(*) FROM release) releases, (SELECT count(*) FROM track) tracks,
                               (SELECT count(*) FROM artist) artists, (SELECT count(*) FROM snapshot) snapshots,
                               (SELECT max(capture_date) FROM snapshot) last_capture,
                               (SELECT count(*) FROM platform_item WHERE platform='youtube' AND review_state='pending') yt_pending""")[0]
     last_ok = q(conn, "SELECT finished_at FROM run_log WHERE status='ok' ORDER BY id DESC LIMIT 1")
-    return {"meta_fields": metadata.FIELDS, "explore_fields": metadata.EXPLORE, "config": cfg, "secrets": secret_status(), "job": MANAGER.state(10**9), "jobs": jobs.JOBS,
+    return {"role": "developer", "meta_fields": metadata.FIELDS, "explore_fields": metadata.EXPLORE, "config": cfg, "secrets": secret_status(), "job": MANAGER.state(10**9), "jobs": jobs.JOBS,
             "next_run": nxt.isoformat(timespec="minutes") if nxt else None, "counts": counts,
             "last_ok": last_ok[0]["finished_at"] if last_ok else None, "today": date.today().isoformat()}
 
@@ -1553,6 +1566,7 @@ def api_dev(conn, qs):
     from . import spotify_plays
     from .youtube import DAILY_UNITS, key_status, next_reset, parse_keys
     cfg = config.load()
+    song_daily.ensure(conn)
     since, until, S = _song_set({"focus": "all"})  # backlogs and readings cover every song the jobs work on
     F = _song_set({})[2]  # targets: the period's releases (older songs hidden, as on every page)
     today = date.today().isoformat()
@@ -1683,21 +1697,25 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass
 
-    def _auth_ok(self):
+    def _role(self):
+        """'developer', 'client', or None after sending 401. Without STUDIO_PASSWORD (local use) everyone is developer."""
         if not PASSWORD:
-            return True
+            return "developer"
         h = self.headers.get("Authorization", "")
         if h.startswith("Basic "):
             try:
-                pw = base64.b64decode(h[6:]).decode().split(":", 1)[1]
+                user, pw = base64.b64decode(h[6:]).decode().split(":", 1)
+                dev_user, dev_pw = DEV_LOGIN
+                if dev_user and dev_pw and hmac.compare_digest(user, dev_user) and hmac.compare_digest(pw, dev_pw):
+                    return "developer"
                 if hmac.compare_digest(pw, PASSWORD):
-                    return True
+                    return "client"
             except Exception:
                 pass
         self.send_response(401)
         self.send_header("WWW-Authenticate", 'Basic realm="Market Lens"')
         self.end_headers()
-        return False
+        return None
 
     def _send(self, code, body, ctype="application/json", extra=None):
         data = body if isinstance(body, bytes) else json.dumps(body, default=str).encode()
@@ -1721,8 +1739,9 @@ class Handler(BaseHTTPRequestHandler):
         ip = self.headers.get("X-Forwarded-For", "").split(",")[0].strip() or self.client_address[0]
         return f"{user or 'anonymous'} @ {ip}"
 
-    def _dispatch(self, table, arg):
+    def _dispatch(self, table, arg, role="developer"):
         REQUEST.actor = self._actor()
+        REQUEST.role = role
         path = urllib.parse.urlparse(self.path).path
         fn = table.get(path)
         if not fn:
@@ -1738,10 +1757,13 @@ class Handler(BaseHTTPRequestHandler):
             conn.close()
 
     def do_GET(self):
-        if not self._auth_ok():
+        role = self._role()
+        if not role:
             return
         url = urllib.parse.urlparse(self.path)
         qs = {k: v[-1] for k, v in urllib.parse.parse_qs(url.query).items()}
+        if role == "client" and ((url.path.startswith("/api/") and url.path not in CLIENT_GET) or url.path.startswith("/docs/")):
+            return self._send(403, {"error": "not available for this login"})
         if url.path == "/api/job":
             return self._send(200, MANAGER.state(int(qs.get("from", 0))))
         if url.path == "/api/export.csv":
@@ -1777,7 +1799,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, f.read_bytes(), "text/csv; charset=utf-8",
                               {"Content-Disposition": f'attachment; filename="{f.name}"'})
         if url.path.startswith("/api/"):
-            return self._dispatch(GET, qs)
+            return self._dispatch(GET, qs, role)
         if url.path.startswith("/docs/"):
             f = (DOCS / url.path[len("/docs/"):]).resolve()
             if DOCS not in f.parents or not f.is_file():
@@ -1791,8 +1813,11 @@ class Handler(BaseHTTPRequestHandler):
         self._send(200, f.read_bytes(), mimetypes.guess_type(f.name)[0] or "application/octet-stream")
 
     def do_POST(self):
-        if not self._auth_ok():
+        role = self._role()
+        if not role:
             return
+        if role != "developer":
+            return self._send(403, {"error": "read-only login"})
         n = int(self.headers.get("Content-Length") or 0)
         try:
             body = json.loads(self.rfile.read(n) or b"{}")
@@ -1802,13 +1827,14 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    global PASSWORD
+    global PASSWORD, DEV_LOGIN
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=3000)
     args = ap.parse_args()
 
     PASSWORD = os.environ.get("STUDIO_PASSWORD") or config.read_secrets().get("STUDIO_PASSWORD")
+    DEV_LOGIN = (config.read_secrets().get("DEVELOPER_USERNAME"), config.read_secrets().get("DEVELOPER_PASSWORD"))
     if args.host not in ("127.0.0.1", "localhost", "::1") and not PASSWORD:
         sys.exit("Refusing to listen on a non-loopback address without STUDIO_PASSWORD set.")
 

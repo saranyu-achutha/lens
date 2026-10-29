@@ -33,10 +33,14 @@ let STATUS = null;
 
 /* ---------- Router ---------- */
 const PAGES = ["overview", "client", "dev", "platforms", "reports", "daily", "pdata", "catalogue", "explore", "insights", "review", "runs", "outputs", "sources", "settings"];
+// The client login sees only these pages (the server refuses everything else for it).
+const CLIENT_PAGES = ["client", "platforms", "reports", "daily", "catalogue"];
+const isClient = () => STATUS?.role === "client";
 const hashParams = () => new URLSearchParams(location.hash.split("?")[1] || "");
 function route() {
-  const page = (location.hash.slice(1).split("?")[0]) || "overview";
-  const p = PAGES.includes(page) ? page : "overview";
+  const home = isClient() ? "client" : "overview";
+  const page = (location.hash.slice(1).split("?")[0]) || home;
+  const p = (isClient() ? CLIENT_PAGES : PAGES).includes(page) ? page : home;
   document.querySelectorAll("section.page").forEach((s) => s.classList.toggle("active", s.id === `page-${p}`));
   document.querySelectorAll("a.nav").forEach((a) => a.classList.toggle("active", a.getAttribute("href") === `#${p}`));
   ({ overview: loadOverview, client: loadClient, dev: loadDev, platforms: loadPlatform, reports: loadReport, daily: loadDaily, pdata: loadPData, catalogue: loadCatalogue, explore: loadExplore, insights: loadInsights, review: loadReview, runs: loadRuns, outputs: loadOutputs, sources: loadSources, settings: loadSettings })[p]();
@@ -61,6 +65,13 @@ renderFocus();
 /* ---------- Status / header ---------- */
 async function refreshStatus() {
   try { STATUS = await api("/api/status"); } catch { return; }
+  document.body.classList.toggle("role-client", isClient());
+  if (isClient()) {  // no jobs, schedule, review or settings for the client login
+    $("#side-asof").textContent = STATUS.counts.last_capture ? `Data as of ${STATUS.counts.last_capture}` : "";
+    $("#side-scope").textContent = STATUS.config.youtube.labels.filter((l) => l.enabled).map((l) => l.name).join(", ") || "none";
+    $("#top-lastok").textContent = STATUS.last_ok ? `Updated ${new Date(STATUS.last_ok).toLocaleString()}` : "";
+    return;
+  }
   const j = STATUS.job, pill = $("#job-pill");
   if (j.running) { pill.className = "pill run"; pill.innerHTML = `<span class="dot"></span>Running: ${esc(STATUS.jobs[j.job] || j.job)}`; }
   else if (j.status === "failed") { pill.className = "pill bad"; pill.innerHTML = `<span class="dot"></span>Last run failed`; }
