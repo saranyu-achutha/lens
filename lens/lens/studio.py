@@ -1482,9 +1482,187 @@ def api_youtube_status(conn, _):
             "channels": config.load()["youtube"]["channels"]}
 
 
+# ---------- Client dashboard: reach and growth of the period's songs, in plain terms ----------
+REACH = (("youtube", "YouTube views", "yt_views"), ("ytmusic", "YouTube Music plays", "ytm_plays"),
+         ("spotify", "Spotify plays", "sp_plays"), ("jiosaavn", "JioSaavn plays", "js_plays"))
+
+
+def _song_set(qs):
+    since, until = config.window(config.load())
+    return since, until, (f"SELECT id FROM track WHERE source='youtube' AND first_published >= ? "
+                          f"AND substr(first_published,1,10) <= ?{focus(qs)}")
+
+
+def api_client(conn, qs):
+    """Client dashboard: each song's latest known total and day-on-day gain per platform (newest of the last 3 days of
+    song_daily, so a platform not yet read today still counts), totals, top songs, risers, labels and a 30-day trend."""
+    since, until, S = _song_set(qs)
+    song_daily.ensure(conn)
+    last = conn.execute(f"SELECT max(day) FROM song_daily WHERE song_id IN ({S})", (since, until)).fetchone()[0]
+    songs = {r["id"]: dict(r, **{f: None for _, _, c in REACH for f in (c, c + "_gain")}) for r in conn.execute(
+        f"""SELECT t.id, coalesce(t.yt_title, t.title) title, t.release_status, substr(t.first_published,1,10) first_upload,
+                   (SELECT channel FROM platform_item p WHERE p.track_id=t.id AND p.platform='youtube' ORDER BY published_at LIMIT 1) channel,
+                   (SELECT platform_id FROM platform_item p WHERE p.track_id=t.id AND p.platform='youtube'
+                      AND p.review_state IN ('auto','approved','song') ORDER BY published_at LIMIT 1) yt_video_id
+            FROM track t WHERE t.id IN ({S})""", (since, until))}
+    cols = [c for _, _, c in REACH]
+    if last:
+        for r in conn.execute(f"""SELECT song_id, {', '.join(cols + [c + '_gain' for c in cols])} FROM song_daily
+                                  WHERE day > date(?, '-3 day') AND song_id IN ({S}) ORDER BY day DESC""", (last, since, until)):
+            s = songs.get(r["song_id"])
+            for f in r.keys()[1:]:
+                if s and s[f] is None and r[f] is not None:
+                    s[f] = r[f]
+    labels_of = config.channel_labels(config.load())
+    on = {r[0]: r[1] for r in conn.execute(f"""SELECT platform, count(DISTINCT track_id) FROM platform_item
+                                               WHERE track_id IN ({S}) AND review_state IN ('auto','approved','song')
+                                               GROUP BY platform""", (since, until))}
+    labels, rows = {}, list(songs.values())
+    for s in rows:
+        s["label"] = labels_of.get(s["channel"], config.FIRST_LABEL) if s["channel"] else ""
+        s["reach"] = sum(s[c] or 0 for c in cols)
+        s["gain"] = sum(s[c + "_gain"] or 0 for c in cols)
+        t = labels.setdefault(s["label"] or "Other", {"label": s["label"] or "Other", "songs": 0, "new": 0, "reach": 0, "gain": 0, "hits": 0})
+        t["songs"] += 1
+        t["new"] += s["release_status"] == "new"
+        t["reach"] += s["reach"]
+        t["gain"] += s["gain"]
+        t["hits"] += s["reach"] >= 1_000_000
+    total = {c: sum(s[c] or 0 for s in rows) for c in cols}
+    gain = {c: sum(s[c + "_gain"] or 0 for s in rows) for c in cols}
+    keep = ("id", "title", "label", "first_upload", "release_status", "yt_video_id", "reach", "gain") + tuple(cols)
+    pick = lambda xs: [{k: s[k] for k in keep} for s in xs]
+    trend = []
+    if last:
+        days = q(conn, f"""SELECT day, {', '.join(f'sum({c}_gain) {c}' for c in cols)} FROM song_daily
+                           WHERE day > date(?, '-30 day') AND song_id IN ({S}) GROUP BY day ORDER BY day""", (last, since, until))
+        trend = [{"platform": p, "name": n, "points": [{"x": d["day"], "y": d[c]} for d in days if d[c] is not None]} for p, n, c in REACH]
+    return {"since": since, "until": until, "as_of": last, "songs": len(rows),
+            "new": sum(s["release_status"] == "new" for s in rows), "hits": sum(s["reach"] >= 1_000_000 for s in rows),
+            "reach": sum(total.values()), "gain": sum(gain.values()), "growing": sum(s["gain"] > 0 for s in rows),
+            "platforms": [{"platform": p, "name": n, "total": total[c], "gain": gain[c], "songs": on.get(p, 0)} for p, n, c in REACH]
+                         + [{"platform": p, "name": n, "songs": on.get(p, 0)} for p, n in (("apple", "Apple Music"), ("deezer", "Deezer"))],
+            "top": pick(sorted(rows, key=lambda s: -s["reach"])[:15]),
+            "risers": pick(sorted((s for s in rows if s["gain"] > 0), key=lambda s: -s["gain"])[:10]),
+            "labels": sorted(labels.values(), key=lambda t: -t["reach"]), "trend": trend}
+
+
+# ---------- Developer dashboard: is the system healthy and on target? ----------
+def api_dev(conn, qs):
+    import shutil
+    from . import spotify_plays
+    from .youtube import DAILY_UNITS, key_status, next_reset, parse_keys
+    cfg = config.load()
+    since, until, S = _song_set({"focus": "all"})  # backlogs and readings cover every song the jobs work on
+    F = _song_set({})[2]  # targets: the period's releases (older songs hidden, as on every page)
+    today = date.today().isoformat()
+    yday = conn.execute("SELECT date(?, '-1 day')", (today,)).fetchone()[0]
+    one = lambda sql, args=(): conn.execute(sql, args).fetchone()[0]
+    n_songs = one(f"SELECT count(*) FROM ({F})", (since, until))
+
+    # Phase 0 targets. Discovery counts uploads published after their channel was first synced (a channel added later
+    # brings its back catalogue in at once, which is not a late discovery).
+    disc = conn.execute("""WITH ch AS (SELECT channel, min(first_seen_at) since FROM platform_item WHERE platform='youtube' GROUP BY channel)
+                           SELECT count(*), sum(julianday(p.first_seen_at) - julianday(p.published_at) <= 1)
+                           FROM platform_item p JOIN ch ON ch.channel=p.channel
+                           WHERE p.platform='youtube' AND p.published_at >= date('now', '-14 day') AND p.published_at > ch.since""").fetchone()
+    matched = one(f"""SELECT count(DISTINCT track_id) FROM platform_item WHERE track_id IN ({F}) AND platform != 'youtube'
+                      AND review_state IN ('auto','approved')""", (since, until))
+    pending = one(f"SELECT count(*) FROM platform_item WHERE review_state='pending' AND (track_id IS NULL OR track_id IN ({F}))", (since, until))
+    readings = []
+    for p, metric, ok in (("youtube", "views", "('auto','approved','song')"), ("spotify", "plays", "('auto','approved')"),
+                          ("ytmusic", "plays", "('auto')"), ("jiosaavn", "plays", "('auto','approved')"), ("deezer", "rank", None)):
+        base = f"FROM platform_item p WHERE p.platform='{p}' AND p.track_id IN ({S})" + (f" AND p.review_state IN {ok}" if ok else "")
+        items = one(f"SELECT count(*) {base}", (since, until))
+        got = {d: one(f"""SELECT count(*) {base} AND EXISTS (SELECT 1 FROM snapshot s WHERE s.platform_item_id=p.id
+                             AND s.metric='{metric}' AND s.capture_date=?)""", (since, until, d)) for d in (yday, today)}
+        readings.append({"platform": p, "items": items, "yesterday": got[yday], "today": got[today]})
+    yt = readings[0]
+    pct = lambda a, b: round(100 * a / b, 1) if b else None
+    targets = [
+        {"name": "Releases discovered within 24 h", "target": 95, "value": pct(disc[1] or 0, disc[0]),
+         "detail": f"{fmt_n(disc[1] or 0)} of {fmt_n(disc[0])} new uploads of the last 14 days"},
+        {"name": "Songs matched to another platform", "target": 90, "value": pct(matched, n_songs),
+         "detail": f"{fmt_n(matched)} of {fmt_n(n_songs)} releases of the period"},
+        {"name": "Daily readings captured (YouTube, yesterday)", "target": 99, "value": pct(yt["yesterday"], yt["items"]),
+         "detail": f"{fmt_n(yt['yesterday'])} of {fmt_n(yt['items'])} uploads"},
+        {"name": "Matches needing manual review", "target": 10, "value": pct(pending, n_songs), "lower": True,
+         "detail": f"{fmt_n(pending)} items in Review"},
+    ]
+
+    # Jobs: what runs now, what is next, how the last 24 hours went.
+    runs = q(conn, "SELECT id, job, started_at, finished_at, status, stats FROM run_log WHERE started_at >= datetime('now', '-1 day') ORDER BY id DESC")
+    by_job = {}
+    for r in runs:
+        st = json.loads(r.pop("stats") or "{}")
+        r["note"] = (st.get("error") or st.get("stop_reason") or "")[:240]
+        r["trigger"] = st.get("trigger")
+        j = by_job.setdefault(r["job"], {"job": r["job"], "runs": 0, "ok": 0, "problems": 0, "last": r})
+        j["runs"] += 1
+        j["ok"] += r["status"] == "ok"
+        j["problems"] += r["status"] in ("failed", "interrupted")
+    failures = [r for r in runs if r["status"] in ("failed", "interrupted")][:5]
+    try:
+        nxt = jobs._due_work(cfg, {})
+    except Exception as e:
+        nxt = ("?", repr(e))
+
+    # Backlogs.
+    recheck = conn.execute("SELECT date(?, '-7 day')", (today,)).fetchone()[0]
+    todo = lambda plat, key: one(f"""SELECT count(*) FROM track t WHERE t.id IN ({S})
+                                     AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='{plat}')
+                                     AND coalesce((SELECT value FROM state WHERE key='{key}:' || t.id), '') < ?""", (since, until, recheck))
+    try:
+        sp_due = len(spotify_plays.due_ids(conn))
+    except Exception:
+        sp_due = None
+    backlog = [
+        {"name": "YouTube Music: songs to search", "count": todo("ytmusic", "ytm_lookup"), "note": f"up to {cfg['songs'].get('ytmusic_searches_per_run', 40)} a run, while search quota lasts"},
+        {"name": "JioSaavn: songs to search", "count": todo("jiosaavn", "js_lookup"), "note": "no quota; paced 1 request a second"},
+        {"name": "Spotify: songs awaiting lookup", "count": one(f"SELECT count(*) FROM track WHERE id IN ({S}) AND (release_status IS NULL OR release_status='unchecked')", (since, until)), "note": "Spotify search, ~600 a day"},
+        {"name": "Spotify: play counts still to read today", "count": sp_due, "note": "public track pages, headless browser"},
+        {"name": "Release year: no evidence yet", "count": one(f"SELECT count(*) FROM track WHERE id IN ({S}) AND coalesce(release_check,'unknown')='unknown'", (since, until)), "note": "iTunes / MusicBrainz / Deezer / JioSaavn / Spotify"},
+        {"name": "Review queue", "count": pending, "note": "Review page"},
+    ]
+
+    # Quotas.
+    keys = parse_keys(config.read_secrets().get("YOUTUBE_API_KEY"))
+    day_start = datetime.fromtimestamp(next_reset() - 86400, timezone.utc).isoformat(timespec="seconds")
+    units = 0
+    for (s,) in conn.execute("SELECT stats FROM run_log WHERE started_at >= ?", (day_start,)):
+        st = json.loads(s or "{}")
+        units += (st.get("quota_units") or 0) + (st.get("ytmusic_quota_units") or 0)
+    sp = health.last_check(conn)
+
+    # Storage and volume.
+    dbf = config.DB_FILE
+    size = sum(f.stat().st_size for f in dbf.parent.glob(dbf.name + "*") if f.is_file())
+    du = shutil.disk_usage(dbf.parent)
+    backups = sorted((f for f in (dbf.parent / "backups").glob("lens_*") if not f.name.endswith(".part")), key=lambda f: f.stat().st_mtime)
+    volume = q(conn, """SELECT s.capture_date day, p.platform, count(*) n FROM snapshot s JOIN platform_item p ON p.id=s.platform_item_id
+                        WHERE s.capture_date >= date(?, '-13 day') AND s.metric IN ('views','plays','rank') GROUP BY 1, 2 ORDER BY 1""", (today,))
+    lines = [{"platform": p, "name": n, "points": [{"x": v["day"], "y": v["n"]} for v in volume if v["platform"] == p]}
+             for p, n in (("youtube", "YouTube"), ("spotify", "Spotify"), ("jiosaavn", "JioSaavn"), ("ytmusic", "YouTube Music"), ("deezer", "Deezer"))]
+    return {"today": today, "yesterday": yday, "since": since, "until": until, "songs": n_songs, "targets": targets,
+            "job": MANAGER.state(10**9), "worker": cfg.get("worker", {}), "next": {"job": nxt[0], "why": nxt[1]} if nxt else None,
+            "jobs": sorted(by_job.values(), key=lambda j: j["last"]["started_at"], reverse=True), "failures": failures,
+            "readings": readings, "backlog": backlog,
+            "youtube": {"units_today": units, "units_limit": DAILY_UNITS * max(len(keys), 1), "keys": key_status(keys),
+                        "resets": datetime.fromtimestamp(next_reset(), timezone.utc).isoformat(timespec="minutes")},
+            "spotify": {"ok": sp and sp["ok"], "checked_at": sp and sp["checked_at"], "retry_at": sp and sp.get("retry_at")},
+            "storage": {"db_bytes": size, "disk_free": du.free, "disk_total": du.total, "snapshot_rows": one("SELECT max(rowid) FROM snapshot"),
+                        "song_daily_rows": one("SELECT count(*) FROM song_daily"), "first_day": one("SELECT min(capture_date) FROM snapshot"),
+                        "backup": {"name": backups[-1].name, "at": datetime.fromtimestamp(backups[-1].stat().st_mtime).isoformat(timespec="minutes")} if backups else None},
+            "volume": lines}
+
+
+def fmt_n(n):
+    return f"{n or 0:,}"
+
+
 GET = {"/api/coverage": api_coverage, "/api/insights": api_insights, "/api/insights/song": api_insights_song, "/api/ai/status": api_ai_status, "/api/ai/assist": api_ai_assist,
        "/api/meta/top": api_meta_top, "/api/meta/detail": api_meta_detail,
-       "/api/merge/suggestions": api_merge_suggestions, "/api/status": api_status, "/api/overview": api_overview, "/api/tracks": api_tracks,
+       "/api/merge/suggestions": api_merge_suggestions, "/api/status": api_status, "/api/overview": api_overview, "/api/client": api_client, "/api/dev": api_dev, "/api/tracks": api_tracks,
        "/api/track": api_track, "/api/platform": api_platform, "/api/report": api_report, "/api/daily": api_daily, "/api/items": api_items, "/api/song/compare": api_song_compare, "/api/items/history": api_item_history, "/api/runs": api_runs, "/api/seeds": api_seeds,
        "/api/artist_search": api_artist_search, "/api/health": api_health, "/api/outputs": api_outputs,
        "/api/outputs/preview": api_output_preview, "/api/raw": api_raw, "/api/raw/item": api_raw_item,

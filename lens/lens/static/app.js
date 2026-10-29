@@ -32,14 +32,14 @@ function toast(msg, bad = false) {
 let STATUS = null;
 
 /* ---------- Router ---------- */
-const PAGES = ["overview", "platforms", "reports", "daily", "pdata", "catalogue", "explore", "insights", "review", "runs", "outputs", "sources", "settings"];
+const PAGES = ["overview", "client", "dev", "platforms", "reports", "daily", "pdata", "catalogue", "explore", "insights", "review", "runs", "outputs", "sources", "settings"];
 const hashParams = () => new URLSearchParams(location.hash.split("?")[1] || "");
 function route() {
   const page = (location.hash.slice(1).split("?")[0]) || "overview";
   const p = PAGES.includes(page) ? page : "overview";
   document.querySelectorAll("section.page").forEach((s) => s.classList.toggle("active", s.id === `page-${p}`));
   document.querySelectorAll("a.nav").forEach((a) => a.classList.toggle("active", a.getAttribute("href") === `#${p}`));
-  ({ overview: loadOverview, platforms: loadPlatform, reports: loadReport, daily: loadDaily, pdata: loadPData, catalogue: loadCatalogue, explore: loadExplore, insights: loadInsights, review: loadReview, runs: loadRuns, outputs: loadOutputs, sources: loadSources, settings: loadSettings })[p]();
+  ({ overview: loadOverview, client: loadClient, dev: loadDev, platforms: loadPlatform, reports: loadReport, daily: loadDaily, pdata: loadPData, catalogue: loadCatalogue, explore: loadExplore, insights: loadInsights, review: loadReview, runs: loadRuns, outputs: loadOutputs, sources: loadSources, settings: loadSettings })[p]();
   const track = new URLSearchParams(location.hash.split("?")[1] || "").get("track");
   if (track) openTrack(track);
   const meta = new URLSearchParams(location.hash.split("?")[1] || "").get("meta");  // e.g. #explore?meta=singer:arijit singh
@@ -281,6 +281,91 @@ async function loadPlatform() {
 }
 document.querySelectorAll("#pf-tabs .tab").forEach((b) => (b.onclick = () => { PF.p = b.dataset.pf; loadPlatform(); }));
 $("#pf-table").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-id]"); if (tr && tr.dataset.id !== "null") openTrack(tr.dataset.id); });
+
+/* ---------- Client dashboard: reach and growth in plain terms ---------- */
+const legendHtml = (lines) => lines.map((l) => `<span><span style="display:inline-block;width:12px;height:3px;background:${PCOLOR[l.platform]};vertical-align:middle;margin-right:5px"></span>${esc(l.name)}</span>`).join("");
+const playOne = (r) => `<td class="play-cell">${r.yt_video_id ? `<button class="pbtn yt" data-play="youtube" data-pid="${esc(r.yt_video_id)}" data-ptitle="${esc(r.title)}" title="Play on YouTube">▶</button>` : `<span class="pbtn off">▶</span>`}</td>`;
+const songRow = (r, i, extra) => `<tr class="click" data-id="${r.id}"><td class="muted num">${i + 1}</td>${playOne(r)}<td><div class="t1">${esc(r.title)}${r.label ? `<span class="label-tag">${esc(r.label)}</span>` : ""}</div><div class="t2">${esc(r.first_upload)}</div></td>${extra(r)}</tr>`;
+async function loadClient() {
+  const d = await api("/api/client");
+  $("#cl-window").textContent = `How the releases first uploaded ${d.since} → ${d.until} are performing across platforms`;
+  $("#cl-asof").innerHTML = `<span class="dot"></span>Data as of ${esc(d.as_of || "–")}`;
+  const pct = (n, t) => (t ? Math.round((100 * n) / t) : 0);
+  const pf = Object.fromEntries(d.platforms.map((p) => [p.platform, p]));
+  const lead = d.labels[0];
+  const tiles = [["Songs released", fmt(d.songs), `${fmt(d.new)} confirmed new releases on Spotify`],
+    ["Total reach", compact(d.reach), "views and plays across 4 platforms"],
+    ["Gained in the last day", d.gain ? `+${compact(d.gain)}` : "–", `${fmt(d.growing)} songs growing`],
+    ["Hit songs", fmt(d.hits), `1M+ reach · ${pct(d.hits, d.songs)}% of songs`],
+    ["Biggest platform", (d.platforms.filter((p) => p.total != null).sort((a, b) => b.total - a.total)[0] || {}).name?.replace(/ (views|plays)$/, "") || "–",
+      `${pct(Math.max(...d.platforms.filter((p) => p.total != null).map((p) => p.total)), d.reach)}% of all reach`],
+    ["Top label", lead ? lead.label : "–", lead ? `${pct(lead.reach, d.reach)}% of reach · ${fmt(lead.songs)} songs` : ""]];
+  $("#cl-kpis").innerHTML = tiles.map(([l, v, x]) => `<div class="card kpi${/^[+\d.,]+[KMB]?$/.test(v) || v === "–" ? "" : " kpi-text"}" title="${esc(v)}"><div class="label">${l}</div><div class="value">${esc(v)}</div><div class="sub">${esc(x)}</div></div>`).join("");
+  const lines = d.trend.map((l) => ({ name: l.name, color: PCOLOR[l.platform], points: l.points }));
+  multiLine($("#cl-trend"), lines.filter((l) => l.points.length));
+  $("#cl-legend").innerHTML = legendHtml(d.trend);
+  $("#cl-presence").innerHTML = d.platforms.map((p) => `<div class="bar-row"><span class="bar-name">${esc(p.name.replace(/ (views|plays)$/, ""))}</span>
+      <span class="bar-track"><span class="bar-fill" style="width:${pct(p.songs, d.songs)}%;background:${PCOLOR[p.platform] || "var(--accent)"}"></span></span>
+      <span class="bar-val">${pct(p.songs, d.songs)}% <span class="muted">${fmt(p.songs)}</span></span></div>`).join("") +
+    `<table style="margin-top:14px"><thead><tr><th>Platform</th><th class="num">Total</th><th class="num">Last day</th></tr></thead><tbody>` +
+    d.platforms.filter((p) => p.total != null).map((p) => `<tr><td>${esc(p.name)}</td><td class="num">${compact(p.total)}</td><td class="num ${p.gain > 0 ? "delta-up" : ""}">${p.gain ? "+" + compact(p.gain) : "–"}</td></tr>`).join("") + "</tbody></table>";
+  const per = (r) => ["yt_views", "ytm_plays", "sp_plays", "js_plays"].map((k) => viewsCell(r[k])).join("");
+  $("#cl-top").innerHTML = `<thead><tr><th>#</th><th></th><th>Song</th><th class="num">Reach</th><th class="num">YouTube</th><th class="num">YT Music</th><th class="num">Spotify</th><th class="num">JioSaavn</th></tr></thead><tbody>` +
+    d.top.map((r, i) => songRow(r, i, (r) => `<td class="num"><b>${compact(r.reach)}</b></td>${per(r)}`)).join("") + "</tbody>";
+  $("#cl-risers").innerHTML = d.risers.length ? `<thead><tr><th>#</th><th></th><th>Song</th><th class="num">Gained</th><th class="num">Reach</th></tr></thead><tbody>` +
+    d.risers.map((r, i) => songRow(r, i, (r) => `<td class="num delta-up">+${compact(r.gain)}</td><td class="num">${compact(r.reach)}</td>`)).join("") + "</tbody>"
+    : `<tbody><tr><td class="empty">Growth appears after two days of readings.</td></tr></tbody>`;
+  $("#cl-labels").innerHTML = `<thead><tr><th>Label</th><th class="num">Songs</th><th class="num">New releases</th><th class="num">Hit songs</th><th class="num">Reach</th><th class="num">Share</th><th class="num">Gained, last day</th></tr></thead><tbody>` +
+    d.labels.map((l) => `<tr class="label-row" data-label="${esc(l.label)}" style="cursor:pointer"><td>${esc(l.label)}</td><td class="num">${fmt(l.songs)}</td><td class="num">${fmt(l.new)}</td><td class="num">${fmt(l.hits)}</td>
+      <td class="num">${compact(l.reach)}</td><td class="num">${pct(l.reach, d.reach)}%</td><td class="num ${l.gain > 0 ? "delta-up" : ""}">${l.gain ? "+" + compact(l.gain) : "–"}</td></tr>`).join("") + "</tbody>";
+}
+["#cl-top", "#cl-risers"].forEach((t) => $(t).addEventListener("click", (e) => { if (e.target.closest("[data-play]")) return; const tr = e.target.closest("tr[data-id]"); if (tr) openTrack(tr.dataset.id); }));
+$("#cl-labels").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-label]"); if (!tr || tr.dataset.label === "Other") return;
+  Object.assign(CAT, { label: tr.dataset.label, channel: "", day: "", status: "", offset: 0 }); location.hash = "#catalogue"; });
+
+/* ---------- Developer dashboard: health, targets, quotas, backlogs ---------- */
+const runFor = (r) => { if (!r.finished_at) return "running"; const m = Math.round((new Date(r.finished_at) - new Date(r.started_at)) / 60000); return m < 60 ? `${m} min` : `${(m / 60).toFixed(1)} h`; };
+const gb = (b) => b == null ? "–" : `${(b / 1e9).toFixed(1)} GB`;
+const kv = (rows) => `<div class="kv">${rows.map(([k, v]) => `<div class="muted">${k}</div><div>${v}</div>`).join("")}</div>`;
+async function loadDev() {
+  const d = await api("/api/dev");
+  $("#dev-targets").innerHTML = d.targets.map((t) => {
+    const ok = t.value != null && (t.lower ? t.value <= t.target : t.value >= t.target);
+    return `<div class="card kpi target ${t.value == null ? "" : ok ? "on" : "off"}"><div class="label">${esc(t.name)}</div><div class="value">${t.value == null ? "–" : t.value + "%"}</div>
+      <div class="sub">target ${t.lower ? "≤" : "≥"} ${t.target}% · ${esc(t.detail)}</div></div>`; }).join("");
+  const j = d.job;
+  $("#dev-now").innerHTML = kv([["Running", j.running ? `<span class="pill run"><span class="dot"></span>${esc(j.job)}</span>` : '<span class="pill"><span class="dot"></span>Idle</span>'],
+    ["Work loop", d.worker.enabled === false ? '<span class="pill bad"><span class="dot"></span>off</span>' : `<span class="pill ok"><span class="dot"></span>on</span> pause ${d.worker.pause_seconds ?? 60} s between jobs`],
+    ["Next in queue", d.next ? `<b>${esc(d.next.job)}</b> <span class="muted">${esc(d.next.why)}</span>` : '<span class="muted">nothing due</span>'],
+    ["Spotify API", d.spotify.ok ? `<span class="pill ok"><span class="dot"></span>healthy</span> <span class="muted">checked ${ago(d.spotify.checked_at)}</span>` : `<span class="pill bad"><span class="dot"></span>blocked</span>${d.spotify.retry_at ? ` <span class="muted">retry ${esc(new Date(d.spotify.retry_at).toLocaleString())}</span>` : ""}`]]);
+  const y = d.youtube, free = y.keys.filter((k) => k.available).length;
+  $("#dev-quota").innerHTML = `<div class="bar-row"><span class="bar-track"><span class="bar-fill" style="width:${Math.min(100, (100 * y.units_today) / y.units_limit)}%"></span></span><span class="bar-val">${Math.round((100 * y.units_today) / y.units_limit)}%</span></div>` +
+    kv([["Units used today", `${fmt(y.units_today)} of ${fmt(y.units_limit)}`], ["Keys (one per project)", `${y.keys.length} · ${free} available`],
+      ["Searches left today", `about ${fmt(Math.max(0, Math.floor((y.units_limit - y.units_today) / 100)))}`], ["Quota resets", esc(new Date(y.resets).toLocaleString())]]);
+  const st = d.storage, used = st.disk_total - st.disk_free;
+  $("#dev-storage").innerHTML = `<div class="bar-row"><span class="bar-track"><span class="bar-fill" style="width:${(100 * used) / st.disk_total}%;background:${used / st.disk_total > 0.85 ? "var(--critical)" : "var(--accent)"}"></span></span><span class="bar-val">${Math.round((100 * used) / st.disk_total)}%</span></div>` +
+    kv([["Disk free", `${gb(st.disk_free)} of ${gb(st.disk_total)}`], ["Database", gb(st.db_bytes)], ["Readings stored", `${fmt(st.snapshot_rows)} since ${esc(st.first_day || "–")}`],
+      ["Song-day rows", fmt(st.song_daily_rows)], ["Last backup", st.backup ? `${esc(st.backup.name)} · ${ago(st.backup.at)}` : '<span class="pill bad"><span class="dot"></span>none found</span>']]);
+  const NAMES = { youtube: "YouTube", spotify: "Spotify", ytmusic: "YouTube Music", jiosaavn: "JioSaavn", deezer: "Deezer" };
+  const cov = (n, t) => { const p = t ? (100 * n) / t : 0; return `<td class="num ${t && p >= 99 ? "delta-up" : p < 90 ? "warn-text" : ""}">${fmt(n)} <span class="muted">${t ? p.toFixed(1) + "%" : ""}</span></td>`; };
+  $("#dev-readings").innerHTML = `<thead><tr><th>Platform</th><th class="num">Linked items</th><th class="num">Yesterday (${esc(d.yesterday.slice(5))})</th><th class="num">Today so far</th></tr></thead><tbody>` +
+    d.readings.map((r) => `<tr><td>${NAMES[r.platform]}</td><td class="num">${fmt(r.items)}</td>${cov(r.yesterday, r.items)}${cov(r.today, r.items)}</tr>`).join("") +
+    `</tbody><tfoot><tr><td colspan="4" class="muted" style="font-size:12px">Spotify hides play counts under 1,000, so those tracks have no reading. Deezer is read once a day by the songs job.</td></tr></tfoot>`;
+  $("#dev-backlog").innerHTML = `<thead><tr><th>Backlog</th><th class="num">Count</th><th>How it clears</th></tr></thead><tbody>` +
+    d.backlog.map((b) => `<tr><td>${esc(b.name)}</td><td class="num">${b.count == null ? "–" : fmt(b.count)}</td><td class="muted">${esc(b.note)}</td></tr>`).join("") + "</tbody>";
+  const chip = (s) => `<span class="pill ${s === "ok" ? "ok" : s === "running" ? "run" : s === "partial" || s === "cancelled" ? "warn" : "bad"}"><span class="dot"></span>${esc(s)}</span>`;
+  $("#dev-jobs").innerHTML = d.jobs.length ? `<thead><tr><th>Job</th><th class="num">Runs</th><th class="num">OK</th><th>Last run</th><th>Status</th><th>Took</th></tr></thead><tbody>` +
+    d.jobs.map((x) => `<tr title="${esc(x.last.note)}"><td>${esc(x.job)}</td><td class="num">${x.runs}</td><td class="num">${x.ok}</td><td class="muted">#${x.last.id} · ${ago(x.last.started_at)}</td><td>${chip(x.last.status)}</td><td class="muted">${runFor(x.last)}</td></tr>`).join("") + "</tbody>"
+    : `<tbody><tr><td class="empty">No runs in the last 24 hours.</td></tr></tbody>`;
+  multiLine($("#dev-volume"), d.volume.filter((l) => l.points.length).map((l) => ({ name: l.name, color: PCOLOR[l.platform], points: l.points })));
+  $("#dev-legend").innerHTML = legendHtml(d.volume.filter((l) => l.points.length));
+  $("#dev-keys").innerHTML = `<thead><tr><th>#</th><th>Key</th><th>State</th><th>Until</th></tr></thead><tbody>` +
+    y.keys.map((k, i) => `<tr><td class="muted">${i + 1}</td><td class="mono">${esc(k.hint)}</td><td>${k.available ? '<span class="pill ok"><span class="dot"></span>available</span>' : `<span class="pill warn"><span class="dot"></span>${esc(k.reason || "set aside")}</span>`}</td><td class="muted">${k.until ? esc(new Date(k.until).toLocaleString()) : ""}</td></tr>`).join("") + "</tbody>";
+  $("#dev-failures").innerHTML = d.failures.length ? `<thead><tr><th>Run</th><th>Job</th><th>When</th><th>What went wrong</th></tr></thead><tbody>` +
+    d.failures.map((r) => `<tr><td class="muted">#${r.id}</td><td>${esc(r.job)}</td><td class="muted">${ago(r.started_at)}</td><td style="white-space:normal">${chip(r.status)} ${esc(r.note || "")}</td></tr>`).join("") + "</tbody>"
+    : `<tbody><tr><td class="empty">No failed runs in the last 24 hours.</td></tr></tbody>`;
+}
+$("#dev-refresh").onclick = () => loadDev();
 
 /* ---------- Reports: readings on two days and the change ---------- */
 const RP = { from: "", to: "", label: "", sort: "yt_views_delta", q: "", offset: 0, limit: 100 };

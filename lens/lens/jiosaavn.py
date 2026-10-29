@@ -221,7 +221,8 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
             iid, pc = by_pid.get(x.get("id")), x.get("play_count")
             if iid is None or pc in (None, ""):
                 continue
-            rel = (x.get("more_info") or {}).get("release_date") or (str(x.get("year")) if x.get("year") else None)
+            # song.getDetails has release_date / year at the top level (search results keep them under more_info)
+            rel = x.get("release_date") or (x.get("more_info") or {}).get("release_date") or (str(x.get("year")) if x.get("year") else None)
             if rel:  # keep the release date for the release-year check
                 conn.execute("UPDATE platform_item SET published_at=? WHERE id=? AND (published_at IS NULL OR published_at='')", (rel, iid))
             val = int(pc)

@@ -62,10 +62,11 @@ section.page.active { display: block; }
 .grid { display: grid; gap: 16px; }
 .g2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .g3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.g4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .g5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .g6 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 @media (max-width: 1400px) { .g6 { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-@media (max-width: 1100px) { .g2, .g3 { grid-template-columns: 1fr; } .g5, .g6 { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 1100px) { .g4 { grid-template-columns: repeat(2, 1fr); } .g2, .g3 { grid-template-columns: 1fr; } .g5, .g6 { grid-template-columns: repeat(2, 1fr); } }
 .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; min-width: 0; }
 .card.flush { padding: 0; overflow: hidden; }
 .card.flush > h2, .card.flush > .card-head { padding: 16px 18px 0; }
@@ -352,3 +353,17 @@ table.sticky-head thead th { position: sticky; top: 0; background: var(--surface
 .warn-card { border-color: #e0a106; }
 @media (max-width: 760px) { .sp-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } .sp-two { grid-template-columns: 1fr; } }
 #focus-label:has(input:checked) { border-color: #e0a106; color: #e0a106; }
+
+/* Client and developer dashboards */
+.bar-row { display: flex; align-items: center; gap: 10px; margin: 8px 0; font-size: 13px; }
+.bar-name { width: 110px; flex: none; color: var(--text-secondary); }
+.bar-track { flex: 1; height: 10px; border-radius: 5px; background: rgba(127,127,127,.18); overflow: hidden; }
+.bar-fill { display: block; height: 100%; border-radius: 5px; background: var(--accent); }
+.bar-val { width: 96px; flex: none; text-align: right; font-variant-numeric: tabular-nums; }
+.kpi.target.on { box-shadow: inset 3px 0 0 var(--good); }
+.kpi.target.off { box-shadow: inset 3px 0 0 var(--warning); }
+.kpi.target.on .value { color: var(--good); }
+.kpi.target.off .value { color: var(--warning); }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; font-size: 13px; margin-top: 10px; align-items: baseline; }
+.warn-text { color: var(--warning); }
+.kpi-text .value { font-size: 20px; line-height: 34px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

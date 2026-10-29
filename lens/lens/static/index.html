@@ -10,6 +10,7 @@
 <nav class="side">
   <div class="brand"><div class="logo"></div><div><b>Market Lens</b><small><span class="brand-tag">CONSOLE</span></small></div></div>
   <a class="nav" href="#overview"><svg viewBox="0 0 24 24"><path d="M4 13h6V4H4zM14 20h6v-9h-6zM4 20h6v-4H4zM14 4v4h6V4z"/></svg>Overview</a>
+  <a class="nav" href="#client"><svg viewBox="0 0 24 24"><path d="M3 12l9-8 9 8"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></svg>Client dashboard</a>
   <a class="nav" href="#platforms"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 15v3M11 11v7M15 7v11M19 13v5"/></svg>Platforms</a>
   <a class="nav" href="#reports"><svg viewBox="0 0 24 24"><path d="M4 4h16v16H4z"/><path d="M8 15l3-3 2 2 4-5"/></svg>Reports</a>
   <a class="nav" href="#daily"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4M7 13h4M7 17h7"/></svg>Daily data</a>
@@ -18,6 +19,7 @@
   <a class="nav" href="#explore"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6M11 8v6"/></svg>Explore</a>
   <a class="nav" href="#insights"><svg viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>AI Insights</a>
   <a class="nav" href="#review"><svg viewBox="0 0 24 24"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/></svg>Review<span class="nav-badge" id="review-badge" style="display:none"></span></a>
+  <a class="nav" href="#dev"><svg viewBox="0 0 24 24"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/></svg>Developer</a>
   <a class="nav" href="#runs"><svg viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z"/></svg>Runs</a>
   <a class="nav" href="#outputs"><svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg>Outputs</a>
   <a class="nav" href="#sources"><svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.6 0l3-3a4 4 0 0 0-5.6-5.6l-1 1"/><path d="M14 10a4 4 0 0 0-5.6 0l-3 3a4 4 0 0 0 5.6 5.6l1-1"/></svg>Sources</a>
@@ -53,6 +55,46 @@
         <div class="card flush"><h2>Top 10 by YouTube views</h2><div class="table-wrap"><table id="ov-top"></table></div></div>
         <div class="card flush"><h2>Biggest YouTube gainers (day on day)</h2><div class="table-wrap"><table id="ov-risers"></table></div></div>
       </div>
+    </div>
+  </section>
+
+  <!-- CLIENT DASHBOARD -->
+  <section class="page" id="page-client">
+    <div class="page-head"><div><h1>Client dashboard</h1><p id="cl-window">How the period's releases are performing across platforms</p></div><span class="spacer"></span><span class="pill" id="cl-asof"></span></div>
+    <div class="grid g6" id="cl-kpis"></div>
+    <div class="grid g2" style="margin-top:16px">
+      <div class="card"><div class="card-head"><h2>Daily growth by platform</h2><span class="spacer"></span><span class="muted" style="font-size:12px">plays / views gained each day, last 30 days</span></div>
+        <div class="chart" id="cl-trend"></div><div id="cl-legend" class="row" style="gap:14px;flex-wrap:wrap;margin-top:6px;font-size:12px"></div></div>
+      <div class="card"><div class="card-head"><h2>Where the songs are</h2><span class="spacer"></span><span class="muted" style="font-size:12px">share of the period's songs on each platform</span></div><div id="cl-presence"></div></div>
+    </div>
+    <div class="grid g2" style="margin-top:16px">
+      <div class="card flush"><h2>Top songs by total reach</h2><div class="table-wrap" style="max-height:460px"><table id="cl-top"></table></div></div>
+      <div class="card flush"><h2>Fastest growing today</h2><div class="table-wrap" style="max-height:460px"><table id="cl-risers"></table></div></div>
+    </div>
+    <div class="card flush" style="margin-top:16px"><h2>Labels</h2><div class="table-wrap"><table id="cl-labels"></table></div></div>
+    <p class="muted" style="font-size:12px;margin-top:10px">Reach = YouTube views + YouTube Music plays + Spotify plays + JioSaavn plays, each song's latest reading. Growth = the change since the previous day's reading.</p>
+  </section>
+
+  <!-- DEVELOPER DASHBOARD -->
+  <section class="page" id="page-dev">
+    <div class="page-head"><div><h1>Developer dashboard</h1><p>Jobs, targets, daily readings, quotas, backlogs and storage</p></div><span class="spacer"></span><button class="small" id="dev-refresh">↻ Refresh</button></div>
+    <div class="grid g4" id="dev-targets"></div>
+    <div class="grid g3" style="margin-top:16px">
+      <div class="card"><h2>Now</h2><div id="dev-now"></div></div>
+      <div class="card"><h2>YouTube quota</h2><div id="dev-quota"></div></div>
+      <div class="card"><h2>Storage</h2><div id="dev-storage"></div></div>
+    </div>
+    <div class="grid g2" style="margin-top:16px">
+      <div class="card flush"><h2>Daily readings captured</h2><div class="table-wrap"><table id="dev-readings"></table></div></div>
+      <div class="card flush"><h2>Backlogs</h2><div class="table-wrap"><table id="dev-backlog"></table></div></div>
+    </div>
+    <div class="grid g2" style="margin-top:16px">
+      <div class="card flush"><h2>Jobs, last 24 hours</h2><div class="table-wrap"><table id="dev-jobs"></table></div></div>
+      <div class="card"><div class="card-head"><h2>Items read per day</h2></div><div class="chart" id="dev-volume"></div><div id="dev-legend" class="row" style="gap:14px;flex-wrap:wrap;margin-top:6px;font-size:12px"></div></div>
+    </div>
+    <div class="grid g2" style="margin-top:16px">
+      <div class="card flush"><h2>YouTube keys</h2><div class="table-wrap" style="max-height:320px"><table id="dev-keys"></table></div></div>
+      <div class="card flush"><h2>Recent failures</h2><div class="table-wrap" style="max-height:320px"><table id="dev-failures"></table></div></div>
     </div>
   </section>
 
