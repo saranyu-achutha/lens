@@ -37,7 +37,7 @@ DEV_LOGIN = (None, None)  # developer login: DEVELOPER_USERNAME + DEVELOPER_PASS
 # What the client login may read: its dashboard, platforms, reports, daily data and songs. Everything else
 # (developer pages, raw data, review, runs, settings, docs) and every change (POST) is for the developer login only.
 CLIENT_GET = {"/api/status", "/api/client", "/api/platform", "/api/report", "/api/report.csv", "/api/daily", "/api/daily.csv",
-              "/api/song/compare", "/api/tracks", "/api/track", "/api/insights/song", "/api/meta/detail", "/api/export.csv"}
+              "/api/song/compare", "/api/tracks", "/api/track", "/api/search", "/api/insights/song", "/api/meta/detail", "/api/export.csv"}
 
 SORTS = {"song_date": "song_date", "release_date": "release_date", "title": "title", "artists": "artists",
          "yt_views": "yt_views", "yt_delta": "yt_delta", "yt_likes": "yt_likes", "yt_comments": "yt_comments",
@@ -1495,6 +1495,76 @@ def api_youtube_status(conn, _):
             "channels": config.load()["youtube"]["channels"]}
 
 
+# ---------- Search: one box, every detail of a song ----------
+LINK_ID = re.compile(r"(?:[?&]v=|youtu\.be/|/shorts/|/track/|/song/[^/?#]+/|/album/[^/?#]+/|/watch/|\?i=)([A-Za-z0-9_-]{5,})")
+
+
+def api_search(conn, qs):
+    """Songs matching `q` in any detail: name, any credit or metadata value (singer, music director, lyricist, film,
+    cast, language, label, channel, album, genre...), ISRC, song number, or a platform link / ID (YouTube, Spotify,
+    JioSaavn, Apple, Deezer). Older songs hidden unless focus=all, as everywhere. Best matches first, then the biggest."""
+    raw = (qs.get("q") or "").strip()
+    if len(raw) < 2:
+        return {"q": raw, "total": 0, "results": []}
+    since, until = config.window(config.load())
+    W = f"t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?{focus(qs)}"
+    low, hits = raw.lower(), {}
+
+    def add(rows, how):
+        for r in rows:
+            tid, rank, field, value = r
+            if tid not in hits or rank < hits[tid][0]:
+                hits[tid] = (rank, how(field), value)
+    ids = set(LINK_ID.findall(raw)) | {raw}
+    marks = ",".join("?" * len(ids))
+    add(conn.execute(f"""SELECT t.id, 0, p.platform, p.platform_id FROM platform_item p JOIN track t ON t.id=p.track_id
+                         WHERE (p.platform_id IN ({marks}) OR p.url=?) AND {W} LIMIT 50""", (*ids, raw, since, until)),
+        lambda f: f"{PLATFORM_NAME.get(f, f)} link")
+    add(conn.execute(f"SELECT t.id, 0, 'isrc', t.isrc FROM track t WHERE upper(t.isrc)=upper(?) AND {W}", (raw, since, until)), lambda f: "ISRC")
+    if raw.lstrip("#").isdigit():
+        add(conn.execute(f"SELECT t.id, 0, 'id', t.id FROM track t WHERE t.id=? AND {W}", (int(raw.lstrip("#")), since, until)), lambda f: "Song no.")
+    add(conn.execute(f"""SELECT t.id, CASE WHEN lower(coalesce(t.yt_title, t.title))=? THEN 1 WHEN lower(coalesce(t.yt_title, t.title)) LIKE ? THEN 2 ELSE 3 END,
+                                'song', coalesce(t.yt_title, t.title) FROM track t
+                         WHERE (lower(coalesce(t.yt_title, t.title)) LIKE ? OR lower(t.title) LIKE ?) AND {W} LIMIT 500""",
+                     (low, low + "%", f"%{low}%", f"%{low}%", since, until)), lambda f: "Song")
+    add(conn.execute(f"""SELECT t.id, CASE WHEN lower(m.value)=? THEN 2 WHEN lower(m.value) LIKE ? THEN 3 ELSE 4 END, m.field, m.value
+                         FROM song_meta m JOIN track t ON t.id=m.track_id WHERE lower(m.value) LIKE ? AND {W} LIMIT 3000""",
+                     (low, low + "%", f"%{low}%", since, until)), lambda f: META_NAME.get(f, f.replace("_", " ").capitalize()))
+    if not hits:
+        return {"q": raw, "total": 0, "results": []}
+    song_daily.ensure(conn)
+    tids = list(hits)
+    stats = {}
+    for i in range(0, len(tids), 500):
+        part = tids[i:i + 500]
+        for r in conn.execute(f"""SELECT song_id, yt_views, sp_plays, js_plays, ytm_plays FROM song_daily d
+                                  WHERE song_id IN ({",".join("?" * len(part))}) AND day=(SELECT max(day) FROM song_daily x WHERE x.song_id=d.song_id)""", part):
+            stats[r[0]] = dict(r)
+    order = sorted(tids, key=lambda t: (hits[t][0], -((stats.get(t) or {}).get("yt_views") or 0)))
+    top = order[:int(qs.get("limit") or 30)]
+    rows = {r["id"]: r for r in q(conn, f"""SELECT t.id, coalesce(t.yt_title, t.title) title, substr(t.first_published,1,10) first_upload, t.release_status,
+                 (SELECT channel FROM platform_item p WHERE p.track_id=t.id AND p.platform='youtube' ORDER BY published_at LIMIT 1) yt_channel,
+                 (SELECT platform_id FROM platform_item p WHERE p.track_id=t.id AND p.platform='youtube' AND p.review_state IN ('auto','approved','song') ORDER BY published_at LIMIT 1) yt_video_id
+               FROM track t WHERE t.id IN ({",".join("?" * len(top))})""", top)}
+    out = []
+    for t in top:
+        r = rows[t]
+        r.update(stats.get(t) or {}, matched_on=hits[t][1], matched=str(hits[t][2]))
+        out.append(r)
+    by_field = {}
+    for rank, how, _ in hits.values():
+        by_field[how] = by_field.get(how, 0) + 1
+    return {"q": raw, "total": len(hits), "by_field": dict(sorted(by_field.items(), key=lambda x: -x[1])), "results": tag_labels(out)}
+
+
+PLATFORM_NAME = {"youtube": "YouTube", "ytmusic": "YouTube Music", "spotify": "Spotify", "jiosaavn": "JioSaavn", "apple": "Apple Music",
+                 "deezer": "Deezer", "musicbrainz": "MusicBrainz"}
+META_NAME = {"singer": "Singer", "music_director": "Music director", "lyricist": "Lyricist", "film": "Film", "cast": "Cast", "language": "Language",
+             "category": "Category", "label": "Label", "music_label": "Label", "channel": "Channel", "album": "Album", "spotify_album": "Spotify album",
+             "apple_album": "Apple album", "spotify_artist": "Spotify artist", "apple_artist": "Apple artist", "genre": "Genre", "director": "Director",
+             "producer": "Producer", "song_title": "Song", "occasion": "Occasion"}
+
+
 # ---------- Dashboard (client home): reach and growth of the period's songs, in plain terms ----------
 REACH = (("youtube", "YouTube views", "yt_views"), ("ytmusic", "YouTube Music plays", "ytm_plays"),
          ("spotify", "Spotify plays", "sp_plays"), ("jiosaavn", "JioSaavn plays", "js_plays"))
@@ -1676,7 +1746,7 @@ def fmt_n(n):
 
 GET = {"/api/coverage": api_coverage, "/api/insights": api_insights, "/api/insights/song": api_insights_song, "/api/ai/status": api_ai_status, "/api/ai/assist": api_ai_assist,
        "/api/meta/top": api_meta_top, "/api/meta/detail": api_meta_detail,
-       "/api/merge/suggestions": api_merge_suggestions, "/api/status": api_status, "/api/overview": api_overview, "/api/client": api_client, "/api/dev": api_dev, "/api/tracks": api_tracks,
+       "/api/merge/suggestions": api_merge_suggestions, "/api/status": api_status, "/api/overview": api_overview, "/api/client": api_client, "/api/search": api_search, "/api/dev": api_dev, "/api/tracks": api_tracks,
        "/api/track": api_track, "/api/platform": api_platform, "/api/report": api_report, "/api/daily": api_daily, "/api/items": api_items, "/api/song/compare": api_song_compare, "/api/items/history": api_item_history, "/api/runs": api_runs, "/api/seeds": api_seeds,
        "/api/artist_search": api_artist_search, "/api/health": api_health, "/api/outputs": api_outputs,
        "/api/outputs/preview": api_output_preview, "/api/raw": api_raw, "/api/raw/item": api_raw_item,

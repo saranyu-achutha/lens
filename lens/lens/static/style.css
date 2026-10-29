@@ -717,3 +717,23 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 :root[data-theme="light"] .tooltip { background: #fff; color: #0b1324; }
 :root[data-theme="light"] .drawer { background: linear-gradient(180deg, #f3f6fe, #fff 240px); }
 :root[data-theme="light"] .sp-tile { background: linear-gradient(150deg, color-mix(in srgb, var(--c, var(--accent)) 7%, #fff), #fff 70%); }
+
+/* Search in the top bar */
+.gsearch { position: relative; flex: 1 1 360px; max-width: 520px; min-width: 220px; display: flex; align-items: center; }
+.gsearch > svg { position: absolute; left: 12px; width: 16px; height: 16px; stroke: var(--text-muted); fill: none; stroke-width: 2; pointer-events: none; }
+.gsearch input { padding: 8px 34px 8px 36px; border-radius: 999px; background: color-mix(in srgb, var(--surface-1) 85%, transparent); }
+.gsearch kbd { position: absolute; right: 10px; font: 11px var(--mono); color: var(--text-muted); border: 1px solid var(--border); border-radius: 5px; padding: 0 5px; pointer-events: none; }
+.gsearch input:focus + kbd { display: none; }
+.gsearch-panel { position: absolute; top: calc(100% + 8px); left: 0; width: min(640px, 92vw); max-height: 70vh; overflow: auto; z-index: 15;
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow-lg); padding: 6px; }
+.gs-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 10px 10px; font-size: 12.5px; color: var(--text-secondary); border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+.gs-row { display: flex; align-items: center; gap: 12px; padding: 9px 10px; border-radius: 10px; cursor: pointer; }
+.gs-row:hover, .gs-row.sel { background: var(--accent-soft); }
+.gs-main { flex: 1; min-width: 0; }
+.gs-main .t1 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.gs-main .t2 { font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gs-why { color: var(--accent); font-weight: 500; }
+.gs-nums { display: flex; gap: 10px; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--text-secondary); white-space: nowrap; }
+.gs-nums i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 4px; vertical-align: 1px; }
+.gs-empty, .gs-foot { padding: 14px 12px; font-size: 13px; color: var(--text-muted); }
+@media (max-width: 1100px) { .gsearch kbd { display: none; } }

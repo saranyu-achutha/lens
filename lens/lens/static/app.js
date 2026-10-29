@@ -434,6 +434,8 @@ const DD = { day: "", label: "", sort: "yt_views_delta", q: "", song: "", metric
 const GAIN_KEYS = ["yt_views", "yt_likes", "yt_comments", "ytm_plays", "sp_plays", "js_plays"];
 const ddChange = (r, k) => GAIN_KEYS.includes(k) ? r[k + "_gain"] : (r[k] != null && r["prev_" + k] != null ? r[k] - r["prev_" + k] : null);
 async function loadDaily() {
+  const linked = hashParams().get("song");  // #daily?song=1049 opens that song's day-by-day history
+  if (linked) DD.song = linked;
   const song = DD.song;
   const d = await api(`/api/daily?${new URLSearchParams(song ? { song } : { day: DD.day, label: DD.label, sort: DD.sort, q: DD.q, offset: DD.offset, limit: DD.limit })}`);
   document.querySelectorAll("#dd-controls .dd-day").forEach((e) => (e.style.display = song ? "none" : ""));
@@ -1620,6 +1622,49 @@ $("#client-view").onclick = async () => {
   await refreshStatus();
   if (CLIENT_VIEW) location.hash = "#dashboard"; else route();
 };
+
+/* ---------- Search: every detail of a song, from the top bar ---------- */
+const GS = { timer: null, seq: 0, results: [], sel: 0 };
+const gsPanel = $("#gsearch-panel"), gsInput = $("#gsearch");
+function gsRender(d) {
+  GS.results = d.results; GS.sel = 0;
+  if (!d.q) { gsPanel.hidden = true; return; }
+  const chips = Object.entries(d.by_field || {}).slice(0, 6).map(([f, n]) => `<span class="pill">${esc(f)} ${fmt(n)}</span>`).join("");
+  gsPanel.innerHTML = !d.results.length
+    ? `<div class="gs-empty">No songs match “${esc(d.q)}”.${FOCUS_ALL ? "" : " Older songs are hidden; tick “Include older songs” to search them too."}</div>`
+    : `<div class="gs-head"><b>${fmt(d.total)}</b> song${d.total === 1 ? "" : "s"} · ${chips}</div>` +
+      d.results.map((r, i) => `<div class="gs-row${i ? "" : " sel"}" data-i="${i}">
+        ${r.yt_video_id ? `<button class="pbtn yt" data-play="youtube" data-pid="${esc(r.yt_video_id)}" data-ptitle="${esc(r.title)}" title="Play">▶</button>` : `<span class="pbtn off">▶</span>`}
+        <div class="gs-main"><div class="t1">${esc(r.title)}${r.music_label ? `<span class="label-tag">${esc(r.music_label)}</span>` : ""}</div>
+          <div class="t2"><span class="gs-why">${esc(r.matched_on)}: ${esc(r.matched)}</span> · ${esc(r.first_upload || "")} · ${statusChip(r.release_status)}</div></div>
+        <div class="gs-nums">${r.yt_views != null ? `<span title="YouTube views"><i style="background:var(--c-youtube)"></i>${compact(r.yt_views)}</span>` : ""}${r.sp_plays != null ? `<span title="Spotify plays"><i style="background:var(--c-spotify)"></i>${compact(r.sp_plays)}</span>` : ""}${r.js_plays != null ? `<span title="JioSaavn plays"><i style="background:var(--c-jiosaavn)"></i>${compact(r.js_plays)}</span>` : ""}</div>
+      </div>`).join("") + (d.total > d.results.length ? `<div class="gs-foot">Showing the top ${d.results.length}; add a word to narrow it down.</div>` : "");
+  gsPanel.hidden = false;
+}
+function gsOpen(i) { const r = GS.results[i]; if (!r) return; gsPanel.hidden = true; openTrack(r.id); }
+gsInput.addEventListener("input", () => {
+  clearTimeout(GS.timer);
+  const qv = gsInput.value.trim();
+  if (qv.length < 2) { gsPanel.hidden = true; return; }
+  GS.timer = setTimeout(async () => {
+    const seq = ++GS.seq;
+    try { const d = await api(`/api/search?q=${encodeURIComponent(qv)}`); if (seq === GS.seq) gsRender(d); } catch (e) { toast(e.message, true); }
+  }, 220);
+});
+gsInput.addEventListener("keydown", (e) => {
+  const rows = gsPanel.querySelectorAll(".gs-row");
+  if (e.key === "Escape") { gsPanel.hidden = true; gsInput.blur(); return; }
+  if (e.key === "Enter") { e.preventDefault(); gsOpen(GS.sel); return; }
+  if ((e.key === "ArrowDown" || e.key === "ArrowUp") && rows.length) {
+    e.preventDefault(); GS.sel = (GS.sel + (e.key === "ArrowDown" ? 1 : -1) + rows.length) % rows.length;
+    rows.forEach((r, i) => r.classList.toggle("sel", i === GS.sel)); rows[GS.sel].scrollIntoView({ block: "nearest" });
+  }
+});
+gsInput.addEventListener("focus", () => { if (GS.results.length && gsInput.value.trim().length >= 2) gsPanel.hidden = false; });
+gsPanel.addEventListener("click", (e) => { if (e.target.closest("[data-play]")) return; const row = e.target.closest(".gs-row"); if (row) gsOpen(+row.dataset.i); });
+document.addEventListener("click", (e) => { if (!e.target.closest("#gsearch-box")) gsPanel.hidden = true; });
+document.addEventListener("keydown", (e) => { if (e.key === "/" && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) { e.preventDefault(); gsInput.focus(); gsInput.select(); } });
+document.addEventListener("change", (e) => { if (e.target.id === "focus-older" && gsInput.value.trim().length >= 2) gsInput.dispatchEvent(new Event("input")); });
 
 /* ---------- Boot ---------- */
 refreshStatus().then(route);
