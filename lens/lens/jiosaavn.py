@@ -176,8 +176,41 @@ def import_results(conn, path, log=print):
     return added
 
 
+OLDER_RECORDING_SQL = """
+WITH sp AS (SELECT track_id, min(substr(published_at,1,10)) d FROM platform_item WHERE platform='spotify' AND review_state IN ('auto','approved')
+            AND length(published_at) >= 4 GROUP BY track_id),
+     dv AS (SELECT song_id, yt_views FROM song_daily WHERE day=(SELECT max(day) FROM song_daily)),
+     js AS (SELECT p.id, p.track_id, p.title, p.published_at jd, sp.d,
+                   (SELECT max(value) FROM snapshot s WHERE s.platform_item_id=p.id AND s.metric='plays') plays, dv.yt_views
+            FROM platform_item p JOIN sp ON sp.track_id=p.track_id JOIN track t ON t.id=p.track_id LEFT JOIN dv ON dv.song_id=p.track_id
+            WHERE p.platform='jiosaavn' AND length(p.published_at) >= 4 AND coalesce(t.release_status,'') != 'catalogue')
+SELECT id, track_id, title, jd, d FROM js
+WHERE (length(jd) >= 10 AND julianday(d) - julianday(substr(jd,1,10)) > 180)
+   OR (length(jd) = 4 AND CAST(substr(d,1,4) AS INT) - CAST(jd AS INT) >= 2)
+   OR (CAST(substr(jd,1,4) AS INT) < CAST(substr(d,1,4) AS INT) AND plays > 10000000 AND plays > 20 * coalesce(yt_views, 0))"""
+
+
+def drop_older_recordings(conn, log=print):
+    """Spotify decides: on a song counted as a new release, a JioSaavn track that came out clearly before the song's
+    earliest Spotify copy is another recording (the original of a remix, recreation or new version, or an older song
+    with the same name), whose plays are not this song's. It is unlinked and marked 'rejected' (kept, so a later search
+    finding the same track does not link it again)."""
+    if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='song_daily'").fetchone():
+        return 0
+    rows = conn.execute(OLDER_RECORDING_SQL).fetchall()
+    for iid, tid, title, jd, sd in rows:
+        detail = json.loads(conn.execute("SELECT match_detail FROM platform_item WHERE id=?", (iid,)).fetchone()[0] or "{}")
+        detail["unlinked"] = {"song_id": tid, "reason": f"JioSaavn {jd} is older than the song's Spotify release {sd}", "at": db.now_iso()}
+        conn.execute("UPDATE platform_item SET track_id=NULL, review_state='rejected', match_detail=? WHERE id=?", (json.dumps(detail), iid))
+    conn.commit()
+    if rows:
+        log(f"JioSaavn: {len(rows)} links to an older recording removed (Spotify shows the song as a new release)")
+    return len(rows)
+
+
 def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, **_):
     since, until = config.window(cfg)
+    drop_older_recordings(conn, log)
     today = date.today().isoformat()
     ts = db.now_iso()
     labels = config.channel_labels(cfg)
