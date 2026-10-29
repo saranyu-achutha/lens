@@ -227,7 +227,10 @@ const viewsCell = (v) => `<td class="num">${v == null ? '<span class="muted">–
 const ytCell = (r) => `<td class="num">${r.yt_videos ? r.yt_videos : '<span class="muted">0</span>'}${r.yt_pending ? ` <a href="#review" class="pill warn" style="padding:0 6px" title="awaiting review">+${r.yt_pending}</a>` : ""}</td>`;
 const metaLine = (m) => !m ? "" : [m.music_director && `<b>Music</b> ${esc(m.music_director)}`, m.film && `<b>Film</b> ${esc(m.film)}`,
   m.language && esc(m.language), m.category && esc(m.category)].filter(Boolean).join(" · ");
-const trackCell = (r) => `<td><div class="t1">${esc(r.title)}${r.music_label ? `<span class="label-tag">${esc(r.music_label)}</span>` : ""}</div>
+// Each tracked label has its own gradient (colours in style.css .lb-*, tuned for light and dark).
+const LABEL_KEY = { "Sony Music India": "sony", "T-Series": "tseries", "Saregama": "saregama", "Zee Music Company": "zee", "Aditya Music": "aditya", "Think Music": "think", "Times Music": "times" };
+const labelTag = (name) => name ? `<span class="label-tag lb-${LABEL_KEY[name] || "other"}">${esc(name)}</span>` : "";
+const trackCell = (r) => `<td><div class="t1">${esc(r.title)}${labelTag(r.music_label)}</div>
   <div class="t2">${esc((r.meta && r.meta.singer) || r.artists || r.yt_channel || "")}</div>${r.meta ? `<div class="meta-line">${metaLine(r.meta)}</div>` : ""}</td>`;
 
 /* ---------- Overview ---------- */
@@ -266,7 +269,7 @@ async function loadOverview() {
   });
   const nums = (c) => `<td class="num">${fmt(c.songs)}</td><td class="num">${fmt(c.new)}</td><td class="num">${compact(c.views)}</td>`;
   $("#ov-labels").innerHTML = `<thead><tr><th>Label / channel</th><th class="num">Songs</th><th class="num">New</th><th class="num">Views</th></tr></thead><tbody>` +
-    ov.labels.map((l) => `<tr class="label-row" data-label="${esc(l.label)}" style="cursor:pointer"><td>${esc(l.label)}</td>${nums(l)}</tr>` +
+    ov.labels.map((l) => `<tr class="label-row" data-label="${esc(l.label)}" style="cursor:pointer"><td>${labelTag(l.label)}</td>${nums(l)}</tr>` +
       ov.channels.filter((c) => c.label && c.label === l.label).map((c) => `<tr class="ch-row" data-ch="${esc(c.channel)}" style="cursor:pointer"><td>${esc(c.channel)}</td>${nums(c)}</tr>`).join("")).join("") + "</tbody>";
   const tbl = (rows, extra) => `<thead><tr><th>Play</th><th>Song</th><th>First upload</th><th>Spotify</th>${extra ? "<th class='num'>Views gained</th>" : ""}<th class="num">YouTube views</th></tr></thead><tbody>` +
     rows.map((r) => `<tr class="click" data-id="${r.id}">${playBtns(r)}${trackCell(r)}<td class="muted">${esc(r.song_date)}</td><td>${statusChip(r.release_status)}</td>${extra ? `<td class="num delta-up">+${compact(r.yt_delta)}</td>` : ""}${viewsCell(r.yt_views)}</tr>`).join("") + "</tbody>";
@@ -313,7 +316,7 @@ $("#pf-table").addEventListener("click", (e) => { const tr = e.target.closest("t
 /* ---------- Dashboard (client home): reach and growth in plain terms ---------- */
 const legendHtml = (lines) => lines.map((l) => `<span><span style="display:inline-block;width:12px;height:3px;background:${PCOLOR[l.platform]};vertical-align:middle;margin-right:5px"></span>${esc(l.name)}</span>`).join("");
 const playOne = (r) => `<td class="play-cell">${r.yt_video_id ? `<button class="pbtn yt" data-play="youtube" data-pid="${esc(r.yt_video_id)}" data-ptitle="${esc(r.title)}" title="Play on YouTube">▶</button>` : `<span class="pbtn off">▶</span>`}</td>`;
-const songRow = (r, i, extra) => `<tr class="click" data-id="${r.id}"><td class="muted num">${i + 1}</td>${playOne(r)}<td><div class="t1">${esc(r.title)}${r.label ? `<span class="label-tag">${esc(r.label)}</span>` : ""}</div><div class="t2">${esc(r.first_upload)}</div></td>${extra(r)}</tr>`;
+const songRow = (r, i, extra) => `<tr class="click" data-id="${r.id}"><td class="muted num">${i + 1}</td>${playOne(r)}<td><div class="t1">${esc(r.title)}${labelTag(r.label)}</div><div class="t2">${esc(r.first_upload)}</div></td>${extra(r)}</tr>`;
 async function loadClient() {
   const d = await api("/api/client");
   $("#cl-window").textContent = `How the releases first uploaded ${d.since} → ${d.until} are performing across platforms`;
@@ -344,7 +347,7 @@ async function loadClient() {
     d.risers.map((r, i) => songRow(r, i, (r) => `<td class="num delta-up">+${compact(r.gain)}</td><td class="num">${compact(r.reach)}</td>`)).join("") + "</tbody>"
     : `<tbody><tr><td class="empty">Growth appears after two days of readings.</td></tr></tbody>`;
   $("#cl-labels").innerHTML = `<thead><tr><th>Label</th><th class="num">Songs</th><th class="num">New releases</th><th class="num">Hit songs</th><th class="num">Reach</th><th class="num">Share</th><th class="num">Gained, last day</th></tr></thead><tbody>` +
-    d.labels.map((l) => `<tr class="label-row" data-label="${esc(l.label)}" style="cursor:pointer"><td>${esc(l.label)}</td><td class="num">${fmt(l.songs)}</td><td class="num">${fmt(l.new)}</td><td class="num">${fmt(l.hits)}</td>
+    d.labels.map((l) => `<tr class="label-row" data-label="${esc(l.label)}" style="cursor:pointer"><td>${labelTag(l.label)}</td><td class="num">${fmt(l.songs)}</td><td class="num">${fmt(l.new)}</td><td class="num">${fmt(l.hits)}</td>
       <td class="num">${compact(l.reach)}</td><td class="num">${pct(l.reach, d.reach)}%</td><td class="num ${l.gain > 0 ? "delta-up" : ""}">${l.gain ? "+" + compact(l.gain) : "–"}</td></tr>`).join("") + "</tbody>";
 }
 ["#cl-top", "#cl-risers"].forEach((t) => $(t).addEventListener("click", (e) => { if (e.target.closest("[data-play]")) return; const tr = e.target.closest("tr[data-id]"); if (tr) openTrack(tr.dataset.id); }));
@@ -416,7 +419,7 @@ async function loadReport() {
     .map(([l, v, x]) => `<div class="card kpi"><div class="label">${esc(l)} ${l === "Songs in report" || l === "Deezer" ? "" : "change"}</div><div class="value">${esc(v)}</div><div class="sub">${esc(x)}</div></div>`).join("");
   const cols = d.metrics;
   $("#rp-table").innerHTML = `<thead><tr><th>Song</th><th>Label</th>${cols.map((m) => `<th class="num">${esc(m.label)}<br><span class="muted">${esc(d.to)}</span></th><th class="num">Change</th>`).join("")}</tr></thead><tbody>` +
-    (d.rows.map((r) => `<tr class="click" data-id="${r.id}"><td><div class="t1">${esc(r.title)}</div><div class="t2">${esc(r.channel || "")} · ${esc(r.song_date || "")}</div></td><td>${esc(r.label || "")}</td>` +
+    (d.rows.map((r) => `<tr class="click" data-id="${r.id}"><td><div class="t1">${esc(r.title)}</div><div class="t2">${esc(r.channel || "")} · ${esc(r.song_date || "")}</div></td><td>${labelTag(r.label)}</td>` +
       cols.map((m) => `<td class="num">${r[m.key + "_to"] == null ? '<span class="muted">–</span>' : compact(r[m.key + "_to"])}</td><td class="num ${(r[m.key + "_delta"] || 0) > 0 ? "delta-up" : ""}">${sign(r[m.key + "_delta"])}</td>`).join("") + "</tr>").join("")
       || `<tr><td colspan="${2 + cols.length * 2}" class="empty">No songs with readings on both days.</td></tr>`) + "</tbody>";
   $("#rp-count").textContent = d.total ? `${fmt(RP.offset + 1)}–${fmt(Math.min(RP.offset + RP.limit, d.total))} of ${fmt(d.total)}` : "0";
@@ -475,7 +478,7 @@ async function loadDaily() {
   $("#dd-sub").textContent = `Totals for ${d.day || "–"}${d.prev ? `; change compared with ${d.prev}` : ""}. Stored indefinitely; click a song for its full day-by-day history.`;
   $("#dd-table").innerHTML = `<thead><tr><th>Song</th><th>Label</th><th class="num">Uploads read</th>${head}</tr></thead><tbody>` +
     (d.rows.map((r) => `<tr class="click" data-song="${r.id}"><td><div class="t1">${esc(r.title)}</div><div class="t2">${esc(r.yt_channel || "")} · ${esc(r.song_date || "")}</div></td>
-      <td>${esc(r.music_label || "")}</td><td class="num">${fmt(r.yt_uploads_read)}</td>${cells(r)}</tr>`).join("") || `<tr><td class="empty" colspan="${3 + d.cols.length * 2}">No data for this day.</td></tr>`) + "</tbody>";
+      <td>${labelTag(r.music_label)}</td><td class="num">${fmt(r.yt_uploads_read)}</td>${cells(r)}</tr>`).join("") || `<tr><td class="empty" colspan="${3 + d.cols.length * 2}">No data for this day.</td></tr>`) + "</tbody>";
   $("#dd-count").textContent = d.total ? `${fmt(DD.offset + 1)}–${fmt(Math.min(DD.offset + DD.limit, d.total))} of ${fmt(d.total)}` : "0";
   $("#dd-prev").disabled = DD.offset === 0; $("#dd-next").disabled = DD.offset + DD.limit >= d.total;
 }
@@ -559,7 +562,7 @@ async function loadPData() {
   $("#pd-table").innerHTML = `<thead><tr>${head.map(([k, l]) => `<th class="sortable${["days_tracked"].includes(k) || d.metrics.some((m) => k.startsWith(m)) ? " num" : ""}" data-sort="${k}">${esc(l)}${arrow(k)}</th>`).join("")}</tr></thead><tbody>` +
     (d.rows.map((r) => `<tr class="click" data-item="${r.id}"><td>${r.song ? `<div class="t1">${esc(r.song)}</div>` : '<span class="muted">not a song</span>'}</td>
       <td><a href="${esc(r.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc((r.title || "").slice(0, 80))}</a>${r.asset_type ? `<div class="t2">${esc(r.asset_type)}</div>` : ""}</td>
-      <td>${esc(r.channel || "")}${r.label ? `<div class="t2">${esc(r.label)}</div>` : ""}</td><td class="muted">${esc(r.released || "–")}</td><td class="muted">${esc(r.first_seen || "–")}</td>
+      <td>${esc(r.channel || "")}${r.label ? `<div class="t2">${labelTag(r.label)}</div>` : ""}</td><td class="muted">${esc(r.released || "–")}</td><td class="muted">${esc(r.first_seen || "–")}</td>
       <td class="num">${fmt(r.days_tracked)}</td>${d.metrics.map((m) => `<td class="num">${num(r[m])}</td><td class="num ${(r[m + "_change"] || 0) > 0 ? "delta-up" : ""}">${r[m + "_change"] == null ? '<span class="muted">–</span>' : sign(r[m + "_change"])}</td>`).join("")}</tr>`).join("")
       || `<tr><td class="empty" colspan="${head.length}">No ${esc(d.label)} items match.</td></tr>`) + "</tbody>";
   $("#pd-count").textContent = d.total ? `${fmt(PD.offset + 1)}–${fmt(Math.min(PD.offset + PD.limit, d.total))} of ${fmt(d.total)}` : "0";
@@ -782,7 +785,7 @@ async function loadPanel() {
         <td class="num"><b>${r.median_percentile}</b><span class="share" style="width:${Math.round(r.median_percentile * 0.6)}px"></span></td><td class="num">${r.share_above_typical}%</td>
         <td class="num">${r.median_likes_per_1k ?? "–"}</td><td class="num">${compact(r.total_views)}</td><td class="muted">${esc(r.top_song)}</td></tr>`).join("");
     html = `<thead><tr><th>Group</th><th class="num">Songs</th><th class="num">Median percentile (50 = typical)</th><th class="num">Above typical</th><th class="num">Likes / 1k views</th><th class="num">Total views</th><th>Fastest song</th></tr></thead><tbody>` +
-      grp("Labels", d.labels, (r) => `<b>${esc(r.label)}</b>`) + grp("Languages (5+ songs)", d.languages, (r) => esc(r.language)) +
+      grp("Labels", d.labels, (r) => labelTag(r.label)) + grp("Languages (5+ songs)", d.languages, (r) => esc(r.language)) +
       grp("Label × language (5+ songs)", d.label_language, (r) => `${esc(r.label)} · ${esc(r.language)}`) + "</tbody>";
   } else if (INS.panel === "catalog") {
     html = `<thead><tr><th>Song</th><th>First released</th><th class="num">Views</th><th class="num">Views/day</th><th>Evidence</th></tr></thead><tbody>` +
@@ -952,7 +955,7 @@ async function openTrack(id) {
     [spotifyOk && `https://open.spotify.com/track/${t.spotify_id}`, "Spotify", "sp"], [t.js_url, "JioSaavn", "js"], [t.apple_url, "Apple Music", "am"],
     [t.deezer_url, "Deezer", "dz"], [t.mb_url, "MusicBrainz", "mb"]]
     .map(([u, n, c]) => u ? `<a class="lo ${c}" href="${esc(u)}" target="_blank" rel="noopener">${n} ↗</a>` : `<span class="lo off" title="not found on ${n} yet">${n}</span>`).join(" ");
-  const facts = [first("film") && `🎬 ${esc(first("film"))}`, first("language") && `🗣 ${esc(first("language"))}`, t.music_label && `🏷 ${esc(t.music_label)}`,
+  const facts = [first("film") && `🎬 ${esc(first("film"))}`, first("language") && `🗣 ${esc(first("language"))}`, t.music_label && labelTag(t.music_label),
     first("category") && esc(first("category")), first("occasion") && esc(first("occasion"))].filter(Boolean).join(" · ");
   const row = (f) => m[f] && m[f].length ? `<dt>${esc(STATUS.meta_fields[f] || f)}</dt><dd>${m[f].map((v) => metaChip(f, v)).join(" ")} ${srcTag([...new Set(m[f].flatMap((v) => v.source.split(",")))].join(","))}</dd>` : "";
   const plain = (l, v, src) => v ? `<dt>${l}</dt><dd>${v} ${src ? srcTag(src) : ""}</dd>` : "";
@@ -1635,7 +1638,7 @@ function gsRender(d) {
     : `<div class="gs-head"><b>${fmt(d.total)}</b> song${d.total === 1 ? "" : "s"} · ${chips}</div>` +
       d.results.map((r, i) => `<div class="gs-row${i ? "" : " sel"}" data-i="${i}">
         ${r.yt_video_id ? `<button class="pbtn yt" data-play="youtube" data-pid="${esc(r.yt_video_id)}" data-ptitle="${esc(r.title)}" title="Play">▶</button>` : `<span class="pbtn off">▶</span>`}
-        <div class="gs-main"><div class="t1">${esc(r.title)}${r.music_label ? `<span class="label-tag">${esc(r.music_label)}</span>` : ""}</div>
+        <div class="gs-main"><div class="t1">${esc(r.title)}${labelTag(r.music_label)}</div>
           <div class="t2"><span class="gs-why">${esc(r.matched_on)}: ${esc(r.matched)}</span> · ${esc(r.first_upload || "")} · ${statusChip(r.release_status)}</div></div>
         <div class="gs-nums">${r.yt_views != null ? `<span title="YouTube views"><i style="background:var(--c-youtube)"></i>${compact(r.yt_views)}</span>` : ""}${r.sp_plays != null ? `<span title="Spotify plays"><i style="background:var(--c-spotify)"></i>${compact(r.sp_plays)}</span>` : ""}${r.js_plays != null ? `<span title="JioSaavn plays"><i style="background:var(--c-jiosaavn)"></i>${compact(r.js_plays)}</span>` : ""}</div>
       </div>`).join("") + (d.total > d.results.length ? `<div class="gs-foot">Showing the top ${d.results.length}; add a word to narrow it down.</div>` : "");
