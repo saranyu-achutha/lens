@@ -481,7 +481,8 @@
     "spotify_searches_per_run": 1100,
     "spotify_recheck_days": 3,
     "spotify_artist_calls_per_run": 700,
-    "musicbrainz_contact": ""
+    "musicbrainz_contact": "",
+    "ytmusic_searches_per_run": 200
   },
   "merge": {
     "across_labels": false,
