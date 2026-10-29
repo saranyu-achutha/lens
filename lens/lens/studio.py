@@ -32,6 +32,7 @@ STATIC = Path(__file__).resolve().parent / "static"
 DOCS = Path(__file__).resolve().parent.parent / "docs"
 REQUEST = threading.local()  # who is making the current request (for the decision log)
 MANAGER = jobs.JobManager()
+BROWSER = jobs.JobManager()  # second lane: the Spotify page job (browser) runs beside the API jobs
 PASSWORD = None  # client login: any username with STUDIO_PASSWORD
 DEV_LOGIN = (None, None)  # developer login: DEVELOPER_USERNAME + DEVELOPER_PASSWORD (.env)
 # What the client login may read: its dashboard, platforms, reports, daily data and songs. Everything else
@@ -75,7 +76,7 @@ def api_status(conn, _):
                               (SELECT max(capture_date) FROM snapshot) last_capture,
                               (SELECT count(*) FROM platform_item WHERE platform='youtube' AND review_state='pending') yt_pending""")[0]
     last_ok = q(conn, "SELECT finished_at FROM run_log WHERE status='ok' ORDER BY id DESC LIMIT 1")
-    return {"role": "developer", "meta_fields": metadata.FIELDS, "explore_fields": metadata.EXPLORE, "config": cfg, "secrets": secret_status(), "job": MANAGER.state(10**9), "jobs": jobs.JOBS,
+    return {"role": "developer", "meta_fields": metadata.FIELDS, "explore_fields": metadata.EXPLORE, "config": cfg, "secrets": secret_status(), "job": MANAGER.state(10**9), "browser_job": BROWSER.state(10**9), "jobs": jobs.JOBS,
             "next_run": nxt.isoformat(timespec="minutes") if nxt else None, "counts": counts,
             "last_ok": last_ok[0]["finished_at"] if last_ok else None, "today": date.today().isoformat()}
 
@@ -968,7 +969,8 @@ def post_run(conn, body):
 
 
 def post_cancel(conn, body):
-    return {"cancelled": MANAGER.cancel()}
+    """Stop the running job in both lanes (API jobs and the browser job)."""
+    return {"cancelled": MANAGER.cancel(), "cancelled_browser": BROWSER.cancel()}
 
 
 MATCH_ROW_SQL = """
@@ -1728,7 +1730,7 @@ def api_dev(conn, qs):
     lines = [{"platform": p, "name": n, "points": [{"x": v["day"], "y": v["n"]} for v in volume if v["platform"] == p]}
              for p, n in (("youtube", "YouTube"), ("spotify", "Spotify"), ("jiosaavn", "JioSaavn"), ("ytmusic", "YouTube Music"), ("deezer", "Deezer"))]
     return {"today": today, "yesterday": yday, "since": since, "until": until, "songs": n_songs, "targets": targets,
-            "job": MANAGER.state(10**9), "worker": cfg.get("worker", {}), "next": {"job": nxt[0], "why": nxt[1]} if nxt else None,
+            "job": MANAGER.state(10**9), "browser_job": BROWSER.state(10**9), "worker": cfg.get("worker", {}), "next": {"job": nxt[0], "why": nxt[1]} if nxt else None,
             "jobs": sorted(by_job.values(), key=lambda j: j["last"]["started_at"], reverse=True), "failures": failures,
             "readings": readings, "backlog": backlog,
             "youtube": {"units_today": units, "units_limit": DAILY_UNITS * max(len(keys), 1), "keys": key_status(keys),
@@ -1852,7 +1854,9 @@ class Handler(BaseHTTPRequestHandler):
         if role == "client" and ((url.path.startswith("/api/") and url.path not in CLIENT_GET) or url.path.startswith("/docs/")):
             return self._send(403, {"error": "not available for this login"})
         if url.path == "/api/job":
-            return self._send(200, MANAGER.state(int(qs.get("from", 0))))
+            st = MANAGER.state(int(qs.get("from", 0)))
+            st["browser"] = {k: v for k, v in BROWSER.state(10**9).items() if k != "log"}
+            return self._send(200, st)
         if url.path == "/api/export.csv":
             from . import songs
             conn = db.connect(str(config.DB_FILE))
@@ -1935,7 +1939,7 @@ def main():
 
     jobs.start_scheduler(MANAGER)
     jobs.start_health_watcher(MANAGER)
-    jobs.start_worker(MANAGER)
+    jobs.start_worker(MANAGER, BROWSER)
     srv = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"Market Lens Console on http://{args.host}:{args.port}")
     try:

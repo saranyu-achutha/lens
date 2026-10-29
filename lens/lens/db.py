@@ -197,7 +197,7 @@ def connect(path):
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")  # the studio reads while a job writes
-    conn.execute("PRAGMA busy_timeout = 5000")
+    conn.execute("PRAGMA busy_timeout = 60000")  # two job lanes can write at once (API jobs and the browser job)
     conn.executescript(SCHEMA)
     _migrate(conn)
     conn.commit()  # never leave the migration's implicit write transaction open (it would lock out other writers)

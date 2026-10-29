@@ -78,8 +78,9 @@ async function refreshStatus() {
     $("#top-lastok").textContent = STATUS.last_ok ? `Updated ${new Date(STATUS.last_ok).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}` : "";
     return;
   }
-  const j = STATUS.job, pill = $("#job-pill");
-  if (j.running) { pill.className = "pill run"; pill.innerHTML = `<span class="dot"></span>Running: ${esc(STATUS.jobs[j.job] || j.job)}`; }
+  const j = STATUS.job, b = STATUS.browser_job || {}, pill = $("#job-pill");
+  const names = [j, b].filter((x) => x.running).map((x) => esc(STATUS.jobs[x.job] || x.job));
+  if (names.length) { pill.className = "pill run"; pill.innerHTML = `<span class="dot"></span>Running: ${names.join(" + ")}`; }
   else if (j.status === "failed") { pill.className = "pill bad"; pill.innerHTML = `<span class="dot"></span>Last run failed`; }
   else { pill.className = "pill"; pill.innerHTML = `<span class="dot"></span>Idle`; }
   const sp = $("#sched-pill");
@@ -365,7 +366,8 @@ async function loadDev() {
     return `<div class="card kpi target ${t.value == null ? "" : ok ? "on" : "off"}"><div class="label">${esc(t.name)}</div><div class="value">${t.value == null ? "–" : t.value + "%"}</div>
       <div class="sub">target ${t.lower ? "≤" : "≥"} ${t.target}% · ${esc(t.detail)}</div></div>`; }).join("");
   const j = d.job;
-  $("#dev-now").innerHTML = kv([["Running", j.running ? `<span class="pill run"><span class="dot"></span>${esc(j.job)}</span>` : '<span class="pill"><span class="dot"></span>Idle</span>'],
+  const lanePill = (x) => x && x.running ? `<span class="pill run"><span class="dot"></span>${esc(x.job)}</span>` : '<span class="pill"><span class="dot"></span>Idle</span>';
+  $("#dev-now").innerHTML = kv([["API jobs", lanePill(j)], ["Browser lane", lanePill(d.browser_job)],
     ["Work loop", d.worker.enabled === false ? '<span class="pill bad"><span class="dot"></span>off</span>' : `<span class="pill ok"><span class="dot"></span>on</span> pause ${d.worker.pause_seconds ?? 60} s between jobs`],
     ["Next in queue", d.next ? `<b>${esc(d.next.job)}</b> <span class="muted">${esc(d.next.why)}</span>` : '<span class="muted">nothing due</span>'],
     ["Spotify API", d.spotify.ok ? `<span class="pill ok"><span class="dot"></span>healthy</span> <span class="muted">checked ${ago(d.spotify.checked_at)}</span>` : `<span class="pill bad"><span class="dot"></span>blocked</span>${d.spotify.retry_at ? ` <span class="muted">retry ${esc(new Date(d.spotify.retry_at).toLocaleString())}</span>` : ""}`]]);

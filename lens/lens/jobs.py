@@ -194,15 +194,19 @@ def _count(sql, args=()):
         conn.close()
 
 
-def _due_work(cfg, tried):
-    """The next job worth running now, or None. `tried` holds when each job was last started by this loop."""
+BROWSER_JOBS = ("spotify_plays",)  # CPU-heavy headless-browser work, run in its own lane beside the API jobs
+
+
+def _due_work(cfg, tried, browser=True, api=True):
+    """The next job worth running now, or None. `tried` holds when each job was last started by this loop.
+    browser / api choose which kind of work to consider (the worker runs one lane of each when it has two)."""
     since, until = config.window(cfg)
     today = datetime.now().date().isoformat()
     now = time.time()
     ago = lambda job: now - tried.get(job, 0)
     in_window = "t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?"
     # 1. Spotify play counts: once a day for tracks without today's count (needs a browser on this machine).
-    if ago("spotify_plays") > 2 * 3600:
+    if browser and ago("spotify_plays") > 2 * 3600:
         try:
             spotify_plays.find_chrome()
             conn = db.connect(str(config.DB_FILE))
@@ -212,6 +216,8 @@ def _due_work(cfg, tried):
                 return "spotify_plays", f"{n} Spotify tracks without today's play count"
         except SystemExit:
             pass
+    if not api:
+        return None
     # 2. JioSaavn: songs never searched (or due a retry) and tracks without today's plays.
     if ago("jiosaavn") > 600:
         recheck = (datetime.now().date() - timedelta(days=7)).isoformat()
@@ -252,27 +258,36 @@ def hours_since(job):
     return (datetime.now().astimezone() - datetime.fromisoformat(row[0])).total_seconds() / 3600
 
 
-def start_worker(manager):
-    """Between scheduled runs, keep the machine working on whatever is due (config worker.enabled)."""
+def start_worker(manager, browser_manager=None):
+    """Between scheduled runs, keep the machine working on whatever is due (config worker.enabled).
+    With a browser_manager there are two lanes: the browser job (Spotify pages, CPU) beside the API jobs (network),
+    so a 2-core machine uses both cores."""
+    def lane(mgr, w, tried, **kinds):
+        last_end = mgr.last and mgr.last.get("ended_at")
+        if mgr.current or (last_end and time.time() - last_end < w.get("pause_seconds", 60)):
+            return
+        due = _due_work(config.load(), tried, **kinds)
+        if due:
+            job, why = due
+            tried[job] = time.time()
+            try:
+                mgr.start(job, trigger="worker")
+                print(f"worker: started {job} ({why})", flush=True)
+            except RuntimeError:
+                pass
+
     def loop():
-        tried, idle_since = {}, None
+        tried = {}
         time.sleep(90)  # let the scheduler claim a due pipeline first
         while True:
             try:
-                cfg = config.load()
-                w = cfg.get("worker", {})
-                last_end = manager.last and manager.last.get("ended_at")
-                pause_ok = not last_end or time.time() - last_end >= w.get("pause_seconds", 60)
-                if w.get("enabled", True) and not manager.current and pause_ok:
-                    due = _due_work(cfg, tried)
-                    if due:
-                        job, why = due
-                        tried[job] = time.time()
-                        try:
-                            manager.start(job, trigger="worker")
-                            print(f"worker: started {job} ({why})", flush=True)
-                        except RuntimeError:
-                            pass
+                w = config.load().get("worker", {})
+                if w.get("enabled", True):
+                    if browser_manager is None:
+                        lane(manager, w, tried)
+                    else:
+                        lane(browser_manager, w, tried, api=False)
+                        lane(manager, w, tried, browser=False)
             except Exception:
                 traceback.print_exc()
             time.sleep(30)
