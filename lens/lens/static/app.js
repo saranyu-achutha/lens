@@ -119,6 +119,13 @@ function svgEl(tag, attrs, parent) {
   parent && parent.appendChild(e);
   return e;
 }
+// Vertical gradient for bars and areas; the colour can be a CSS variable, so it follows the theme.
+function gradient(svg, id, color, top, bottom) {
+  const defs = svg.querySelector("defs") || svgEl("defs", {}, svg);
+  const g = svgEl("linearGradient", { id, x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
+  svgEl("stop", { offset: "0%", style: `stop-color:${color};stop-opacity:${top}` }, g);
+  svgEl("stop", { offset: "100%", style: `stop-color:${color};stop-opacity:${bottom}` }, g);
+}
 function niceMax(v) {
   if (v <= 0) return 4;
   const p = 10 ** Math.floor(Math.log10(v)), n = v / p;
@@ -142,6 +149,7 @@ function barChart(el, data, { height = 230, onClick, tip } = {}) {
   const iw = W - m.l - m.r, ih = H - m.t - m.b;
   const max = niceMax(Math.max(...data.map((d) => d.value)));
   const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, height: H, role: "img", "aria-label": "bar chart" }, el);
+  gradient(svg, "bar-grad", "var(--series-1)", 1, 0.55);
   const g = svgEl("g", { class: "grid" }, svg), ax = svgEl("g", { class: "axis" }, svg);
   for (let i = 0; i <= 4; i++) {
     const y = m.t + ih - (ih * i) / 4;
@@ -153,17 +161,17 @@ function barChart(el, data, { height = 230, onClick, tip } = {}) {
   const maxIdx = data.reduce((bi, d, i) => (d.value > data[bi].value ? i : bi), 0);
   data.forEach((d, i) => {
     const h = (d.value / max) * ih, x = m.l + step * i + (step - bw) / 2, y = m.t + ih - h;
-    const bar = svgEl("path", { d: barPath(x, y, bw, Math.max(h, 0.5)), fill: "var(--series-1)" }, svg);
+    const bar = svgEl("path", { d: barPath(x, y, bw, Math.max(h, 0.5)), fill: "url(#bar-grad)", class: "bar", style: `animation-delay:${Math.min(i * 12, 400)}ms` }, svg);
     if (i === maxIdx) svgEl("text", { x: x + bw / 2, y: y - 6, "text-anchor": "middle", fill: "var(--text-secondary)", "font-size": 11 }, svg).textContent = fmt(d.value);
     if (data.length <= 14 || i % Math.ceil(data.length / 12) === 0)
       svgEl("text", { x: x + bw / 2, y: H - 8, "text-anchor": "middle" }, ax).textContent = d.label;
     const hit = svgEl("rect", { x: m.l + step * i, y: m.t, width: step, height: ih, fill: "transparent", style: onClick ? "cursor:pointer" : "" }, svg);
     hit.addEventListener("mouseenter", () => {
-      bar.setAttribute("fill", "#5598e7");
+      bar.setAttribute("fill", "var(--series-1-hover)");
       tt.innerHTML = tip ? tip(d) : `${esc(d.label)}: <b>${fmt(d.value)}</b>`;
       tt.style.left = `${((x + bw / 2) / W) * 100}%`; tt.style.top = `${(y / H) * el.clientHeight}px`; tt.style.display = "block";
     });
-    hit.addEventListener("mouseleave", () => { bar.setAttribute("fill", "var(--series-1)"); tt.style.display = "none"; });
+    hit.addEventListener("mouseleave", () => { bar.setAttribute("fill", "url(#bar-grad)"); tt.style.display = "none"; });
     if (onClick) hit.addEventListener("click", () => onClick(d));
   });
 }
@@ -184,7 +192,10 @@ function lineChart(el, points, { height = 200, yMax = null, label = "Popularity"
   const t0 = Date.parse(points[0].x), t1 = Date.parse(points[points.length - 1].x), span = Math.max(t1 - t0, 1);
   const X = (p) => (points.length === 1 ? m.l + iw / 2 : m.l + ((Date.parse(p.x) - t0) / span) * iw);
   const Y = (p) => m.t + ih - (p.y / yMax) * ih;
-  svgEl("path", { d: points.map((p, i) => `${i ? "L" : "M"}${X(p)},${Y(p)}`).join(""), fill: "none", stroke: "var(--series-1)", "stroke-width": 2, "stroke-linejoin": "round" }, svg);
+  const linePath = points.map((p, i) => `${i ? "L" : "M"}${X(p)},${Y(p)}`).join("");
+  gradient(svg, "line-area", "var(--series-1)", 0.28, 0);
+  if (points.length > 1) svgEl("path", { d: `${linePath}L${X(points[points.length - 1])},${m.t + ih}L${X(points[0])},${m.t + ih}Z`, fill: "url(#line-area)", class: "area" }, svg);
+  svgEl("path", { d: linePath, fill: "none", stroke: "var(--series-1)", "stroke-width": 2.5, "stroke-linejoin": "round", "stroke-linecap": "round", pathLength: 1, class: "line" }, svg);
   if (points.length <= 40) points.forEach((p) => svgEl("circle", { cx: X(p), cy: Y(p), r: 4, fill: "var(--series-1)", stroke: "var(--surface-1)", "stroke-width": 2 }, svg));
   [points[0], points[points.length - 1]].forEach((p, i) => {
     if (i && points.length === 1) return;
@@ -319,7 +330,7 @@ async function loadClient() {
     ["Top label", lead ? lead.label : "–", lead ? `${pct(lead.reach, d.reach)}% of reach · ${fmt(lead.songs)} songs` : ""]];
   $("#cl-kpis").innerHTML = tiles.map(([l, v, x]) => `<div class="card kpi${/^[+\d.,]+[KMB]?$/.test(v) || v === "–" ? "" : " kpi-text"}" title="${esc(v)}"><div class="label">${l}</div><div class="value">${esc(v)}</div><div class="sub">${esc(x)}</div></div>`).join("");
   const lines = d.trend.map((l) => ({ name: l.name, color: PCOLOR[l.platform], points: l.points }));
-  multiLine($("#cl-trend"), lines.filter((l) => l.points.length));
+  multiLine($("#cl-trend"), lines.filter((l) => l.points.length), { height: 330 });
   $("#cl-legend").innerHTML = legendHtml(d.trend);
   $("#cl-presence").innerHTML = d.platforms.map((p) => `<div class="bar-row"><span class="bar-name">${esc(p.name.replace(/ (views|plays)$/, ""))}</span>
       <span class="bar-track"><span class="bar-fill" style="width:${pct(p.songs, d.songs)}%;background:${PCOLOR[p.platform] || "var(--accent)"}"></span></span>
@@ -476,7 +487,8 @@ $("#dd-metric").addEventListener("click", (e) => { const b = e.target.closest("b
 $("#dd-table").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-song]"); if (tr) { DD.song = tr.dataset.song; loadDaily(); } });
 
 /* ---------- Cross-platform comparison of one song ---------- */
-const PCOLOR = { youtube: "#e62117", ytmusic: "#ff6b81", spotify: "#1db954", jiosaavn: "#2bc5b4", deezer: "#a238ff" };
+// Platform colours come from the theme (style.css --c-*), so charts and chips follow light / dark.
+const PCOLOR = { youtube: "var(--c-youtube)", ytmusic: "var(--c-ytmusic)", spotify: "var(--c-spotify)", jiosaavn: "var(--c-jiosaavn)", deezer: "var(--c-deezer)", apple: "var(--c-apple)" };
 function multiLine(el, series, { height = 220 } = {}) {  // series: [{name, color, points:[{x, y}]}], shared x (days)
   el.innerHTML = "";
   const xs = [...new Set(series.flatMap((s) => s.points.map((p) => p.x)))].sort();
@@ -491,10 +503,16 @@ function multiLine(el, series, { height = 220 } = {}) {  // series: [{name, colo
     svgEl("line", { x1: m.l, x2: W - m.r, y1: y, y2: y }, g); svgEl("text", { x: m.l - 8, y: y + 4, "text-anchor": "end" }, ax).textContent = compact(v); }
   const step = Math.max(1, Math.ceil(xs.length / 8));
   xs.forEach((x, i) => { if (i % step === 0) svgEl("text", { x: X(x), y: H - 8, "text-anchor": "middle" }, ax).textContent = x.slice(5); });
-  series.forEach((s) => {
+  const uid = Math.random().toString(36).slice(2, 7);
+  series.forEach((s, si) => {
     const pts = s.points.filter((p) => p.y != null);
-    if (pts.length > 1) svgEl("path", { d: pts.map((p, i) => `${i ? "L" : "M"}${X(p.x)},${Y(p.y)}`).join(" "), fill: "none", stroke: s.color, "stroke-width": 2 }, svg);
-    pts.forEach((p) => { const c = svgEl("circle", { cx: X(p.x), cy: Y(p.y), r: 3, fill: s.color }, svg); svgEl("title", {}, c).textContent = `${s.name} ${p.x}: ${p.y > 0 ? "+" : ""}${fmt(p.y)}`; });
+    const d = pts.map((p, i) => `${i ? "L" : "M"}${X(p.x)},${Y(p.y)}`).join(" "), base = Y(Math.max(yMin, 0));
+    if (pts.length > 1) {
+      gradient(svg, `ml-${uid}-${si}`, s.color, series.length > 2 ? 0.12 : 0.22, 0);
+      svgEl("path", { d: `${d} L${X(pts[pts.length - 1].x)},${base} L${X(pts[0].x)},${base} Z`, fill: `url(#ml-${uid}-${si})`, class: "area" }, svg);
+      svgEl("path", { d, fill: "none", stroke: s.color, "stroke-width": 2.5, "stroke-linejoin": "round", "stroke-linecap": "round", pathLength: 1, class: "line" }, svg);
+    }
+    pts.forEach((p) => { const c = svgEl("circle", { cx: X(p.x), cy: Y(p.y), r: 3.5, fill: s.color, stroke: "var(--surface-1)", "stroke-width": 1.5 }, svg); svgEl("title", {}, c).textContent = `${s.name} ${p.x}: ${p.y > 0 ? "+" : ""}${fmt(p.y)}`; });
   });
 }
 async function loadCompare(song) {
@@ -1592,6 +1610,11 @@ $("#raw-table").addEventListener("click", async (e) => {
   $("#dr-copy").onclick = () => copyText(body);
 });
 
+$("#theme-toggle").onclick = () => {
+  const t = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
+  document.documentElement.setAttribute("data-theme", t);
+  try { localStorage.setItem("ml-theme", t); } catch (e) { /* private window: theme just isn't remembered */ }
+};
 $("#client-view").onclick = async () => {
   CLIENT_VIEW = !CLIENT_VIEW;
   await refreshStatus();
