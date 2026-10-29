@@ -824,6 +824,10 @@ async function openTrack(id) {
   const released = ((cmp && cmp.platforms) || []).filter((p) => p.released).map((p) => `<span class="pill" style="border-color:${PCOLOR[p.platform] || "var(--border)"}">${esc(p.label)} ${esc(p.released)}</span>`).join(" ");
   const details = ["film", "album", "language", "category", "occasion", "music_label", "genre"].map(row).join("")
     + plain("First on YouTube", esc((t.first_published || "").slice(0, 10)) + (t.yt_channel ? ` · ${esc(t.yt_channel)}` : ""))
+    + plain("Original release", t.release_check && t.release_check !== "unknown"
+        ? `<b>${esc(t.orig_release || "")}</b> <span class="pill ${t.release_check === "new" ? "ok" : t.release_check === "conflict" ? "warn" : ""}">${
+            { new: "✔ new release", old: "older song (re-upload)", conflict: "⚠ sources disagree" }[t.release_check]}</span> <span class="muted" style="font-size:11.5px">${esc((t.orig_release_source || "").replaceAll(",", ", "))}</span>`
+        : '<span class="muted">not verified yet</span>')
     + plain("Released on", released)
     + plain("Spotify album", r.title ? `${esc(r.title)} <span class="muted">(${esc(r.album_type || "")})</span>` : "", "spotify")
     + plain("ISRC", t.isrc ? `<span class="mono">${esc(t.isrc)}</span>` : "", r.title ? "spotify" : "musicbrainz")

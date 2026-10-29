@@ -477,6 +477,7 @@ TRACKS_SQL = """
 SELECT * FROM (
   WITH """ + YT_CTE.strip() + """
   SELECT t.id, t.isrc, t.title, t.yt_title, t.source, t.duration_ms, t.explicit, t.first_published,
+         t.orig_release, t.orig_release_source, t.release_check,
          coalesce(t.release_status, CASE WHEN r.id IS NULL THEN 'unchecked' WHEN r.album_type='compilation' THEN 'catalogue'
                                          WHEN r.release_date >= ? THEN 'new' ELSE 'catalogue' END) release_status,
          r.title release_title, r.release_date, r.album_type, r.label,

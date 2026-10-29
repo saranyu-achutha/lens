@@ -343,13 +343,27 @@ def spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until="999
         log("Spotify credentials not set; skipping metadata lookup")
         return {}
     recheck_before = (datetime.now(timezone.utc) - timedelta(days=scfg["spotify_recheck_days"])).isoformat()
+    # Spend Spotify's small quota on new releases only: songs the release-year check (free sources) found to be
+    # older are skipped; verified-new and conflicting songs go first, unknown ones only after iTunes and
+    # MusicBrainz have had their try.
+    from . import release_year
+    release_year.ensure(conn)
     todo = conn.execute(
         """SELECT t.id, t.title, t.song_key, t.isrc FROM track t
            WHERE t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?
              AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='spotify')
              AND (t.spotify_checked_at IS NULL OR t.spotify_checked_at < ?)
-           ORDER BY t.first_published DESC LIMIT ?""",
+             AND coalesce(t.release_check, 'unknown') != 'old'
+             AND (t.release_check IN ('new', 'conflict')
+                  OR (EXISTS (SELECT 1 FROM state WHERE key='itunes_lookup:' || t.id) OR EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='apple'))
+                     AND (t.isrc IS NOT NULL OR EXISTS (SELECT 1 FROM state WHERE key='mb_lookup:' || t.id) OR EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='musicbrainz')))
+           ORDER BY t.release_check IN ('new', 'conflict') DESC, t.first_published DESC LIMIT ?""",
         (since, until, recheck_before, scfg["spotify_searches_per_run"])).fetchall()
+    skipped = conn.execute("""SELECT count(*) FROM track t WHERE t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?
+                              AND t.release_check='old' AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='spotify')""",
+                           (since, until)).fetchone()[0]
+    if skipped:
+        log(f"Spotify: {skipped:,} older songs (release year verified from free sources) skipped to save quota")
     if not todo:
         log("Spotify: every song already looked up")
         return {"spotify_searches": 0}
@@ -664,12 +678,15 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
     n_songs, n_new = group_videos(conn, since, ts, log, until)
     rescore_pending(conn, since, ts, log)
     stats = {"songs": n_songs, "new_songs": n_new}
+    # Free sources first (iTunes, MusicBrainz), then the release-year check, then Spotify for new songs only.
+    stats.update(itunes_lookup(conn, cfg, since, until, ts, log, check, run_id))
+    stats.update(musicbrainz_lookup(conn, cfg, since, until, ts, log, check, run_id))
+    from . import release_year
+    stats["release_check"] = release_year.check_all(conn, since, until, log)
     stats.update(spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until))
     from . import spotify_artists
     stats.update(spotify_artists.run(conn, cfg, secrets, since, until, ts, log, check, run_id,
                                      budget=cfg["songs"].get("spotify_artist_calls_per_run", 700)))
-    stats.update(itunes_lookup(conn, cfg, since, until, ts, log, check, run_id))
-    stats.update(musicbrainz_lookup(conn, cfg, since, until, ts, log, check, run_id))
     stats["auto_merged"] = merge.auto_merge(conn, cfg, log)  # merge rules set to "merge automatically"
     refresh_song_dates_and_status(conn)
     stats["songs_with_metadata"] = metadata.build(conn, cfg, since, until, log)

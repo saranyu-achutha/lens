@@ -82,7 +82,8 @@ def _candidates(res, core, quals, label, artists, lang):
         except ValueError:
             plays = 0
         out.append({"id": x["id"], "title": html.unescape(x.get("title") or ""), "url": x.get("perma_url"), "label": mi.get("label"),
-                    "release_date": mi.get("release_date"), "language": match.fold(x.get("language") or ""), "plays": plays,
+                    "release_date": mi.get("release_date") or (str(x.get("year")) if x.get("year") else None),
+                    "language": match.fold(x.get("language") or ""), "plays": plays,
                     "evidence": {"title": ts, "label": label_ok, "artist": artist_ok}})
     return out
 
@@ -220,6 +221,9 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
             iid, pc = by_pid.get(x.get("id")), x.get("play_count")
             if iid is None or pc in (None, ""):
                 continue
+            rel = (x.get("more_info") or {}).get("release_date") or (str(x.get("year")) if x.get("year") else None)
+            if rel:  # keep the release date for the release-year check
+                conn.execute("UPDATE platform_item SET published_at=? WHERE id=? AND (published_at IS NULL OR published_at='')", (rel, iid))
             val = int(pc)
             conn.execute("INSERT INTO reading (platform_item_id, metric, value, captured_at) VALUES (?, 'plays', ?, ?)", (iid, val, ts))
             conn.execute("""INSERT INTO snapshot (platform_item_id, metric, value, capture_date, captured_at) VALUES (?, 'plays', ?, ?, ?)

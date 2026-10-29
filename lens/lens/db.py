@@ -219,7 +219,9 @@ def _migrate(conn):
     # Songs discovered on YouTube (track.source='youtube') and their Spotify lookup state.
     t_cols = {r["name"] for r in conn.execute("PRAGMA table_info(track)")}
     for col, typ in (("source", "TEXT"), ("song_key", "TEXT"), ("yt_title", "TEXT"), ("first_published", "TEXT"),
-                     ("release_status", "TEXT"), ("spotify_checked_at", "TEXT")):
+                     ("release_status", "TEXT"), ("spotify_checked_at", "TEXT"),
+                     # release-year check (lens/release_year.py)
+                     ("orig_release", "TEXT"), ("orig_release_source", "TEXT"), ("release_check", "TEXT"), ("release_checked_at", "TEXT")):
         if col not in t_cols:
             conn.execute(f"ALTER TABLE track ADD COLUMN {col} {typ}")
     conn.execute("CREATE INDEX IF NOT EXISTS track_song_key ON track(song_key)")
