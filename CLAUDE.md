@@ -95,7 +95,7 @@ The code lives in `lens/` and runs on the server as `/home/ubuntu/lens`. This la
 - Rotate the keys that were pasted in chat.
 - Optional sources: Last.fm (needs a key), and JioSaavn (unofficial, needs a terms-of-service sign-off).
 - YouTube keys (`YOUTUBE_API_KEY`, comma-separated, used in order; a key whose quota runs out is set aside until midnight Pacific time; a key that hits the daily search cap is set aside for searches only).
-  - **Quota is per Google Cloud project, not per key.** Since 2026-10-29 there is **one key per project, 6 keys** (projects 887372396500, 421586835201, 834007049812, 701726783900, 978509973520, 1074452930644): about 60,000 units and 600 searches a day; YouTube Music searches up to 200 per run (`songs.ytmusic_searches_per_run`). The 27 extra keys that shared those projects were removed (the full list is in the `.env.bak.*` backups). More capacity needs a key from a new project; a second key in the same project adds nothing.
+  - **Quota is per Google Cloud project, not per key.** Since 2026-10-29 there is **one key per project, 8 keys** (projects 887372396500, 421586835201, 834007049812, 701726783900, 978509973520, 1074452930644, 1058718100591, 874281993839): about 80,000 units and 800 searches a day; YouTube Music searches up to 200 per run (`songs.ytmusic_searches_per_run`). The 27 extra keys that shared those projects were removed (the full list is in the `.env.bak.*` backups). More capacity needs a key from a new project; a second key in the same project adds nothing.
   - To find a key's project: call any Google API the project has not enabled (e.g. Books); the 403 names `projects/<number>`.
 
 ## Server-only actions
