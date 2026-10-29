@@ -35,7 +35,9 @@ let STATUS = null;
 const PAGES = ["overview", "dashboard", "dev", "platforms", "reports", "daily", "pdata", "catalogue", "explore", "insights", "review", "runs", "outputs", "sources", "settings"];
 // The client login sees only these pages (the server refuses everything else for it).
 const CLIENT_PAGES = ["dashboard", "platforms", "reports", "daily", "catalogue"];
-const isClient = () => STATUS?.role === "client";
+// A developer can switch to "Client view" to see exactly what the client sees (menu, pages, header); not remembered.
+let CLIENT_VIEW = false;
+const isClient = () => STATUS?.role === "client" || CLIENT_VIEW;
 const hashParams = () => new URLSearchParams(location.hash.split("?")[1] || "");
 function route() {
   const home = isClient() ? "dashboard" : "overview";
@@ -66,7 +68,10 @@ renderFocus();
 async function refreshStatus() {
   try { STATUS = await api("/api/status"); } catch { return; }
   document.body.classList.toggle("role-client", isClient());
-  $("#who").textContent = isClient() ? "Client" : "Developer";
+  $("#who").textContent = STATUS.role === "client" ? "Client" : CLIENT_VIEW ? "Developer · viewing as client" : "Developer";
+  const cv = $("#client-view");
+  cv.style.display = STATUS.role === "developer" ? "" : "none";
+  cv.textContent = CLIENT_VIEW ? "✕ Exit client view" : "👁 Client view";
   if (isClient()) {  // no jobs, schedule, review or settings for the client login
     $("#side-asof").textContent = STATUS.counts.last_capture ? `Data as of ${STATUS.counts.last_capture}` : "";
     $("#side-scope").textContent = STATUS.config.youtube.labels.filter((l) => l.enabled).map((l) => l.name).join(", ") || "none";
@@ -1586,6 +1591,12 @@ $("#raw-table").addEventListener("click", async (e) => {
   $("#dr-close").onclick = closeDrawer;
   $("#dr-copy").onclick = () => copyText(body);
 });
+
+$("#client-view").onclick = async () => {
+  CLIENT_VIEW = !CLIENT_VIEW;
+  await refreshStatus();
+  if (CLIENT_VIEW) location.hash = "#dashboard"; else route();
+};
 
 /* ---------- Boot ---------- */
 refreshStatus().then(route);
