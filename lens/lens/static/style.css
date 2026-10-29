@@ -667,3 +667,53 @@ nav.side a.nav.active svg { stroke: var(--accent); }
 input:focus, select:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .console { background: linear-gradient(var(--console-bg), var(--console-bg)) padding-box, var(--brand-grad) border-box; }
 .selbar { background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 10%, transparent), color-mix(in srgb, var(--accent-2) 10%, transparent)); }
+
+/* ===== Light theme: crisp, readable content (dark theme unchanged) ===== */
+:root[data-theme="light"] {
+  --text-primary: #0b1324;
+  --text-secondary: #2f3a4d;
+  --text-muted: #556073;
+  --border: #d9e0ea;
+  --surface-2: #f2f5fa;
+  --surface-3: #e2e8f1;
+  --grid: rgba(15, 23, 42, .09);
+  --glass: 1;
+  --card-sheen: none;
+  --shadow: 0 1px 2px rgba(15, 23, 42, .06), 0 4px 14px rgba(15, 23, 42, .06);
+  --brand-text: linear-gradient(90deg, #1d4fc4, #5b45d6 70%, #6d3fd0);
+  --good-text: #0f7a3a;
+  --bad-text: #c42121;
+  --warning: #b45309;
+}
+:root[data-theme="light"] body { -webkit-font-smoothing: auto; -moz-osx-font-smoothing: auto; }
+/* Solid white cards with a clear edge: no pastel showing through the text */
+:root[data-theme="light"] .card { background-color: #fff; backdrop-filter: none; border-color: var(--border); }
+:root[data-theme="light"] .card:hover { border-color: color-mix(in srgb, var(--accent) 30%, var(--border)); }
+:root[data-theme="light"] thead th, :root[data-theme="light"] th { background: #f6f8fc; color: #4b5668; }
+:root[data-theme="light"] tbody tr:hover { background: #f4f7fd; }
+:root[data-theme="light"] td .t1 { font-weight: 600; }
+:root[data-theme="light"] .kpi .label { color: #4b5668; }
+:root[data-theme="light"] .kpi .sub, :root[data-theme="light"] .page-head p { color: #4b5668; }
+:root[data-theme="light"] .kpi .value { background: none; -webkit-background-clip: initial; background-clip: initial; color: color-mix(in srgb, var(--kpi-c, var(--accent)) 22%, #0b1324); }
+:root[data-theme="light"] .kpi { background-image: linear-gradient(150deg, color-mix(in srgb, var(--kpi-c, var(--accent)) 9%, #fff), #fff 58%); }
+:root[data-theme="light"] .kpi.target .value { color: var(--kpi-c); }
+/* Sidebar: solid, readable menu */
+:root[data-theme="light"] nav.side { background: linear-gradient(180deg, #ffffff, #f6f7fd); backdrop-filter: none; border-right-color: var(--border); }
+:root[data-theme="light"] nav.side a.nav { color: #334155; }
+:root[data-theme="light"] nav.side a.nav.active { color: #0b1324; background: linear-gradient(90deg, rgba(47, 111, 219, .12), rgba(109, 95, 216, .06) 65%, transparent); }
+:root[data-theme="light"] .side-foot { color: #556073; }
+/* Chips, tags and pills: readable on white */
+:root[data-theme="light"] .label-tag, :root[data-theme="light"] .src, :root[data-theme="light"] .pill { color: #3b4658; border-color: #d3dae5; background: #f5f7fb; }
+:root[data-theme="light"] .st { color: #3b4658; background: #eef2f8; }
+:root[data-theme="light"] .st-new { color: #1d4fc4; background: rgba(47, 111, 219, .10); }
+:root[data-theme="light"] a.mchip { background: #f3f6fb; border-color: #d3dae5; color: #0b1324; }
+:root[data-theme="light"] .vt, :root[data-theme="light"] .meta-line { color: #556073; }
+:root[data-theme="light"] .vt b, :root[data-theme="light"] .meta-line b { color: #2f3a4d; }
+/* Header bands keep a light wash behind solid text */
+:root[data-theme="light"] #page-dashboard .page-head, :root[data-theme="light"] #page-dev .page-head {
+  background: radial-gradient(ellipse 60% 120% at 100% 0%, rgba(47, 111, 219, .12), transparent 60%),
+              radial-gradient(ellipse 50% 120% at 0% 100%, rgba(109, 95, 216, .10), transparent 60%), #fff; }
+:root[data-theme="light"] .chart .axis text { fill: #5b6576; }
+:root[data-theme="light"] .tooltip { background: #fff; color: #0b1324; }
+:root[data-theme="light"] .drawer { background: linear-gradient(180deg, #f3f6fe, #fff 240px); }
+:root[data-theme="light"] .sp-tile { background: linear-gradient(150deg, color-mix(in srgb, var(--c, var(--accent)) 7%, #fff), #fff 70%); }
