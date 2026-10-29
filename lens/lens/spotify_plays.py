@@ -60,7 +60,8 @@ def find_chrome():
     if HEADLESS_SHELL.exists():
         return str(HEADLESS_SHELL)
     # Playwright's headless shell, if installed (much lighter than full Chrome: ~430 MB for 3 tabs).
-    for p in sorted((Path.home() / ".cache" / "ms-playwright").glob("chromium_headless_shell-*/chrome-*/headless_shell"), reverse=True):
+    pw = Path.home() / ".cache" / "ms-playwright"  # older builds: chrome-linux/headless_shell; newer (and ARM): chrome-headless-shell-linux-*/chrome-headless-shell
+    for p in sorted([*pw.glob("chromium_headless_shell-*/chrome-*/headless_shell"), *pw.glob("chromium_headless_shell-*/chrome-*/chrome-headless-shell")], reverse=True):
         return str(p)
     for name in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser"):
         if shutil.which(name):
