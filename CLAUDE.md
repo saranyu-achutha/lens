@@ -47,9 +47,9 @@ The code lives in `lens/` and runs on the server as `/home/ubuntu/lens`. This la
 - **Branding:** "Market Lens" with a small **CONSOLE** tag. The footer reads "© <year> Saranyu Technologies. All rights reserved." The "Powered by" line was removed at the user's request.
 - **Start command:** `python3 -m lens.studio --host 0.0.0.0 --port 3000`. It listens on a public address only when `STUDIO_PASSWORD` is set in `.env`; the login accepts any username with that password.
 - **Two logins (2026-10-29), enforced on the server:**
-  - **Client:** any username with `STUDIO_PASSWORD`. Sees the Client dashboard (its home page), Platforms, Reports, Daily data and Songs only; read-only. Every other API (`CLIENT_GET` in `studio.py` lists the allowed ones), `/docs/` and every POST return 403.
+  - **Client:** any username with `STUDIO_PASSWORD`. Sees the Dashboard (`#dashboard`, its home page), Platforms, Reports, Daily data and Songs only; read-only. Every other API (`CLIENT_GET` in `studio.py` lists the allowed ones), `/docs/` and every POST return 403.
   - **Developer:** `DEVELOPER_USERNAME` + `DEVELOPER_PASSWORD` in `.env` (username `mlens-dev`). Sees every page, including the Developer dashboard (Phase 0 targets, jobs, readings, quotas, keys, backlogs, storage).
-  - Client-facing numbers go on the Client dashboard; detailed or technical metrics go on the Developer dashboard.
+  - Client-facing numbers go on the Dashboard; detailed or technical metrics go on the Developer dashboard.
   - On the server it runs at `http://<server-public-ip>:3000`.
   - The module name `lens.studio` and the `STUDIO_PASSWORD` variable keep their old names on purpose.
 - **Pages:**

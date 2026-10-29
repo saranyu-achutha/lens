@@ -32,18 +32,18 @@ function toast(msg, bad = false) {
 let STATUS = null;
 
 /* ---------- Router ---------- */
-const PAGES = ["overview", "client", "dev", "platforms", "reports", "daily", "pdata", "catalogue", "explore", "insights", "review", "runs", "outputs", "sources", "settings"];
+const PAGES = ["overview", "dashboard", "dev", "platforms", "reports", "daily", "pdata", "catalogue", "explore", "insights", "review", "runs", "outputs", "sources", "settings"];
 // The client login sees only these pages (the server refuses everything else for it).
-const CLIENT_PAGES = ["client", "platforms", "reports", "daily", "catalogue"];
+const CLIENT_PAGES = ["dashboard", "platforms", "reports", "daily", "catalogue"];
 const isClient = () => STATUS?.role === "client";
 const hashParams = () => new URLSearchParams(location.hash.split("?")[1] || "");
 function route() {
-  const home = isClient() ? "client" : "overview";
+  const home = isClient() ? "dashboard" : "overview";
   const page = (location.hash.slice(1).split("?")[0]) || home;
   const p = (isClient() ? CLIENT_PAGES : PAGES).includes(page) ? page : home;
   document.querySelectorAll("section.page").forEach((s) => s.classList.toggle("active", s.id === `page-${p}`));
   document.querySelectorAll("a.nav").forEach((a) => a.classList.toggle("active", a.getAttribute("href") === `#${p}`));
-  ({ overview: loadOverview, client: loadClient, dev: loadDev, platforms: loadPlatform, reports: loadReport, daily: loadDaily, pdata: loadPData, catalogue: loadCatalogue, explore: loadExplore, insights: loadInsights, review: loadReview, runs: loadRuns, outputs: loadOutputs, sources: loadSources, settings: loadSettings })[p]();
+  ({ overview: loadOverview, dashboard: loadClient, dev: loadDev, platforms: loadPlatform, reports: loadReport, daily: loadDaily, pdata: loadPData, catalogue: loadCatalogue, explore: loadExplore, insights: loadInsights, review: loadReview, runs: loadRuns, outputs: loadOutputs, sources: loadSources, settings: loadSettings })[p]();
   const track = new URLSearchParams(location.hash.split("?")[1] || "").get("track");
   if (track) openTrack(track);
   const meta = new URLSearchParams(location.hash.split("?")[1] || "").get("meta");  // e.g. #explore?meta=singer:arijit singh
@@ -293,7 +293,7 @@ async function loadPlatform() {
 document.querySelectorAll("#pf-tabs .tab").forEach((b) => (b.onclick = () => { PF.p = b.dataset.pf; loadPlatform(); }));
 $("#pf-table").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-id]"); if (tr && tr.dataset.id !== "null") openTrack(tr.dataset.id); });
 
-/* ---------- Client dashboard: reach and growth in plain terms ---------- */
+/* ---------- Dashboard (client home): reach and growth in plain terms ---------- */
 const legendHtml = (lines) => lines.map((l) => `<span><span style="display:inline-block;width:12px;height:3px;background:${PCOLOR[l.platform]};vertical-align:middle;margin-right:5px"></span>${esc(l.name)}</span>`).join("");
 const playOne = (r) => `<td class="play-cell">${r.yt_video_id ? `<button class="pbtn yt" data-play="youtube" data-pid="${esc(r.yt_video_id)}" data-ptitle="${esc(r.title)}" title="Play on YouTube">▶</button>` : `<span class="pbtn off">▶</span>`}</td>`;
 const songRow = (r, i, extra) => `<tr class="click" data-id="${r.id}"><td class="muted num">${i + 1}</td>${playOne(r)}<td><div class="t1">${esc(r.title)}${r.label ? `<span class="label-tag">${esc(r.label)}</span>` : ""}</div><div class="t2">${esc(r.first_upload)}</div></td>${extra(r)}</tr>`;

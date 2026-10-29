@@ -4,7 +4,7 @@ Usage:
     python3 -m lens.studio [--host 127.0.0.1] [--port 3000]
 
 Binding to a non-loopback host requires STUDIO_PASSWORD (env or .env); the UI then asks for a login (HTTP basic auth):
-  client     any username with STUDIO_PASSWORD: Client dashboard, Platforms, Reports, Daily data and Songs, read-only
+  client     any username with STUDIO_PASSWORD: Dashboard, Platforms, Reports, Daily data and Songs, read-only
   developer  DEVELOPER_USERNAME + DEVELOPER_PASSWORD (.env): every page and action
 """
 import argparse
@@ -1495,7 +1495,7 @@ def api_youtube_status(conn, _):
             "channels": config.load()["youtube"]["channels"]}
 
 
-# ---------- Client dashboard: reach and growth of the period's songs, in plain terms ----------
+# ---------- Dashboard (client home): reach and growth of the period's songs, in plain terms ----------
 REACH = (("youtube", "YouTube views", "yt_views"), ("ytmusic", "YouTube Music plays", "ytm_plays"),
          ("spotify", "Spotify plays", "sp_plays"), ("jiosaavn", "JioSaavn plays", "js_plays"))
 
@@ -1507,7 +1507,7 @@ def _song_set(qs):
 
 
 def api_client(conn, qs):
-    """Client dashboard: each song's latest known total and day-on-day gain per platform (newest of the last 3 days of
+    """Dashboard: each song's latest known total and day-on-day gain per platform (newest of the last 3 days of
     song_daily, so a platform not yet read today still counts), totals, top songs, risers, labels and a 30-day trend."""
     since, until, S = _song_set(qs)
     song_daily.ensure(conn)
