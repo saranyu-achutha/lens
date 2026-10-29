@@ -15,6 +15,7 @@ Spotify has the best release metadata, so when a song is linked to Spotify its r
   old        at least one platform source says older and none says new (or only the descriptions say older)
   conflict   platform sources disagree: shown for review, Spotify still allowed
   unknown    no evidence yet
+Also older: a song whose JioSaavn track has over 10M plays and over 20x all its YouTube views (unless Spotify decides).
 """
 import re
 from datetime import date
@@ -22,6 +23,7 @@ from datetime import date
 from . import db
 
 CATALOGUE_DAYS = 30
+JS_OLD_PLAYS, JS_OLD_RATIO = 10_000_000, 20  # see check_all
 PLATFORMS = ("musicbrainz", "apple", "deezer", "jiosaavn")
 P_YEAR = re.compile(r"(?:℗|\(P\)|©|\(C\))\s*((?:19|20)\d{2})")
 RELEASED = re.compile(r"(?:released?\s*(?:on|date)?|release date)\s*[:\-]?\s*((?:19|20)\d{2})(?:-(\d{2})-(\d{2}))?", re.I)
@@ -107,8 +109,15 @@ def check_all(conn, since, until, log=print):
     counts = {"new": 0, "old": 0, "conflict": 0, "unknown": 0}
     rows = conn.execute("""SELECT id, first_published FROM track WHERE source='youtube' AND first_published >= ?
                            AND substr(first_published,1,10) <= ?""", (since, until)).fetchall()
+    # A JioSaavn track with far more plays than all of the song's YouTube uploads has been out much longer than the upload:
+    # an old hit re-uploaded (JioSaavn often shows a re-listing date for it). Plays from the latest song_daily row.
+    have_daily = conn.execute("SELECT 1 FROM sqlite_master WHERE name='song_daily'").fetchone()
+    js_old = {r[0] for r in conn.execute(f"""SELECT song_id FROM song_daily WHERE day=(SELECT max(day) FROM song_daily)
+                                            AND js_plays > {JS_OLD_PLAYS} AND js_plays > {JS_OLD_RATIO} * coalesce(yt_views, 0)""")} if have_daily else set()
     for tid, fp in rows:
         v, d, src = verdict(evidence(conn, tid), fp)
+        if tid in js_old and v != "old" and src != "spotify":
+            v, d, src = "old", d, "jiosaavn plays"
         counts[v] += 1
         conn.execute("UPDATE track SET release_check=?, orig_release=?, orig_release_source=?, release_checked_at=? WHERE id=?",
                      (v, d, src, ts, tid))
