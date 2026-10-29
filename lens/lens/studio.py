@@ -75,9 +75,23 @@ def tag_labels(rows, cfg=None):
     return rows
 
 
-def api_overview(conn, _):
+# Focus: the client looks at songs released in the period (new releases). Older songs re-uploaded in the period
+# stay collected but are hidden unless the request asks for focus=all. Status comes from Spotify's release date when
+# linked, otherwise from the release-year check (lens/release_year.py).
+FOCUS_SQL = " AND coalesce(release_status, '') != 'catalogue'"
+
+
+def focus_on(qs):
+    return (qs or {}).get("focus") != "all" and config.load().get("focus", {}).get("new_releases_only", True)
+
+
+def focus(qs):
+    return FOCUS_SQL if focus_on(qs) else ""
+
+
+def api_overview(conn, qs):
     since, until = config.window(config.load())
-    W = f"SELECT * FROM ({TRACKS_SQL}) WHERE song_date >= ? AND song_date <= ?"
+    W = f"SELECT * FROM ({TRACKS_SQL}) WHERE song_date >= ? AND song_date <= ?{focus(qs)}"
     a = tracks_args() + [since, until]
     kpi = q(conn, f"""SELECT count(*) songs, sum(release_status='new') new, sum(release_status='catalogue') catalogue,
                              sum(release_status='not_on_spotify') not_on_spotify, sum(release_status='pending') spotify_pending, sum(release_status='unchecked') unchecked,
@@ -118,7 +132,7 @@ def api_platform(conn, qs):
     {kpis: [[label, value, sub]], chart: {title, bars: [{label, value}]}, table: {title, cols, rows}}."""
     p = (qs.get("p") or "youtube").lower()
     since, until = config.window(config.load())
-    W = f"SELECT * FROM ({TRACKS_SQL}) WHERE song_date >= ? AND song_date <= ?"
+    W = f"SELECT * FROM ({TRACKS_SQL}) WHERE song_date >= ? AND song_date <= ?{focus(qs)}"
     a = tracks_args() + [since, until]
     songs = q(conn, f"SELECT count(*) n FROM ({W})", a)[0]["n"] or 0
     pct = lambda n: f"{round(100 * (n or 0) / songs) if songs else 0}% of {songs:,} songs"
@@ -299,7 +313,7 @@ def daily_rows(conn, qs):
                                     (SELECT channel FROM platform_item x WHERE x.track_id=t.id AND x.platform='youtube' ORDER BY published_at LIMIT 1) yt_channel
                                   FROM song_daily d JOIN track t ON t.id=d.song_id
                                   LEFT JOIN song_daily p ON p.song_id=d.song_id AND p.day=?
-                                  WHERE d.day=?""", (prev, day)))
+                                  WHERE d.day=?{" AND coalesce(t.release_status, '') != 'catalogue'" if focus_on(qs) else ""}""", (prev, day)))
     lab, txt = qs.get("label") or "", (qs.get("q") or "").lower()
     rows = [r for r in rows if (not lab or r["music_label"] == lab) and (not txt or txt in (r["title"] or "").lower())]
     sort = qs.get("sort") or "yt_views"
@@ -353,7 +367,7 @@ def report_data(conn, qs):
         return {"days": [], "rows": [], "totals": {}, "metrics": [], "capture": []}
     to = qs.get("to") or days[-1]
     frm = qs.get("from") or (days[-2] if len(days) > 1 else days[-1])
-    W = f"SELECT * FROM ({TRACKS_SQL}) WHERE song_date >= ? AND song_date <= ?"
+    W = f"SELECT * FROM ({TRACKS_SQL}) WHERE song_date >= ? AND song_date <= ?{focus(qs)}"
     songs = {r["id"]: r for r in tag_labels(q(conn, f"SELECT id, title, yt_channel, song_date FROM ({W})", tracks_args() + [since, until]))}
     items = q(conn, """SELECT id, track_id, platform FROM platform_item WHERE track_id IS NOT NULL
                        AND ((platform='youtube' AND review_state IN ('auto','approved','song')) OR (platform='spotify' AND review_state IN ('auto','approved'))
@@ -522,6 +536,8 @@ def tracks_args():
 def api_tracks(conn, qs):
     since, until = config.window(config.load())
     where, args = ["song_date >= ?", "song_date <= ?"], [qs.get("since") or since, qs.get("until") or until]
+    if focus_on(qs):
+        where.append("coalesce(release_status, '') != 'catalogue'")
     if qs.get("all"):
         where, args = [], []
     if qs.get("q"):
@@ -600,6 +616,8 @@ def _items_query(conn, qs):
         cols.append(f"a_{m}.value {m}, CASE WHEN a_{m}.value IS NOT NULL AND b_{m}.value IS NOT NULL THEN a_{m}.value - b_{m}.value END {m}_change")
     where = ["p.platform=?"]
     wargs = [plat]
+    if focus_on(qs):  # items of new-release songs only (YouTube uploads that are not songs are hidden too)
+        where.append("coalesce(t.release_status, '') != 'catalogue' AND p.track_id IS NOT NULL")
     if plat == "youtube":  # every collected upload of the period; linked ones show their song
         where.append("p.published_at >= ?")
         wargs.append(config.window(config.load())[0])
@@ -1181,7 +1199,7 @@ def api_meta_top(conn, qs):
     if field not in metadata.FIELDS:
         raise ValueError("unknown field")
     since, until = _meta_window(qs)
-    W = f"SELECT * FROM ({TRACKS_SQL}) WHERE song_date >= ? AND song_date <= ?"
+    W = f"SELECT * FROM ({TRACKS_SQL}) WHERE song_date >= ? AND song_date <= ?{focus(qs)}"
     args = tracks_args() + [since, until, field]
     extra = ""
     if qs.get("label"):
@@ -1222,7 +1240,7 @@ def api_meta_detail(conn, qs):
     if field not in metadata.FIELDS or not key:
         raise ValueError("field and key are required")
     since, until = _meta_window(qs)
-    W = f"SELECT * FROM ({TRACKS_SQL}) WHERE song_date >= ? AND song_date <= ?"
+    W = f"SELECT * FROM ({TRACKS_SQL}) WHERE song_date >= ? AND song_date <= ?{focus(qs)}"
     a = tracks_args() + [since, until]
     ids_sql = "SELECT track_id FROM song_meta WHERE field=? AND value_key=?"
     songs_ = tag_labels(q(conn, f"{W} AND id IN ({ids_sql}) ORDER BY yt_views DESC NULLS LAST", a + [field, key]))

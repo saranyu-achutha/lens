@@ -8,8 +8,11 @@ const dur = (ms) => { if (!ms) return "–"; const t = Math.round(ms / 1000); re
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const monthLabel = (ym) => (ym && ym.length >= 7 ? `${MONTHS[+ym.slice(5, 7) - 1]} ${ym.slice(2, 4)}` : ym || "?");
 
+// Focus: new releases only (default) or all songs; remembered per browser and sent with every read.
+let FOCUS_ALL = (() => { try { return localStorage.getItem("lens_focus") === "all"; } catch { return false; } })();
 async function api(path, body) {
   const opt = body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
+  if (body === undefined && FOCUS_ALL && path.startsWith("/api/")) path += (path.includes("?") ? "&" : "?") + "focus=all";
   const r = await fetch(path, opt);
   const data = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
@@ -44,6 +47,20 @@ function route() {
   if (pl && pl.includes(":")) play(pl.split(":")[0], pl.split(":")[1], "");
 }
 window.addEventListener("hashchange", route);
+function renderFocus() {
+  const b = $("#focus-toggle"); if (!b) return;
+  b.innerHTML = FOCUS_ALL ? "Showing: <b>all songs</b>" : "Showing: <b>new releases</b>";
+  b.title = FOCUS_ALL ? "Older songs re-uploaded in the period are included. Click to show new releases only."
+    : "Only songs released in the period (Spotify release date, else the release-year check). Click to include older re-uploads.";
+  b.classList.toggle("on", !FOCUS_ALL);
+}
+document.addEventListener("click", (e) => {
+  if (!e.target.closest("#focus-toggle")) return;
+  FOCUS_ALL = !FOCUS_ALL;
+  try { localStorage.setItem("lens_focus", FOCUS_ALL ? "all" : "new"); } catch {}
+  renderFocus(); route();
+});
+renderFocus();
 
 /* ---------- Status / header ---------- */
 async function refreshStatus() {
@@ -279,7 +296,7 @@ async function loadReport() {
   $("#rp-from").innerHTML = opts(d.from); $("#rp-to").innerHTML = opts(d.to);
   if ($("#rp-label").options.length === 1 && STATUS) (STATUS.config.youtube.labels || []).forEach((l) => $("#rp-label").insertAdjacentHTML("beforeend", `<option>${esc(l.name)}</option>`));
   $("#rp-sort").innerHTML = d.metrics.map((m) => `<option value="${m.key}_delta" ${RP.sort === m.key + "_delta" ? "selected" : ""}>${esc(m.label)} change</option>`).join("");
-  $("#rp-csv").href = `/api/report.csv?${rpParams()}`;
+  $("#rp-csv").href = `/api/report.csv?${rpParams()}` + (FOCUS_ALL ? "&focus=all" : "");
   const sign = (v) => v == null ? "–" : (v > 0 ? "+" : "") + (Math.abs(v) >= 1e5 ? compact(v) : fmt(v));
   const t = d.totals || {};
   const cap = (p) => { const c = (d.capture || []).find((x) => x.platform === p); return c && c.items ? `${Math.round((100 * c.read) / c.items)}% read on ${d.to}` : "no items yet"; };
@@ -343,7 +360,7 @@ async function loadDaily() {
   if ($("#dd-label").options.length === 1 && STATUS) (STATUS.config.youtube.labels || []).forEach((l) => $("#dd-label").insertAdjacentHTML("beforeend", `<option>${esc(l.name)}</option>`));
   $("#dd-sort").innerHTML = d.cols.flatMap((c) => [[c.key + "_delta", c.label + " change"], [c.key, c.label]])
     .map(([k, l]) => `<option value="${k}" ${DD.sort === k ? "selected" : ""}>${esc(l)}</option>`).join("");
-  $("#dd-csv").href = `/api/daily.csv?${new URLSearchParams({ day: DD.day, label: DD.label, sort: DD.sort, q: DD.q })}`;
+  $("#dd-csv").href = `/api/daily.csv?${new URLSearchParams({ day: DD.day, label: DD.label, sort: DD.sort, q: DD.q })}` + (FOCUS_ALL ? "&focus=all" : "");
   $("#dd-sub").textContent = `Totals for ${d.day || "–"}${d.prev ? `; change compared with ${d.prev}` : ""}. Stored indefinitely; click a song for its full day-by-day history.`;
   $("#dd-table").innerHTML = `<thead><tr><th>Song</th><th>Label</th><th class="num">Uploads read</th>${head}</tr></thead><tbody>` +
     (d.rows.map((r) => `<tr class="click" data-song="${r.id}"><td><div class="t1">${esc(r.title)}</div><div class="t2">${esc(r.yt_channel || "")} · ${esc(r.song_date || "")}</div></td>
@@ -411,7 +428,7 @@ async function loadPData() {
   const opts = (sel, withNone) => (withNone ? `<option value="">–</option>` : "") + d.days.slice().reverse().map((x) => `<option ${x === sel ? "selected" : ""}>${x}</option>`).join("");
   $("#pd-day").innerHTML = opts(d.day) || `<option>${esc(d.day)}</option>`; $("#pd-cmp").innerHTML = opts(d.cmp, true);
   if ($("#pd-label").options.length === 1) d.labels.forEach((l) => $("#pd-label").insertAdjacentHTML("beforeend", `<option>${esc(l)}</option>`));
-  $("#pd-csv").href = `/api/items.csv?${pdParams()}`;
+  $("#pd-csv").href = `/api/items.csv?${pdParams()}` + (FOCUS_ALL ? "&focus=all" : "");
   const t = d.totals || {}, sign = (v) => v == null ? "–" : (v > 0 ? "+" : "") + (Math.abs(v) >= 1e5 ? compact(v) : fmt(v));
   const tiles = [["Items", fmt(d.total), `${fmt(d.tracked)} tracked · ${d.tracked ? Math.round((100 * d.total) / d.tracked) : 0}% read on ${d.day}`]];
   d.metrics.filter((m) => m !== "rank").forEach((m) => tiles.push([`${PD_COLS[m]} on ${d.day}`, compact(t[m]), d.cmp ? `${sign(t[m + "_change"])} vs ${d.cmp}` : "no comparison day"]));

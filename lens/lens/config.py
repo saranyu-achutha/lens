@@ -122,6 +122,9 @@ DEFAULTS = {
     },
     # Keep the machine working between scheduled pipelines: Spotify plays, JioSaavn, song lookups, YouTube Music,
     # each only while it has work and within its source's limits (lens/jobs.py start_worker).
+    # The client's focus: songs released in the period. Older songs re-uploaded in the period are kept but hidden
+    # unless the Console's "All songs" switch is on.
+    "focus": {"new_releases_only": True},
     "worker": {
         "enabled": True,
         "pause_seconds": 60,  # breather between jobs so the Console stays responsive

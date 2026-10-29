@@ -9,7 +9,8 @@ Evidence per song (dates, earliest wins per source):
   spotify      album release date, when already linked
   youtube      "℗ 2014" / "© 2014" / "Released on: 2014-03-14" in the uploads' descriptions (supporting only)
 
-Verdict, against the song's first YouTube upload (a source more than CATALOGUE_DAYS earlier says "older"):
+Verdict, against the song's first YouTube upload (a source more than CATALOGUE_DAYS earlier says "older").
+Spotify has the best release metadata, so when a song is linked to Spotify its release date alone decides:
   new        every platform source says it came out around the first upload
   old        at least one platform source says older and none says new (or only the descriptions say older)
   conflict   platform sources disagree: shown for review, Spotify still allowed
@@ -77,6 +78,9 @@ def verdict(ev, first_upload):
     # A full date counts as older when it is more than CATALOGUE_DAYS before the first upload;
     # a year alone only when it is an earlier year (a "℗ 2026" on a September 2026 upload is not older).
     old = lambda d: (int(d) < fu.year) if len(d) == 4 else (fu - date.fromisoformat(d)).days > CATALOGUE_DAYS
+    if "spotify" in ev:  # Spotify has the best release metadata: when linked, its date decides
+        d = ev["spotify"]
+        return ("old" if old(d) else "new"), d[:10], "spotify"
     plat = {s: d for s, d in ev.items() if s != "youtube"}
     old_src = sorted(s for s, d in plat.items() if old(d))
     new_src = sorted(s for s, d in plat.items() if not old(d))

@@ -351,3 +351,4 @@ table.sticky-head thead th { position: sticky; top: 0; background: var(--surface
 .pbtn.big { width: 34px; height: 34px; font-size: 13px; }
 .warn-card { border-color: #e0a106; }
 @media (max-width: 760px) { .sp-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } .sp-two { grid-template-columns: 1fr; } }
+#focus-toggle.on { border-color: var(--accent); color: var(--accent); }
