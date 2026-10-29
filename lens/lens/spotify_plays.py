@@ -124,7 +124,11 @@ class _WS:
 
 READ_JS = """(() => { const p = document.querySelector('[data-testid="playcount"]');
   const t = document.querySelector('[data-testid="entityTitle"]');
-  return JSON.stringify({plays: p ? p.innerText : null, loaded: !!t, title: document.title, path: location.pathname}); })()"""
+  const m = (n) => { const e = document.querySelector(`meta[name="${n}"], meta[property="${n}"]`); return e ? e.content : null; };
+  const all = (n) => [...document.querySelectorAll(`meta[name="${n}"]`)].map((e) => e.content);
+  return JSON.stringify({plays: p ? p.innerText : null, loaded: !!t, title: document.title, path: location.pathname,
+    meta: {name: m("og:title"), release_date: m("music:release_date"), duration_s: m("music:duration"), album: m("music:album"),
+           artists: all("music:musician_description"), summary: m("og:description")}}); })()"""
 
 
 # Images, audio and video are not needed for the play count (blocking styles or scripts breaks Spotify's page).
@@ -253,6 +257,8 @@ def collect(ids, workers=3, day=None, log=print, should_stop=lambda: False, fold
             with lock:
                 done += 1
                 digits = re.sub(r"\D", "", (got or {}).get("plays") or "")
+                if (got or {}).get("meta", {}).get("release_date"):
+                    res.setdefault("meta", {})[tid] = got["meta"]
                 if digits:
                     res["plays"][tid] = int(digits)
                     res["missing"].pop(tid, None)
@@ -302,6 +308,12 @@ def import_file(conn, path, log=print):
                             ON CONFLICT(platform_item_id, metric, capture_date) DO UPDATE SET value=excluded.value, captured_at=excluded.captured_at""",
                          (item_id, plays, day, ts))
             n += 1
+    # The page's own details (release date, duration): kept on the Spotify item, so release dates come from the
+    # public page even for links that never went through the Spotify API.
+    for tid, meta in res.get("meta", {}).items():
+        dur = int(meta["duration_s"]) * 1000 if str(meta.get("duration_s") or "").isdigit() else None
+        conn.execute("""UPDATE platform_item SET published_at=COALESCE(NULLIF(published_at, ''), ?), duration_ms=COALESCE(duration_ms, ?)
+                        WHERE platform='spotify' AND platform_id=?""", (meta.get("release_date"), dur, tid))
     # Tracks found under 1,000 plays (Spotify hides the count): drop any value stored for them that day,
     # so an earlier wrong reading cannot stay.
     gone = 0

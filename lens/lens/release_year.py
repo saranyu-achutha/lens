@@ -61,6 +61,9 @@ def evidence(conn, tid):
     for (rd,) in conn.execute("""SELECT r.release_date FROM platform_item p JOIN track t ON t.id=p.track_id JOIN release r ON r.id=t.release_id
                                  WHERE p.track_id=? AND p.platform='spotify' AND p.review_state IN ('auto','approved')""", (tid,)):
         add("spotify", rd)
+    for (rd,) in conn.execute("""SELECT published_at FROM platform_item WHERE track_id=? AND platform='spotify'
+                                 AND review_state IN ('auto','approved')""", (tid,)):  # release date read from the public page
+        add("spotify", rd)
     for (desc,) in conn.execute("""SELECT description FROM platform_item WHERE track_id=? AND platform='youtube'
                                    AND review_state IN ('auto','approved','song') AND asset_type IN ('video','lyric','audio')""", (tid,)):
         for y in P_YEAR.findall(desc or ""):
@@ -109,9 +112,13 @@ def check_all(conn, since, until, log=print):
         counts[v] += 1
         conn.execute("UPDATE track SET release_check=?, orig_release=?, orig_release_source=?, release_checked_at=? WHERE id=?",
                      (v, d, src, ts, tid))
-        if v == "old":  # status without spending a Spotify search; a later Spotify link still refines it
-            conn.execute("""UPDATE track SET release_status='catalogue' WHERE id=? AND NOT EXISTS
-                            (SELECT 1 FROM platform_item p WHERE p.track_id=track.id AND p.platform='spotify' AND p.review_state IN ('auto','approved'))""", (tid,))
+        # Status without a Spotify search: from the free sources, or from the Spotify page's date when the link has no
+        # album row from the API (songs with that row keep the status songs.refresh_song_dates_and_status sets).
+        if v in ("old", "new"):
+            conn.execute("""UPDATE track SET release_status=? WHERE id=? AND release_id IS NULL
+                            AND (? = 'catalogue' OR EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=track.id AND p.platform='spotify'
+                                                           AND p.review_state IN ('auto','approved')))""",
+                         ("catalogue" if v == "old" else "new", tid, "catalogue" if v == "old" else "new"))
     conn.commit()
     log(f"release-year check: {len(rows):,} songs, new {counts['new']:,}, older {counts['old']:,}, "
         f"conflicting sources {counts['conflict']:,}, no evidence yet {counts['unknown']:,}")
