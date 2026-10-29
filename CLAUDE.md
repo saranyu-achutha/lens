@@ -13,7 +13,7 @@ The code lives in `lens/` and runs on the server as `/home/ubuntu/lens`. This la
 
 - **Scope:** four Indian labels since 2026-10-23: Sony Music India, Aditya Music, Saregama and Think Music (39 YouTube channels). Each channel has a `label` in `config.json`, and a label can be switched off. Songs from different labels never merge; non-Sony song keys are prefixed `<label>::`.
 - **YouTube first:** songs come from the labels' YouTube channels, for videos released from 2026-10-01 to today (`config.json` → `discovery.since`).
-- **Spotify for metadata:** one search per song gives the ISRC, artists, album, release date and duration. Spotify is in development mode, so it gives no popularity or play counts.
+- **Spotify: the API only finds the track ID; everything after that is scraped** (user rule, 2026-10-29). The API is used for search (`songs.spotify_lookup`), artist-first discovery (`spotify_artists`, including one `/tracks/{id}` call when a song is linked, for its ISRC) and the health probe. Once a song has its ID, the play count, release date, duration, album and artists come from the public track page (`spotify_plays`, daily). Don't add API calls for linked tracks.
 - **Trend data:**
   - YouTube views, likes and comments, every run in a video's first week and then daily.
   - Deezer rank by ISRC, from `api.deezer.com/track/isrc:{ISRC}`, daily, with no key needed.
