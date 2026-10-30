@@ -512,7 +512,8 @@ function ddSong(d, song) {
       ${s.spotify_id ? `<button class="pbtn sp big" data-play="spotify" data-pid="${esc(s.spotify_id)}" data-ptitle="${esc(s.title)}" title="Play on Spotify">▶</button>` : ""}
       <div style="flex:1;min-width:220px"><h2 style="margin:0">${esc(s.title)}${labelTag(s.music_label)}</h2>
         <div class="muted" style="font-size:13px;margin-top:3px">${esc(s.yt_channel || "")}${s.first_upload ? ` · first upload ${esc(s.first_upload)}` : ""} · tracked ${fmt(all.length)} days ${statusChip(s.release_status)}</div></div>
-      <button class="small" id="dd-profile">Song profile</button><a class="btn small primary" id="dd-csv2" href="/api/daily.csv?song=${song}">⬇ CSV</a></div>`;
+      <button class="small" id="dd-profile">Song profile</button><a class="btn small primary" id="dd-csv2" href="/api/daily.csv?song=${song}">⬇ CSV</a></div>
+    <div style="margin-top:12px">${openOnButtons(s.links || {})}</div>`;
   $("#dd-back2").onclick = () => { DD.song = ""; if (location.hash.includes("song=")) location.hash = "#daily"; else loadDaily(); };
   $("#dd-profile").onclick = () => openTrack(song);
   // Summary tiles
@@ -704,6 +705,12 @@ document.addEventListener("click", (e) => {
   play(b.dataset.play, b.dataset.pid, b.dataset.ptitle);
 }, true);
 // Link buttons after the two play buttons: field with the URL, style, label, platform name.
+// "Open on" buttons: every platform the song is on, in its colour (new tab); greyed when not found there yet.
+const OPEN_ON = [["youtube", "YouTube", "yt"], ["ytmusic", "YouTube Music", "ym"], ["spotify", "Spotify", "sp"], ["jiosaavn", "JioSaavn", "js"],
+  ["apple", "Apple Music", "am"], ["deezer", "Deezer", "dz"], ["musicbrainz", "MusicBrainz", "mb"]];
+const openOnButtons = (urls) => `<div class="open-on"><span class="open-on-l">Open on</span>${OPEN_ON.map(([k, n, c]) => urls[k]
+  ? `<a class="ob ob-${c}" href="${esc(urls[k])}" target="_blank" rel="noopener"><i></i>${n}<span class="ob-arrow">↗</span></a>`
+  : `<span class="ob off" title="Not found on ${n} yet"><i></i>${n}</span>`).join("")}</div>`;
 const PLATFORM_LINKS = [["ytm_url", "ym", "YM", "YouTube Music"], ["js_url", "js", "J", "JioSaavn"], ["apple_url", "am", "A", "Apple Music"], ["deezer_url", "dz", "D", "Deezer"]];
 const playBtns = (r) => `<td class="play-cell">${r.yt_video_id ? `<button class="pbtn yt" data-play="youtube" data-pid="${esc(r.yt_video_id)}" data-ptitle="${esc(r.title)}" title="Play on YouTube (${esc(r.yt_video_id)})">▶</button>` : `<span class="pbtn off">▶</span>`}${
   r.spotify_id && ["auto", "approved"].includes(r.spotify_state) ? `<button class="pbtn sp" data-play="spotify" data-pid="${esc(r.spotify_id)}" data-ptitle="${esc(r.title)}" title="Play on Spotify (${esc(r.spotify_id)})">▶</button>` : `<span class="pbtn off" title="not on Spotify">▶</span>`}${PLATFORM_LINKS.map(([k, cls, txt, name]) => r[k]
@@ -1022,10 +1029,8 @@ async function openTrack(id) {
     tile("YouTube Music plays", big(pf.ytmusic && pf.ytmusic.latest), pf.ytmusic && pf.ytmusic.latest != null ? gainLine(pf.ytmusic) : '<span class="muted">no separate audio track</span>', PCOLOR.ytmusic),
     tile("Deezer rank", big(pf.deezer && pf.deezer.latest), pf.deezer && pf.deezer.latest != null ? "popularity score (higher = more popular)" : '<span class="muted">not on Deezer yet</span>', "#a238ff"),
     tile("Spotify India chart", ch ? `#${ch.best_rank}` : "–", ch ? `best · ${fmt(ch.days)} ${ch.chart.endsWith("weekly") ? "weeks" : "days"} in Top 200` : '<span class="muted">not in the India Top 200</span>', "#1db954")];
-  const listen = [[t.yt_video_id && `https://www.youtube.com/watch?v=${t.yt_video_id}`, "YouTube", "yt"], [t.ytm_url, "YouTube Music", "ym"],
-    [spotifyOk && `https://open.spotify.com/track/${t.spotify_id}`, "Spotify", "sp"], [t.js_url, "JioSaavn", "js"], [t.apple_url, "Apple Music", "am"],
-    [t.deezer_url, "Deezer", "dz"], [t.mb_url, "MusicBrainz", "mb"]]
-    .map(([u, n, c]) => u ? `<a class="lo ${c}" href="${esc(u)}" target="_blank" rel="noopener">${n} ↗</a>` : `<span class="lo off" title="not found on ${n} yet">${n}</span>`).join(" ");
+  const listen = openOnButtons({ youtube: t.yt_video_id && `https://www.youtube.com/watch?v=${t.yt_video_id}`, ytmusic: t.ytm_url,
+    spotify: spotifyOk && `https://open.spotify.com/track/${t.spotify_id}`, jiosaavn: t.js_url, apple: t.apple_url, deezer: t.deezer_url, musicbrainz: t.mb_url });
   const facts = [first("film") && `🎬 ${esc(first("film"))}`, first("language") && `🗣 ${esc(first("language"))}`, t.music_label && labelTag(t.music_label),
     first("category") && esc(first("category")), first("occasion") && esc(first("occasion"))].filter(Boolean).join(" · ");
   const row = (f) => m[f] && m[f].length ? `<dt>${esc(STATUS.meta_fields[f] || f)}</dt><dd>${m[f].map((v) => metaChip(f, v)).join(" ")} ${srcTag([...new Set(m[f].flatMap((v) => v.source.split(",")))].join(","))}</dd>` : "";
@@ -1057,7 +1062,7 @@ async function openTrack(id) {
         <button class="small" id="dr-daily" title="Every day's totals and gains, with graphs">📈 Daily history</button><button class="small" id="dr-close">✕</button>
       </div>
     </div>
-    <div class="listen-on" style="margin:10px 0 14px">${listen}</div>
+    <div style="margin:10px 0 14px">${listen}</div>
     ${sp && sp.review_state === "pending" ? `<div class="card warn-card" style="margin-bottom:14px"><b>Spotify match to check:</b> <a href="${esc(sp.url)}" target="_blank" rel="noopener">${esc(sp.title)}</a> (${esc(sp.published || "")}) · score ${(sp.match_score || 0).toFixed(2)}
       <div class="row" style="margin-top:8px"><button class="small primary" data-decide="approve" data-item="${sp.id}">✓ Same song</button><button class="small" data-decide="reject" data-item="${sp.id}">✕ Different</button></div></div>` : ""}
 

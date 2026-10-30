@@ -789,3 +789,16 @@ tr.label-row td, :root[data-theme="light"] tr.label-row td { background: transpa
 .spark { display: block; }
 .dd-songhead h2 { font-size: 20px; }
 #dd-range button.on, #dd-metric button.on { background: var(--accent-soft); border-color: var(--accent); }
+
+/* "Open on" platform buttons (song profile, daily history) */
+.open-on { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.open-on-l { font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); margin-right: 2px; }
+.ob { --pc: var(--accent); display: inline-flex; align-items: center; gap: 7px; padding: 6px 13px; border-radius: 999px; font-size: 13px; font-weight: 600;
+  text-decoration: none; color: color-mix(in srgb, var(--pc) 75%, var(--text-primary)); border: 1px solid color-mix(in srgb, var(--pc) 45%, transparent);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--pc) 16%, var(--surface-1)), color-mix(in srgb, var(--pc) 5%, var(--surface-1))); transition: transform .1s, box-shadow .15s; }
+.ob i { width: 9px; height: 9px; border-radius: 50%; background: var(--pc); box-shadow: 0 0 0 3px color-mix(in srgb, var(--pc) 22%, transparent); }
+a.ob:hover { text-decoration: none; transform: translateY(-1px); box-shadow: 0 6px 16px color-mix(in srgb, var(--pc) 28%, transparent); }
+.ob-arrow { opacity: .7; font-size: 12px; }
+.ob.off { --pc: var(--text-muted); opacity: .55; font-weight: 500; cursor: default; background: transparent; border-style: dashed; }
+.ob-yt { --pc: var(--c-youtube); } .ob-ym { --pc: var(--c-ytmusic); } .ob-sp { --pc: var(--c-spotify); } .ob-js { --pc: var(--c-jiosaavn); }
+.ob-am { --pc: var(--c-apple); } .ob-dz { --pc: var(--c-deezer); } .ob-mb { --pc: var(--c-musicbrainz); }

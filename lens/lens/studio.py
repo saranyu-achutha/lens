@@ -326,6 +326,12 @@ def daily_rows(conn, qs):
                     (SELECT platform_id FROM platform_item x WHERE x.track_id=t.id AND x.platform='spotify'
                        AND x.review_state IN ('auto','approved') ORDER BY id LIMIT 1) spotify_id
                   FROM track t WHERE t.id=?""", (int(qs["song"]),)))
+        if t:  # one link per platform, for the "Open on" buttons
+            t[0]["links"] = {p: u for p, u in conn.execute(
+                """SELECT platform, url FROM platform_item WHERE id IN (SELECT min(id) FROM platform_item WHERE track_id=? AND url IS NOT NULL
+                   AND platform != 'youtube' AND review_state IN ('auto','approved','song') GROUP BY platform)""", (int(qs["song"]),))}
+            if t[0]["yt_video_id"]:
+                t[0]["links"]["youtube"] = f"https://www.youtube.com/watch?v={t[0]['yt_video_id']}"
         return {"mode": "song", "song": t[0] if t else None, "days": days, "rows": rows}
     day = qs.get("day") or (days[-1] if days else None)
     prev = max((d for d in days if day and d < day), default=None)
