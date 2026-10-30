@@ -688,6 +688,8 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
     stats.update(musicbrainz_lookup(conn, cfg, since, until, ts, log, check, run_id))
     from . import release_year
     stats["release_check"] = release_year.check_all(conn, since, until, log)
+    from . import spotify_links  # Spotify IDs from MusicBrainz / Odesli first, so fewer songs need a Spotify search
+    stats.update(spotify_links.run(conn, cfg, secrets, since, until, ts, log, check))
     stats.update(spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until))
     from . import spotify_artists
     stats.update(spotify_artists.run(conn, cfg, secrets, since, until, ts, log, check, run_id,
