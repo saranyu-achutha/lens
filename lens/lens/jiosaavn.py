@@ -14,7 +14,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from . import config, db, match
 from .youtube_music import PROVIDER, _artists, _lang_tag, _song_lang
@@ -239,10 +239,12 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
         log(f"JioSaavn: {found} tracks found, {missing} not found (retried in 7 days)")
 
     # Daily play counts, 50 tracks per request.
+    # Read again during the day too (no quota): today's value is replaced with the newest reading.
+    fresh = (datetime.now().astimezone() - timedelta(hours=cfg["songs"].get("jiosaavn_refresh_hours", 3))).isoformat(timespec="seconds")
     items = conn.execute("""SELECT p.id, p.platform_id FROM platform_item p JOIN track t ON t.id=p.track_id
                             WHERE p.platform='jiosaavn' AND t.first_published >= ?
-                              AND NOT EXISTS (SELECT 1 FROM snapshot s WHERE s.platform_item_id=p.id AND s.metric='plays' AND s.capture_date=?)""",
-                         (since, today)).fetchall()
+                              AND NOT EXISTS (SELECT 1 FROM snapshot s WHERE s.platform_item_id=p.id AND s.metric='plays'
+                                              AND s.capture_date=? AND s.captured_at >= ?)""", (since, today, fresh)).fetchall()
     by_pid = {r[1]: r[0] for r in items}
     pids, read = list(by_pid), 0
     for i in range(0, len(pids), 50):

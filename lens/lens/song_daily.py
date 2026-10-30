@@ -14,6 +14,7 @@ Rebuilt at the end of every run for the days that have readings (so merges and r
 and each run writes the latest day's rows to out/market_lens_song_daily_<day>.csv.
 """
 import csv
+from datetime import date
 
 from . import config, db, spotify_charts
 
@@ -119,8 +120,17 @@ def write_day_csv(conn, day, run_id=None):
 
 
 def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, **_):
-    """Pipeline step: rebuild every day (cheap: one grouped query per day) and save today's CSV."""
-    n = build(conn, log=log)
+    """Pipeline step: rebuild the last 3 days (jobs run often), every day once a day (so merges and review decisions
+    reach the whole history), and save today's CSV."""
+    today = date.today().isoformat()
+    done = conn.execute("SELECT value FROM state WHERE key='song_daily_full'").fetchone()
+    if done and done[0] == today:
+        days = [r[0] for r in conn.execute("SELECT DISTINCT capture_date FROM snapshot WHERE capture_date >= date(?, '-2 day') ORDER BY 1", (today,))]
+        n = build(conn, days, log=log)
+    else:
+        n = build(conn, log=log)
+        conn.execute("INSERT OR REPLACE INTO state (key, value) VALUES ('song_daily_full', ?)", (today,))
+        conn.commit()
     last = conn.execute("SELECT max(day) FROM song_daily").fetchone()[0]
     stats = {"status": "ok", "song_daily_rows": n}
     if last:

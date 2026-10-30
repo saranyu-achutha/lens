@@ -24,7 +24,7 @@ DEFAULTS = {
         "label_regex": r"sony\s+music\s+(entertainment\s+)?india",
         "use_track_search": True,
         "use_artist_seeds": True,
-        "store_raw": True,
+        "store_raw": False,
         # Re-fetch albums/tracks already stored on every run (needed only if Spotify returns
         # popularity for this app; otherwise each run fetches new releases only).
         "refresh_existing": False,
@@ -105,6 +105,7 @@ DEFAULTS = {
         "musicbrainz_per_run": 600,         # 1 call a second
         "spotify_links_per_run": 100,             # Spotify IDs from MusicBrainz links / Odesli (ODESLI_API_KEY) before searching
         "odesli_pace_seconds": 6.5,         # Odesli allows about 10 calls a minute
+        "jiosaavn_refresh_hours": 3,        # JioSaavn has no quota: read play counts again during the day
         "spotify_web_search": True,         # also look for Spotify links through DuckDuckGo / Bing (checked by the match rules)
         "web_search_pace_seconds": 5,       # seconds between web searches
         "ytmusic_searches_per_run": 200,    # YouTube search: ~100 a day per Google project (6 projects)
@@ -137,7 +138,7 @@ DEFAULTS = {
     "focus": {"new_releases_only": True},
     "worker": {
         "enabled": True,
-        "pause_seconds": 60,  # breather between jobs so the Console stays responsive
+        "pause_seconds": 20,  # short breather between jobs so the Console stays responsive
     },
 }
 

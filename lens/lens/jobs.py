@@ -224,8 +224,9 @@ def _due_work(cfg, tried, browser=True, api=True):
         todo = _count(f"""SELECT count(*) FROM track t WHERE {in_window}
                           AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='jiosaavn')
                           AND coalesce((SELECT value FROM state WHERE key='js_lookup:' || t.id), '') < ?""", (since, until, recheck))
+        fresh = (datetime.now().astimezone() - timedelta(hours=cfg["songs"].get("jiosaavn_refresh_hours", 3))).isoformat(timespec="seconds")
         unread = _count("""SELECT count(*) FROM platform_item p WHERE p.platform='jiosaavn' AND p.track_id IS NOT NULL
-                           AND NOT EXISTS (SELECT 1 FROM snapshot s WHERE s.platform_item_id=p.id AND s.metric='plays' AND s.capture_date=?)""", (today,))
+                           AND NOT EXISTS (SELECT 1 FROM snapshot s WHERE s.platform_item_id=p.id AND s.metric='plays' AND s.capture_date=? AND s.captured_at >= ?)""", (today, fresh))
         if todo or unread:
             return "jiosaavn", f"{todo} songs to search, {unread} tracks to read"
     # 3. Songs: Spotify / iTunes / MusicBrainz lookups still pending, Deezer not read today, or new releases still
@@ -252,9 +253,9 @@ def _due_work(cfg, tried, browser=True, api=True):
                       (since, until, (datetime.now().date() - timedelta(days=7)).isoformat()))
         if can_search and todo:
             return "ytmusic", f"{todo} songs to search on YouTube Music"
-    # 5. Nothing else due: refresh YouTube readings (cheap: ~500 quota units) so new uploads and views keep coming in
-    #    between the 6-hourly pipelines; at most every 2 hours.
-    if ago("youtube_sync") > 7200 and hours_since("youtube_sync") >= 2:
+    # 5. Nothing else due: refresh YouTube readings (a sync reads new uploads and videos in their first week, so it is
+    #    cheap) so new uploads and views keep coming in between the 6-hourly pipelines; at most hourly.
+    if ago("youtube_sync") > 3600 and hours_since("youtube_sync") >= 1:
         return "youtube_sync", "keeping YouTube readings and new uploads fresh between pipelines"
     return None
 
