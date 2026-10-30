@@ -802,3 +802,26 @@ a.ob:hover { text-decoration: none; transform: translateY(-1px); box-shadow: 0 6
 .ob.off { --pc: var(--text-muted); opacity: .55; font-weight: 500; cursor: default; background: transparent; border-style: dashed; }
 .ob-yt { --pc: var(--c-youtube); } .ob-ym { --pc: var(--c-ytmusic); } .ob-sp { --pc: var(--c-spotify); } .ob-js { --pc: var(--c-jiosaavn); }
 .ob-am { --pc: var(--c-apple); } .ob-dz { --pc: var(--c-deezer); } .ob-mb { --pc: var(--c-musicbrainz); }
+
+/* ===== Market Lens artwork: a lens over sound waves and market trends (original vector art, follows the theme) ===== */
+.brand .logo { width: 34px; height: 34px; border-radius: 0; background: none; box-shadow: none; flex: none; filter: drop-shadow(0 4px 10px var(--brand-glow)); }
+.bg-art { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 0; pointer-events: none; }
+body > main { position: relative; z-index: 1; }
+nav.side { z-index: 1; }
+.bg-rings circle { stroke: var(--accent); opacity: .13; }
+.bg-line { stroke: var(--accent-2); stroke-width: 2.5; opacity: .16; stroke-linejoin: round; }
+.bg-dots circle { fill: var(--accent-2); opacity: .2; }
+.bg-eq rect { fill: var(--accent); opacity: .08; }
+:root[data-theme="light"] .bg-rings circle { opacity: .16; }
+:root[data-theme="light"] .bg-line { opacity: .2; }
+:root[data-theme="light"] .bg-eq rect { opacity: .1; }
+.page-head.has-art { position: relative; overflow: hidden; }
+.page-head.has-art > :not(.hero-art) { position: relative; z-index: 1; }
+.hero-art { position: absolute; right: 175px; top: 50%; transform: translateY(-50%); height: 108%; max-width: 38%; pointer-events: none; opacity: .9; }
+.hero-art .hw { fill: var(--accent); opacity: .16; }
+.hero-art .hw-in { fill: var(--accent); opacity: .5; }
+.hl-glass { fill: color-mix(in srgb, var(--accent) 9%, transparent); }
+.hl-ring { fill: none; stroke: var(--accent); stroke-width: 5; opacity: .7; }
+.hl-handle { stroke: var(--accent-2); stroke-width: 8; stroke-linecap: round; opacity: .7; fill: none; }
+.hl-trend { stroke: var(--accent-3); stroke-width: 3.5; fill: none; stroke-linecap: round; stroke-linejoin: round; opacity: .85; }
+@media (max-width: 1100px) { .hero-art { display: none; } }
