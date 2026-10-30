@@ -1,6 +1,8 @@
-"""Spotify IDs from Spotify's own editorial playlists (new-release and hit lists per language), read through the
-public embed page: one request per playlist lists up to 100 tracks with ID, title, artists and duration. No API,
-no quota, no browser. Each run, every playlist track is compared with the songs that still have no Spotify link,
+"""Spotify IDs from Spotify's own editorial playlists (new-release and hit lists per language) and from film albums,
+read through the public embed pages: one request per playlist or album lists its tracks (up to 100) with ID, title,
+artists and duration. No API, no quota, no browser.
+Albums: when a song of a film is already linked to a Spotify album (the soundtrack), that album page lists the
+film's other songs, so songs of the same film that are still unlinked can be matched from it. Each run, every playlist track is compared with the songs that still have no Spotify link,
 using the usual rules (lens.match, automatic matches only); a match is linked and its release date and duration
 are read from the track's embed page. Playlist IDs: songs.spotify_playlists in config.json (default: the list below,
 Spotify-owned 37i9dQZF1D... playlists found on 2026-10-30).
@@ -47,10 +49,10 @@ PLAYLISTS = {
 }
 
 
-def read_playlist(pid):
-    """[{id, title, artists, duration_ms}] of a public playlist's embed page (up to 100 tracks)."""
+def read_playlist(pid, kind="playlist"):
+    """[{id, title, artists, duration_ms}] of a public playlist's (or album's) embed page (up to 100 tracks)."""
     try:
-        with urllib.request.urlopen(urllib.request.Request(f"https://open.spotify.com/embed/playlist/{pid}", headers=BROWSER_UA), timeout=30) as r:
+        with urllib.request.urlopen(urllib.request.Request(f"https://open.spotify.com/embed/{kind}/{pid}", headers=BROWSER_UA), timeout=30) as r:
             html = r.read().decode("utf-8", "ignore")
         e = json.loads(re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', html, re.S).group(1))
         tracks = e["props"]["pageProps"]["state"]["data"]["entity"].get("trackList") or []
@@ -76,10 +78,23 @@ def run(conn, cfg, since, until, ts, log, check):
             if len(tok) >= 3:
                 by_token.setdefault(tok, set()).add(s["id"])
     titles = {s["id"]: s["title"] for s in songs}
+    # Soundtrack albums of films that have an unlinked song and another song already on a Spotify album.
+    albums = [r[0] for r in conn.execute(
+        f"""SELECT DISTINCT r.spotify_album_id FROM song_meta m
+            JOIN song_meta m2 ON m2.field='film' AND m2.value_key=m.value_key AND m2.track_id != m.track_id
+            JOIN track t2 ON t2.id=m2.track_id JOIN release r ON r.id=t2.release_id
+            WHERE m.field='film' AND m.track_id IN ({",".join("?" * len(titles))})
+              AND r.spotify_album_id IS NOT NULL AND coalesce(r.album_type, '') != 'compilation'""", list(titles))]
+    # An album's track list rarely changes: read each at most once a day (playlists change weekly; read every run).
+    today = ts[:10]
+    albums = [a for a in albums if (conn.execute("SELECT value FROM state WHERE key=?", (f"sp_album_read:{a}",)).fetchone() or [""])[0] != today]
+    sources = [("playlist", pid) for pid in ids] + [("album", a) for a in albums]
     vids, best, seen, read = {}, {}, set(), 0
-    for pid in ids:
+    for kind, pid in sources:
         check()
-        tracks = read_playlist(pid)
+        tracks = read_playlist(pid, kind)
+        if kind == "album" and tracks:
+            conn.execute("INSERT OR REPLACE INTO state (key, value) VALUES (?,?)", (f"sp_album_read:{pid}", today))
         time.sleep(1)
         read += bool(tracks)
         for t in tracks:
@@ -99,10 +114,10 @@ def run(conn, cfg, since, until, ts, log, check):
                                              {"title": v["title"], "description": v["description"], "published_at": v["published_at"],
                                               "duration_s": (v["duration_ms"] or 0) / 1000 or None})
                     if match.decide(total, det) == "auto" and (sid not in best or total > best[sid][0]):
-                        best[sid] = (total, det, t, pid)
+                        best[sid] = (total, det, t, f"{kind}:{pid}")
     linked = 0
     for sid, (total, det, t, pid) in best.items():
-        if attach(conn, sid, t["id"], "playlist", total, dict(det, via=f"playlist:{pid}", playlist=PLAYLISTS.get(pid, pid),
+        if attach(conn, sid, t["id"], pid.split(":")[0], total, dict(det, via=pid, playlist=PLAYLISTS.get(pid.split(":")[1], pid),
                                                               candidate_artists=t["artists"]), t["title"], ts):
             d = embed_details(t["id"])
             time.sleep(1)
@@ -111,5 +126,5 @@ def run(conn, cfg, since, until, ts, log, check):
                              (d["release_date"], d["duration_ms"], t["id"]))
             linked += 1
     conn.commit()
-    log(f"Spotify playlists: {read} of {len(ids)} read ({len(seen):,} tracks); {linked} songs linked")
+    log(f"Spotify playlists and film albums: {read} of {len(sources)} pages read ({len(ids)} playlists, {len(albums)} albums; {len(seen):,} tracks); {linked} songs linked")
     return {"spotify_playlist_links": linked, "spotify_playlist_tracks": len(seen)}
