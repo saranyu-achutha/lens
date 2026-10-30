@@ -78,6 +78,17 @@ def web_candidates(query, pace):
     return None, []
 
 
+def attach(conn, tid, sid, method, score, detail, title, ts):
+    """Link Spotify track `sid` to song `tid` (automatic match). False when that track is already linked."""
+    if conn.execute("SELECT 1 FROM platform_item WHERE platform='spotify' AND platform_id=?", (sid,)).fetchone():
+        return False
+    conn.execute("""INSERT INTO platform_item (platform, platform_id, track_id, asset_type, title, url, match_method,
+                        match_score, match_detail, review_state, first_seen_at)
+                    VALUES ('spotify', ?, ?, 'audio', ?, ?, ?, ?, ?, 'auto', ?)""",
+                 (sid, tid, title, f"https://open.spotify.com/track/{sid}", method, score, json.dumps(detail), ts))
+    return True
+
+
 def _vids(conn, tid):
     return conn.execute("""SELECT title, description, published_at, duration_ms FROM platform_item
                            WHERE track_id=? AND platform='youtube' ORDER BY asset_type IN ('audio','lyric') DESC,
@@ -118,14 +129,6 @@ def run(conn, cfg, secrets, since, until, ts, log, check):
     found = {"musicbrainz": 0, "odesli": 0, "web": 0}
     pace = cfg["songs"].get("odesli_pace_seconds", 6.5)
 
-    def attach(tid, sid, method, score, detail, title=None):
-        if conn.execute("SELECT 1 FROM platform_item WHERE platform='spotify' AND platform_id=?", (sid,)).fetchone():
-            return False  # already another song's (or this song's) Spotify track
-        conn.execute("""INSERT INTO platform_item (platform, platform_id, track_id, asset_type, title, url, match_method,
-                            match_score, match_detail, review_state, first_seen_at)
-                        VALUES ('spotify', ?, ?, 'audio', ?, ?, ?, ?, ?, 'auto', ?)""",
-                     (sid, tid, title, f"https://open.spotify.com/track/{sid}", method, score, json.dumps(detail), ts))
-        return True
 
     for n, song in enumerate(todo, 1):
         check()
@@ -137,7 +140,7 @@ def run(conn, cfg, secrets, since, until, ts, log, check):
             time.sleep(1.1)
             for rel in d.get("relations") or []:
                 m = TRACK_ID.search((rel.get("url") or {}).get("resource") or "")
-                if m and attach(song["id"], m.group(1), "musicbrainz_link", score, {"via": "musicbrainz", "recording": rec}, d.get("title")):
+                if m and attach(conn, song["id"], m.group(1), "musicbrainz_link", score, {"via": "musicbrainz", "recording": rec}, d.get("title"), ts):
                     found["musicbrainz"] += 1
                     done = True
                     break
@@ -167,8 +170,8 @@ def run(conn, cfg, secrets, since, until, ts, log, check):
                                                    "artists": [a.strip() for a in re.split(r",|&", ent.get("artistName") or "") if a.strip()]}
                 tr["release_title"] = None
                 ok = _score(tr, vids)
-                if ok and attach(song["id"], m.group(1), "odesli", ok[0], dict(ok[1], via=f"odesli:{plat}", candidate_title=tr["title"],
-                                                                                  candidate_artists=tr["artists"]), tr["title"]):
+                if ok and attach(conn, song["id"], m.group(1), "odesli", ok[0], dict(ok[1], via=f"odesli:{plat}", candidate_title=tr["title"],
+                                                                                  candidate_artists=tr["artists"]), tr["title"], ts):
                     found["odesli"] += 1
                     done = True
                     break
@@ -185,9 +188,9 @@ def run(conn, cfg, secrets, since, until, ts, log, check):
                 ok = _score(dict(det, release_title=None), vids)
                 if ok and (not best or ok[0] > best[0]):
                     best = (ok[0], ok[1], sid, det)
-            if best and attach(song["id"], best[2], "web_search", best[0],
+            if best and attach(conn, song["id"], best[2], "web_search", best[0],
                                dict(best[1], via=engine, candidate_title=best[3]["title"], candidate_artists=best[3]["artists"],
-                                    candidate_release_date=best[3]["release_date"]), best[3]["title"]):
+                                    candidate_release_date=best[3]["release_date"]), best[3]["title"], ts):
                 conn.execute("UPDATE platform_item SET published_at=?, duration_ms=? WHERE platform='spotify' AND platform_id=?",
                              (best[3]["release_date"], best[3]["duration_ms"], best[2]))
                 found["web"] += 1
