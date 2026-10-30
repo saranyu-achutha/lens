@@ -103,8 +103,10 @@ DEFAULTS = {
         # Per-run limits of the other sources (each respects its own rate or quota; a backlog spreads over runs).
         "itunes_per_run": 300,              # ~20 calls a minute
         "musicbrainz_per_run": 600,         # 1 call a second
-        "spotify_links_per_run": 300,       # Spotify IDs from MusicBrainz links / Odesli (ODESLI_API_KEY) before searching
+        "spotify_links_per_run": 100,             # Spotify IDs from MusicBrainz links / Odesli (ODESLI_API_KEY) before searching
         "odesli_pace_seconds": 6.5,         # Odesli allows about 10 calls a minute
+        "spotify_web_search": True,         # also look for Spotify links through DuckDuckGo / Bing (checked by the match rules)
+        "web_search_pace_seconds": 5,       # seconds between web searches
         "ytmusic_searches_per_run": 200,    # YouTube search: ~100 a day per Google project (6 projects)
         "jiosaavn_searches_per_run": 400,   # ~1 call a second
         "spotify_plays_tabs": 2,            # headless-browser tabs for Spotify play counts on this machine

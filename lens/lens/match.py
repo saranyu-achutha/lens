@@ -138,7 +138,14 @@ def title_score(track_core, video_title):
 
 def _contains_name(name, haystack_folded):
     n = fold(name)
-    return len(n) >= 4 and re.search(rf"\b{re.escape(n)}\b", haystack_folded) is not None
+    if len(n) < 4:
+        return False
+    if re.search(rf"\b{re.escape(n)}\b", haystack_folded):
+        return True
+    # Two-word names written in the other order ("Kaler Kanth" / "Kanth Kaler").
+    parts = n.split()
+    return len(parts) == 2 and min(map(len, parts)) >= 3 and \
+        re.search(rf"\b{re.escape(parts[1])}\s+{re.escape(parts[0])}\b", haystack_folded) is not None
 
 
 def score(track, video):
@@ -148,6 +155,17 @@ def score(track, video):
     core, film, t_quals = parse_spotify_title(track["title"])
     v_fold = fold(video["title"])
     ts = title_score(core, video["title"])
+    # Uploads often put the singer in the title ("SOHO [Official Video] VEER SANDHU | ..."): score it again with the
+    # credited artists' names taken out, and keep the better score.
+    stripped = video["title"]
+    for a in track.get("artists") or []:
+        if len(fold(a)) > 3:
+            stripped = re.sub(rf"(?i)\b{re.escape(a)}\b", " ", stripped)
+            words = a.split()
+            if len(words) == 2:
+                stripped = re.sub(rf"(?i)\b{re.escape(words[1])}\s+{re.escape(words[0])}\b", " ", stripped)
+    if stripped != video["title"]:
+        ts = max(ts, title_score(core, stripped))
     # Title tracks share their name with the film, which appears in every video of that film:
     # only accept them when the video says "title track/song" or leads with the name.
     if film and fold(core) == fold(film) and not re.search(r"title (track|song)", v_fold):

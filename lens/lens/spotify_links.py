@@ -5,8 +5,13 @@ every Spotify link.
   1. MusicBrainz: a recording already matched to the song often lists its open.spotify.com/track link among its
      URL relations (open data, free, 1 request a second).
   2. Odesli (song.link), only when ODESLI_API_KEY is set in .env (its keyless public API closed in 2026): the song's
-     Apple Music, Deezer, YouTube Music or YouTube link -> the same song on Spotify. A candidate is kept only when
-     its title and artists match the song by the usual rules (lens.match, automatic matches only).
+     Apple Music, Deezer, YouTube Music or YouTube link -> the same song on Spotify.
+  3. Web search (songs.spotify_web_search): DuckDuckGo, then Bing, for "<song> <singer> spotify"; open.spotify.com
+     track links in the results are candidates. Search engines index new Spotify pages late, so this mostly finds
+     songs that are a few weeks old, and older songs re-uploaded (which the release-year check then marks older).
+     Slow and polite (one search every few seconds); a blocked or empty search just moves on.
+A candidate from Odesli or a search is read on Spotify's public embed page (title, artists, release date, duration;
+no API, no browser) and kept only when it matches the song by the usual rules (lens.match, automatic matches only).
 
 Songs tried without a result are retried after 7 days. Whatever is left goes to the Spotify search as before
 (songs.spotify_lookup skips every song that already has a Spotify link).
@@ -21,7 +26,10 @@ from datetime import date, timedelta
 
 from . import match
 
-TRACK_ID = re.compile(r"open\.spotify\.com/(?:intl-[a-z]+/)?track/([A-Za-z0-9]{22})")
+TRACK_ID = re.compile(r"open\.spotify\.com(?:/|%2F)(?:intl-[a-z]+(?:/|%2F))?track(?:/|%2F)([A-Za-z0-9]{22})")
+BROWSER_UA = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+              "Accept-Language": "en-IN,en;q=0.9"}
+SEARCH_ENGINES = (("duckduckgo", "https://html.duckduckgo.com/html/?q={q}"), ("bing", "https://www.bing.com/search?q={q}&cc=IN"))
 ODESLI = "https://api.song.link/v1-alpha.1/links"
 SOURCE_ORDER = ("apple", "deezer", "ytmusic", "youtube")  # most exact first
 
@@ -38,6 +46,36 @@ def _get(url, headers=None):
         except (urllib.error.URLError, TimeoutError):
             time.sleep(3)
     return None
+
+
+def _text(url, headers=BROWSER_UA):
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=25) as r:
+            return r.read().decode("utf-8", "ignore")
+    except (urllib.error.URLError, TimeoutError, ValueError):
+        return ""
+
+
+def embed_details(sid):
+    """Title, artists, release date and duration of a Spotify track from its public embed page (no API, no browser)."""
+    m = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
+                  _text(f"https://open.spotify.com/embed/track/{sid}"), re.S)
+    try:
+        e = json.loads(m.group(1))["props"]["pageProps"]["state"]["data"]["entity"]
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return None
+    return {"title": e.get("name") or e.get("title") or "", "artists": [a["name"] for a in e.get("artists") or [] if a.get("name")],
+            "release_date": ((e.get("releaseDate") or {}).get("isoString") or "")[:10] or None, "duration_ms": e.get("duration")}
+
+
+def web_candidates(query, pace):
+    """Spotify track IDs from the first search engine that returns any (DuckDuckGo, then Bing)."""
+    for name, url in SEARCH_ENGINES:
+        ids = list(dict.fromkeys(TRACK_ID.findall(_text(url.format(q=urllib.parse.quote(query))))))
+        time.sleep(pace)
+        if ids:
+            return name, ids[:3]
+    return None, []
 
 
 def _vids(conn, tid):
@@ -59,23 +97,25 @@ def _score(tr, vids):
 def run(conn, cfg, secrets, since, until, ts, log, check):
     today = ts[:10]
     key = (secrets.get("ODESLI_API_KEY") or "").strip()
+    web = cfg["songs"].get("spotify_web_search", True)
     mb_contact = (cfg["songs"].get("musicbrainz_contact") or "").strip()
     ua = {"User-Agent": f"MarketLens/0.1 ( {mb_contact} )" if mb_contact else "MarketLens/0.1"}
     todo = conn.execute(
-        """SELECT t.id, coalesce(t.yt_title, t.title) title FROM track t
+        """SELECT t.id, coalesce(t.yt_title, t.title) title,
+                  (SELECT value FROM song_meta m WHERE m.track_id=t.id AND m.field='singer' ORDER BY position LIMIT 1) singer FROM track t
            WHERE t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?
              AND coalesce(t.release_check, 'unknown') != 'old' AND coalesce(t.release_status, '') != 'catalogue'
              AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='spotify')
              AND coalesce((SELECT value FROM state WHERE key='spotify_links:' || t.id), '') < ?
              AND (EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='musicbrainz') OR ?)
            ORDER BY t.first_published DESC LIMIT ?""",
-        (since, until, (date.today() - timedelta(days=7)).isoformat(), 1 if key else 0,
+        (since, until, (date.today() - timedelta(days=7)).isoformat(), 1 if key or web else 0,
          cfg["songs"].get("spotify_links_per_run", 300))).fetchall()
     if not todo:
         return {}
-    log(f"Spotify links from MusicBrainz{' and Odesli' if key else ''}: {len(todo)} songs without a Spotify link"
+    log(f"Spotify links from MusicBrainz{', Odesli' if key else ''}{' and web search' if web else ''}: {len(todo)} songs without a Spotify link"
         + ("" if key else " (Odesli off: no ODESLI_API_KEY)"))
-    found = {"musicbrainz": 0, "odesli": 0}
+    found = {"musicbrainz": 0, "odesli": 0, "web": 0}
     pace = cfg["songs"].get("odesli_pace_seconds", 6.5)
 
     def attach(tid, sid, method, score, detail, title=None):
@@ -123,20 +163,41 @@ def run(conn, cfg, secrets, since, until, ts, log, check):
                 m = TRACK_ID.search((sp or {}).get("url") or "")
                 if not (m and ent):
                     continue
-                tr = {"title": ent.get("title") or "", "artists": [a.strip() for a in re.split(r",|&", ent.get("artistName") or "") if a.strip()],
-                      "release_title": None, "release_date": None, "duration_ms": None}
+                tr = embed_details(m.group(1)) or {"title": ent.get("title") or "", "release_date": None, "duration_ms": None,
+                                                   "artists": [a.strip() for a in re.split(r",|&", ent.get("artistName") or "") if a.strip()]}
+                tr["release_title"] = None
                 ok = _score(tr, vids)
                 if ok and attach(song["id"], m.group(1), "odesli", ok[0], dict(ok[1], via=f"odesli:{plat}", candidate_title=tr["title"],
                                                                                   candidate_artists=tr["artists"]), tr["title"]):
                     found["odesli"] += 1
                     done = True
                     break
+        # 3. Web search (DuckDuckGo, then Bing): candidates checked on the embed page and by the match rules
+        if not done and web:
+            engine, ids = web_candidates(f'{song["title"]} {song["singer"] or ""} spotify'.strip(), cfg["songs"].get("web_search_pace_seconds", 5))
+            vids = _vids(conn, song["id"]) if ids else []
+            best = None
+            for sid in ids:
+                det = embed_details(sid)
+                time.sleep(1)
+                if not det:
+                    continue
+                ok = _score(dict(det, release_title=None), vids)
+                if ok and (not best or ok[0] > best[0]):
+                    best = (ok[0], ok[1], sid, det)
+            if best and attach(song["id"], best[2], "web_search", best[0],
+                               dict(best[1], via=engine, candidate_title=best[3]["title"], candidate_artists=best[3]["artists"],
+                                    candidate_release_date=best[3]["release_date"]), best[3]["title"]):
+                conn.execute("UPDATE platform_item SET published_at=?, duration_ms=? WHERE platform='spotify' AND platform_id=?",
+                             (best[3]["release_date"], best[3]["duration_ms"], best[2]))
+                found["web"] += 1
+                done = True
         conn.execute("INSERT OR REPLACE INTO state (key, value) VALUES (?,?)", (f"spotify_links:{song['id']}", today))
         if n % 10 == 0:
             conn.commit()
         if n % 50 == 0:
-            log(f"  {n}/{len(todo)} tried ({found['musicbrainz']} from MusicBrainz, {found['odesli']} from Odesli)")
+            log(f"  {n}/{len(todo)} tried ({found['musicbrainz']} from MusicBrainz, {found['odesli']} from Odesli, {found['web']} from web search)")
     conn.commit()
-    log(f"Spotify links without search: {found['musicbrainz']} from MusicBrainz, {found['odesli']} from Odesli, "
+    log(f"Spotify links without the Spotify search: {found['musicbrainz']} from MusicBrainz, {found['odesli']} from Odesli, {found['web']} from web search, "
         f"{len(todo) - sum(found.values())} left for the Spotify search")
-    return {"spotify_links_musicbrainz": found["musicbrainz"], "spotify_links_odesli": found["odesli"]}
+    return {"spotify_links_musicbrainz": found["musicbrainz"], "spotify_links_odesli": found["odesli"], "spotify_links_web": found["web"]}
