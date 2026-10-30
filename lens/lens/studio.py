@@ -319,7 +319,13 @@ def daily_rows(conn, qs):
         rows = q(conn, f"""SELECT d.day, {cols}, d.yt_uploads_read FROM song_daily d
                            LEFT JOIN song_daily p ON p.song_id=d.song_id AND p.day=(SELECT max(day) FROM song_daily x WHERE x.song_id=d.song_id AND x.day < d.day)
                            WHERE d.song_id=? ORDER BY d.day DESC""", (int(qs["song"]),))
-        t = q(conn, "SELECT id, title FROM track WHERE id=?", (int(qs["song"]),))
+        t = tag_labels(q(conn, """SELECT t.id, coalesce(t.yt_title, t.title) title, substr(t.first_published,1,10) first_upload, t.release_status,
+                    (SELECT channel FROM platform_item x WHERE x.track_id=t.id AND x.platform='youtube' ORDER BY published_at LIMIT 1) yt_channel,
+                    (SELECT platform_id FROM platform_item x WHERE x.track_id=t.id AND x.platform='youtube'
+                       AND x.review_state IN ('auto','approved','song') ORDER BY published_at LIMIT 1) yt_video_id,
+                    (SELECT platform_id FROM platform_item x WHERE x.track_id=t.id AND x.platform='spotify'
+                       AND x.review_state IN ('auto','approved') ORDER BY id LIMIT 1) spotify_id
+                  FROM track t WHERE t.id=?""", (int(qs["song"]),)))
         return {"mode": "song", "song": t[0] if t else None, "days": days, "rows": rows}
     day = qs.get("day") or (days[-1] if days else None)
     prev = max((d for d in days if day and d < day), default=None)
@@ -344,6 +350,15 @@ def api_daily(conn, qs):
         d["total"] = len(d["rows"])
         off, lim = int(qs.get("offset") or 0), int(qs.get("limit") or 100)
         d["rows"] = d["rows"][off:off + lim]
+        # 8-day trend of YouTube views gained, for a small sparkline per song
+        ids = [r["id"] for r in d["rows"]]
+        if ids and d["day"]:
+            spark = {}
+            for sid, day, g in conn.execute(f"""SELECT song_id, day, yt_views_gain FROM song_daily WHERE song_id IN ({",".join("?" * len(ids))})
+                                                AND day <= ? AND day > date(?, '-8 day') ORDER BY day""", (*ids, d["day"], d["day"])):
+                spark.setdefault(sid, []).append(g)
+            for r in d["rows"]:
+                r["spark"] = spark.get(r["id"], [])
     return d
 
 

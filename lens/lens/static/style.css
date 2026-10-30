@@ -776,3 +776,16 @@ tr.label-row { background: linear-gradient(90deg, color-mix(in srgb, var(--accen
 tr.label-row td, :root[data-theme="light"] tr.label-row td { background: transparent; }
 .toast { background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 10%, var(--surface-2)), var(--surface-2)); }
 .toast.bad { background: linear-gradient(135deg, color-mix(in srgb, var(--critical) 14%, var(--surface-2)), var(--surface-2)); }
+
+/* Daily data */
+#dd-table thead tr.dd-grp th { position: static; padding-bottom: 2px; border-bottom: 0; font-size: 11px; }
+#dd-table th.dd-gh { text-align: center; color: var(--text-secondary); border-bottom: 2px solid var(--border); }
+#dd-table th.dd-gh i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 0; }
+#dd-table .dd-first { border-left: 1px solid var(--border); }
+#dd-table td.dd-day, #dd-table td.num { white-space: nowrap; }
+#dd-table td.dd-song { min-width: 220px; max-width: 360px; }
+#dd-table td.dd-song .t1 { white-space: normal; }
+#dd-table tbody tr:nth-child(even) { background: color-mix(in srgb, var(--surface-2) 45%, transparent); }
+.spark { display: block; }
+.dd-songhead h2 { font-size: 20px; }
+#dd-range button.on, #dd-metric button.on { background: var(--accent-soft); border-color: var(--accent); }

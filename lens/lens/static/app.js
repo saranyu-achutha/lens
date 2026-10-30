@@ -155,7 +155,7 @@ function barChart(el, data, { height = 230, onClick, tip } = {}) {
   for (let i = 0; i <= 4; i++) {
     const y = m.t + ih - (ih * i) / 4;
     svgEl("line", { x1: m.l, x2: W - m.r, y1: y, y2: y }, g);
-    svgEl("text", { x: m.l - 8, y: y + 4, "text-anchor": "end" }, ax).textContent = fmt((max * i) / 4);
+    svgEl("text", { x: m.l - 8, y: y + 4, "text-anchor": "end" }, ax).textContent = max >= 1e5 ? compact((max * i) / 4) : fmt((max * i) / 4);
   }
   const step = iw / data.length, bw = Math.max(4, Math.min(44, step - 2 - step * 0.25));
   const tt = tooltipFor(el);
@@ -163,7 +163,7 @@ function barChart(el, data, { height = 230, onClick, tip } = {}) {
   data.forEach((d, i) => {
     const h = (d.value / max) * ih, x = m.l + step * i + (step - bw) / 2, y = m.t + ih - h;
     const bar = svgEl("path", { d: barPath(x, y, bw, Math.max(h, 0.5)), fill: "url(#bar-grad)", class: "bar", style: `animation-delay:${Math.min(i * 12, 400)}ms` }, svg);
-    if (i === maxIdx) svgEl("text", { x: x + bw / 2, y: y - 6, "text-anchor": "middle", fill: "var(--text-secondary)", "font-size": 11 }, svg).textContent = fmt(d.value);
+    if (i === maxIdx) svgEl("text", { x: x + bw / 2, y: y - 6, "text-anchor": "middle", fill: "var(--text-secondary)", "font-size": 11 }, svg).textContent = d.value >= 1e5 ? compact(d.value) : fmt(d.value);
     if (data.length <= 14 || i % Math.ceil(data.length / 12) === 0)
       svgEl("text", { x: x + bw / 2, y: H - 8, "text-anchor": "middle" }, ax).textContent = d.label;
     const hit = svgEl("rect", { x: m.l + step * i, y: m.t, width: step, height: ih, fill: "transparent", style: onClick ? "cursor:pointer" : "" }, svg);
@@ -177,7 +177,7 @@ function barChart(el, data, { height = 230, onClick, tip } = {}) {
   });
 }
 
-function lineChart(el, points, { height = 200, yMax = null, label = "Popularity" } = {}) {
+function lineChart(el, points, { height = 200, yMax = null, label = "Popularity", marks = [] } = {}) {
   el.innerHTML = "";
   if (!points.length) { el.innerHTML = `<div class="empty">No readings yet</div>`; return; }
   if (yMax == null) yMax = niceMax(Math.max(...points.map((p) => p.y)));
@@ -197,6 +197,9 @@ function lineChart(el, points, { height = 200, yMax = null, label = "Popularity"
   gradient(svg, "line-area", "var(--series-1)", 0.28, 0);
   if (points.length > 1) svgEl("path", { d: `${linePath}L${X(points[points.length - 1])},${m.t + ih}L${X(points[0])},${m.t + ih}Z`, fill: "url(#line-area)", class: "area" }, svg);
   svgEl("path", { d: linePath, fill: "none", stroke: "var(--series-1)", "stroke-width": 2.5, "stroke-linejoin": "round", "stroke-linecap": "round", pathLength: 1, class: "line" }, svg);
+  (marks || []).forEach((mk) => { const p = points.find((q) => q.x === mk.x); if (!p) return;
+    svgEl("line", { x1: X(p), x2: X(p), y1: m.t, y2: m.t + ih, stroke: "var(--warning)", "stroke-dasharray": "4 4", "stroke-width": 1.2 }, svg);
+    svgEl("text", { x: X(p) + 4, y: m.t + 10, fill: "var(--warning)", "font-size": 10.5 }, svg).textContent = mk.label; });
   if (points.length <= 40) points.forEach((p) => svgEl("circle", { cx: X(p), cy: Y(p), r: 4, fill: "var(--series-1)", stroke: "var(--surface-1)", "stroke-width": 2 }, svg));
   [points[0], points[points.length - 1]].forEach((p, i) => {
     if (i && points.length === 1) return;
@@ -435,54 +438,117 @@ $("#rp-next").onclick = () => { RP.offset += RP.limit; loadReport(); };
 $("#rp-table").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-id]"); if (tr) openTrack(tr.dataset.id); });
 
 /* ---------- Daily data: song_daily by day (all songs) or by song (all days) ---------- */
-const DD = { day: "", label: "", sort: "yt_views_delta", q: "", song: "", metric: "yt_views", offset: 0, limit: 100 };
+const DD = { day: "", label: "", sort: "yt_views_delta", q: "", song: "", metric: "yt_views", range: 14, offset: 0, limit: 100 };
 const GAIN_KEYS = ["yt_views", "yt_likes", "yt_comments", "ytm_plays", "sp_plays", "js_plays"];
 const ddChange = (r, k) => GAIN_KEYS.includes(k) ? r[k + "_gain"] : (r[k] != null && r["prev_" + k] != null ? r[k] - r["prev_" + k] : null);
+// Daily data: one song's day-by-day history (song view) or every song on one day (day view).
+const DD_GROUPS = [["YouTube", ["yt_views", "yt_likes", "yt_comments"], "youtube"], ["YouTube Music", ["ytm_plays"], "ytmusic"], ["Spotify", ["sp_plays"], "spotify"],
+  ["JioSaavn", ["js_plays"], "jiosaavn"], ["Deezer", ["dz_rank"], "deezer"], ["Spotify India chart", ["chart_rank"], "spotify"]];
+const DD_SHORT = { yt_views: "Views", yt_likes: "Likes", yt_comments: "Comments", ytm_plays: "Plays", sp_plays: "Plays", js_plays: "Plays", dz_rank: "Rank", chart_rank: "Position" };
+const ddDay = (d) => new Date(d + "T00:00:00Z").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
+const ddNum = (v) => v == null ? '<span class="muted">–</span>' : (Math.abs(v) >= 1e5 ? compact(v) : fmt(v));
+function ddChangeCell(r, k) {
+  const v = ddChange(r, k);
+  if (v == null) return '<td class="num muted">–</td>';
+  if (v === 0) return '<td class="num muted">0</td>';
+  const good = k === "chart_rank" ? v < 0 : v > 0;  // a lower chart position is better
+  return `<td class="num ${good ? "delta-up" : "delta-down"}">${good ? "▲" : "▼"} ${ddNum(Math.abs(v))}</td>`;
+}
+// Two header rows: platform groups over (total, change) pairs; only metrics that have data are shown.
+function ddHeader(keys, lead) {
+  const groups = DD_GROUPS.map(([name, ks, plat]) => [name, ks.filter((k) => keys.includes(k)), plat]).filter((g) => g[1].length);
+  return `<thead><tr class="dd-grp">${lead.map(() => "<th></th>").join("")}${groups.map(([n, ks, plat]) =>
+      `<th colspan="${ks.length * 2}" class="dd-gh"><i style="background:${PCOLOR[plat]}"></i>${esc(n)}</th>`).join("")}</tr>
+    <tr>${lead.map((l) => `<th class="${l.num ? "num" : ""}">${l.label}</th>`).join("")}${groups.flatMap(([, ks]) => ks.map((k) =>
+      `<th class="num dd-first">${DD_SHORT[k]}</th><th class="num">Change</th>`)).join("")}</tr></thead>`;
+}
+function sparkline(vals) {
+  const v = (vals || []).map((x) => x || 0);
+  if (v.length < 2) return '<span class="muted">–</span>';
+  const max = Math.max(...v, 1), w = 84, h = 24, step = w / (v.length - 1);
+  const pts = v.map((x, i) => `${(i * step).toFixed(1)},${(h - 2 - (x / max) * (h - 4)).toFixed(1)}`).join(" ");
+  const up = v[v.length - 1] >= v[v.length - 2];
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}"><polyline points="${pts}" fill="none" stroke="${up ? "var(--good-text)" : "var(--accent)"}" stroke-width="1.8" stroke-linejoin="round"/></svg>`;
+}
 async function loadDaily() {
   const linked = hashParams().get("song");  // #daily?song=1049 opens that song's day-by-day history
   if (linked) DD.song = linked;
   const song = DD.song;
   const d = await api(`/api/daily?${new URLSearchParams(song ? { song } : { day: DD.day, label: DD.label, sort: DD.sort, q: DD.q, offset: DD.offset, limit: DD.limit })}`);
   document.querySelectorAll("#dd-controls .dd-day").forEach((e) => (e.style.display = song ? "none" : ""));
-  $("#dd-back").style.display = $("#dd-song").style.display = song ? "" : "none";
+  $("#dd-controls").parentElement.style.display = song ? "none" : "";
+  ["#dd-head", "#dd-kpis", "#dd-charts", "#dd-compare"].forEach((x) => ($(x).style.display = song ? "" : "none"));
   $("#dd-pager").style.display = song ? "none" : "";
-  const sign = (v) => v == null ? '<span class="muted">–</span>' : (v > 0 ? "+" : "") + (Math.abs(v) >= 1e5 ? compact(v) : fmt(v));
-  const val = (v) => v == null ? '<span class="muted">–</span>' : (Math.abs(v) >= 1e5 ? compact(v) : fmt(v));
-  const head = d.cols.map((c) => `<th class="num">${esc(c.label)}</th><th class="num">Change</th>`).join("");
-  const cells = (r) => d.cols.map((c) => `<td class="num">${val(r[c.key])}</td><td class="num ${(ddChange(r, c.key) || 0) > 0 ? "delta-up" : ""}">${sign(ddChange(r, c.key))}</td>`).join("");
-  $("#dd-charts").style.display = $("#dd-compare").style.display = song ? "" : "none";
-  if (song) loadCompare(song);
-  if (song) {
-    $("#dd-song").textContent = d.song ? d.song.title : "Song";
-    // Graphs: the chosen metric's total by day (line) and its gain each day (bars), oldest day first.
-    const days = d.rows.slice().reverse();
-    const avail = d.cols.filter((c) => days.some((r) => r[c.key] != null));
-    if (!avail.some((c) => c.key === DD.metric) && avail.length) DD.metric = avail[0].key;
-    $("#dd-metric").innerHTML = avail.map((c) => `<button class="small${c.key === DD.metric ? " on" : ""}" data-m="${c.key}">${esc(c.label)}</button>`).join("") || '<span class="muted">No readings yet</span>';
-    const col = d.cols.find((c) => c.key === DD.metric) || { label: "" };
-    $("#dd-total-title").textContent = `${col.label}: total by day`;
-    lineChart($("#dd-total"), days.filter((r) => r[DD.metric] != null).map((r) => ({ x: r.day, y: r[DD.metric] })), { label: col.label });
-    const isRank = DD.metric === "dz_rank" || DD.metric === "chart_rank";
-    $("#dd-gain-title").textContent = isRank ? `${col.label}: change each day` : `${col.label}: gain each day`;
-    barChart($("#dd-gain"), days.map((r) => ({ label: r.day.slice(5), day: r.day, value: ddChange(r, DD.metric) || 0, missing: ddChange(r, DD.metric) == null })),
-      { tip: (b) => `<b>${esc(b.day)}</b><br>${b.missing ? "no reading the day before" : (b.value > 0 ? "+" : "") + fmt(b.value)}` });
-    $("#dd-csv").href = `/api/daily.csv?song=${song}`;
-    $("#dd-table").innerHTML = `<thead><tr><th>Day</th><th class="num">Uploads read</th>${head}</tr></thead><tbody>` +
-      (d.rows.map((r) => `<tr><td>${esc(r.day)}</td><td class="num">${fmt(r.yt_uploads_read)}</td>${cells(r)}</tr>`).join("") || `<tr><td class="empty" colspan="${2 + d.cols.length * 2}">No daily data for this song yet.</td></tr>`) + "</tbody>";
-    return;
-  }
+  if (song) return ddSong(d, song);
   DD.day = d.day || "";
-  $("#dd-day").innerHTML = d.days.slice().reverse().map((x) => `<option ${x === d.day ? "selected" : ""}>${x}</option>`).join("");
+  const dayIdx = d.days.indexOf(d.day);
+  $("#dd-day").innerHTML = d.days.slice().reverse().map((x) => `<option value="${x}" ${x === d.day ? "selected" : ""}>${ddDay(x)} ${x.slice(0, 4)}</option>`).join("");
+  $("#dd-dprev").disabled = dayIdx <= 0; $("#dd-dnext").disabled = dayIdx < 0 || dayIdx >= d.days.length - 1;
   if ($("#dd-label").options.length === 1 && STATUS) (STATUS.config.youtube.labels || []).forEach((l) => $("#dd-label").insertAdjacentHTML("beforeend", `<option>${esc(l.name)}</option>`));
-  $("#dd-sort").innerHTML = d.cols.flatMap((c) => [[c.key + "_delta", c.label + " change"], [c.key, c.label]])
+  $("#dd-sort").innerHTML = d.cols.flatMap((c) => [[c.key + "_delta", c.label + " gained"], [c.key, c.label + " (total)"]])
     .map(([k, l]) => `<option value="${k}" ${DD.sort === k ? "selected" : ""}>${esc(l)}</option>`).join("");
   $("#dd-csv").href = `/api/daily.csv?${new URLSearchParams({ day: DD.day, label: DD.label, sort: DD.sort, q: DD.q })}` + (FOCUS_ALL ? "&focus=all" : "");
-  $("#dd-sub").textContent = `Totals for ${d.day || "–"}${d.prev ? `; change compared with ${d.prev}` : ""}. Stored indefinitely; click a song for its full day-by-day history.`;
-  $("#dd-table").innerHTML = `<thead><tr><th>Song</th><th>Label</th><th class="num">Uploads read</th>${head}</tr></thead><tbody>` +
-    (d.rows.map((r) => `<tr class="click" data-song="${r.id}"><td><div class="t1">${esc(r.title)}</div><div class="t2">${esc(r.yt_channel || "")} · ${esc(r.song_date || "")}</div></td>
-      <td>${labelTag(r.music_label)}</td><td class="num">${fmt(r.yt_uploads_read)}</td>${cells(r)}</tr>`).join("") || `<tr><td class="empty" colspan="${3 + d.cols.length * 2}">No data for this day.</td></tr>`) + "</tbody>";
-  $("#dd-count").textContent = d.total ? `${fmt(DD.offset + 1)}–${fmt(Math.min(DD.offset + DD.limit, d.total))} of ${fmt(d.total)}` : "0";
+  $("#dd-sub").textContent = `${d.day ? ddDay(d.day) + " " + d.day.slice(0, 4) : "–"}: each song's totals, and the change since ${d.prev ? ddDay(d.prev) : "the previous day"}. Click a song for its full day-by-day history.`;
+  const keys = d.cols.map((c) => c.key).filter((k) => d.rows.some((r) => r[k] != null));
+  const lead = [{ label: "#", num: true }, { label: "Song" }, { label: "Last 7 days", num: false }, { label: "Uploads", num: true }];
+  $("#dd-table").innerHTML = ddHeader(keys, lead) + "<tbody>" +
+    (d.rows.map((r, i) => `<tr class="click" data-song="${r.id}"><td class="num muted">${fmt(DD.offset + i + 1)}</td>
+      <td class="dd-song"><div class="t1">${esc(r.title)}${labelTag(r.music_label)}</div><div class="t2">${esc(r.yt_channel || "")} · first upload ${esc(r.song_date || "")}</div></td>
+      <td title="YouTube views gained each day">${sparkline(r.spark)}</td><td class="num">${fmt(r.yt_uploads_read)}</td>
+      ${DD_GROUPS.flatMap(([, ks]) => ks.filter((k) => keys.includes(k))).map((k) => `<td class="num dd-first">${ddNum(r[k])}</td>${ddChangeCell(r, k)}`).join("")}</tr>`).join("")
+      || `<tr><td class="empty" colspan="${4 + keys.length * 2}">No data for this day.</td></tr>`) + "</tbody>";
+  $("#dd-count").textContent = d.total ? `${fmt(DD.offset + 1)}–${fmt(Math.min(DD.offset + DD.limit, d.total))} of ${fmt(d.total)} songs` : "0 songs";
   $("#dd-prev").disabled = DD.offset === 0; $("#dd-next").disabled = DD.offset + DD.limit >= d.total;
+}
+function ddSong(d, song) {
+  const s = d.song || { title: "Song" };
+  const all = d.rows;  // newest first
+  const rows = DD.range ? all.slice(0, DD.range) : all;
+  const days = rows.slice().reverse();
+  const latest = all[0] || {};
+  $("#dd-head").innerHTML = `<div class="row" style="gap:14px;flex-wrap:wrap;align-items:center">
+      <button class="small" id="dd-back2">‹ All songs</button>
+      ${s.yt_video_id ? `<button class="pbtn yt big" data-play="youtube" data-pid="${esc(s.yt_video_id)}" data-ptitle="${esc(s.title)}" title="Play on YouTube">▶</button>` : ""}
+      ${s.spotify_id ? `<button class="pbtn sp big" data-play="spotify" data-pid="${esc(s.spotify_id)}" data-ptitle="${esc(s.title)}" title="Play on Spotify">▶</button>` : ""}
+      <div style="flex:1;min-width:220px"><h2 style="margin:0">${esc(s.title)}${labelTag(s.music_label)}</h2>
+        <div class="muted" style="font-size:13px;margin-top:3px">${esc(s.yt_channel || "")}${s.first_upload ? ` · first upload ${esc(s.first_upload)}` : ""} · tracked ${fmt(all.length)} days ${statusChip(s.release_status)}</div></div>
+      <button class="small" id="dd-profile">Song profile</button><a class="btn small primary" id="dd-csv2" href="/api/daily.csv?song=${song}">⬇ CSV</a></div>`;
+  $("#dd-back2").onclick = () => { DD.song = ""; if (location.hash.includes("song=")) location.hash = "#daily"; else loadDaily(); };
+  $("#dd-profile").onclick = () => openTrack(song);
+  // Summary tiles
+  const sumGain = (k, n) => all.slice(0, n).reduce((a, r) => a + (ddChange(r, k) || 0), 0);
+  const best = all.reduce((b, r) => (ddChange(r, "yt_views") || 0) > (b ? ddChange(b, "yt_views") || 0 : 0) ? r : b, null);
+  const tile = (label, value, sub, c) => `<div class="card kpi" style="--kpi-c:${c}"><div class="label">${label}</div><div class="value">${value}</div><div class="sub">${sub}</div></div>`;
+  const gainTxt = (k) => { const g = ddChange(latest, k); return g == null ? "no change yet" : `${g >= 0 ? "▲" : "▼"} ${compact(Math.abs(g))} last day`; };
+  const tiles = [tile("YouTube views", compact(latest.yt_views), gainTxt("yt_views"), "var(--c-youtube)")];
+  if (all.some((r) => r.sp_plays != null)) tiles.push(tile("Spotify plays", compact(all.find((r) => r.sp_plays != null).sp_plays), gainTxt("sp_plays"), "var(--c-spotify)"));
+  if (all.some((r) => r.js_plays != null)) tiles.push(tile("JioSaavn plays", compact(all.find((r) => r.js_plays != null).js_plays), gainTxt("js_plays"), "var(--c-jiosaavn)"));
+  if (all.some((r) => r.ytm_plays != null)) tiles.push(tile("YouTube Music plays", compact(all.find((r) => r.ytm_plays != null).ytm_plays), gainTxt("ytm_plays"), "var(--c-ytmusic)"));
+  tiles.push(tile("YouTube views, last 7 days", `+${compact(sumGain("yt_views", 7))}`, `+${compact(sumGain("yt_likes", 7))} likes`, "var(--accent)"));
+  tiles.push(tile("Best day", best ? `+${compact(ddChange(best, "yt_views"))}` : "–", best ? `${ddDay(best.day)} · YouTube views` : "", "var(--accent-2)"));
+  $("#dd-kpis").innerHTML = tiles.slice(0, 6).join("");
+  // Graphs for the chosen metric, over the chosen range; days where more uploads were linked are marked.
+  const avail = d.cols.filter((c) => all.some((r) => r[c.key] != null));
+  if (!avail.some((c) => c.key === DD.metric) && avail.length) DD.metric = avail[0].key;
+  $("#dd-metric").innerHTML = avail.map((c) => `<button class="small${c.key === DD.metric ? " on" : ""}" data-m="${c.key}">${esc(c.label)}</button>`).join("") || '<span class="muted">No readings yet</span>';
+  document.querySelectorAll("#dd-range button").forEach((b) => b.classList.toggle("on", +b.dataset.r === (DD.range || 0)));
+  const col = d.cols.find((c) => c.key === DD.metric) || { label: "" };
+  const marks = DD.metric.startsWith("yt_") ? days.filter((r, i) => i && days[i - 1].yt_uploads_read != null && r.yt_uploads_read > days[i - 1].yt_uploads_read)
+    .map((r, i) => ({ x: r.day, label: ((n) => `+${n} upload${n === 1 ? "" : "s"}`)(r.yt_uploads_read - days[days.indexOf(r) - 1].yt_uploads_read) })) : [];
+  $("#dd-marks-note").style.display = marks.length ? "" : "none";
+  $("#dd-marks-note").textContent = marks.length ? "Dashed lines: days when more of the song's uploads were linked, so the total jumps. The gain each day only counts uploads read on both days, so it isn't inflated." : "";
+  $("#dd-total-title").textContent = `${col.label}: total by day`;
+  lineChart($("#dd-total"), days.filter((r) => r[DD.metric] != null).map((r) => ({ x: r.day, y: r[DD.metric] })), { label: col.label, marks });
+  const isRank = DD.metric === "dz_rank" || DD.metric === "chart_rank";
+  $("#dd-gain-title").textContent = isRank ? `${col.label}: change each day` : `${col.label}: gained each day`;
+  barChart($("#dd-gain"), days.map((r) => ({ label: new Date(r.day + "T00:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" }), day: r.day, value: ddChange(r, DD.metric) || 0, missing: ddChange(r, DD.metric) == null })),
+    { tip: (b) => `<b>${ddDay(b.day)}</b><br>${b.missing ? "no reading the day before" : (b.value > 0 ? "+" : "") + fmt(b.value)}` });
+  loadCompare(song);
+  const keys = d.cols.map((c) => c.key).filter((k) => rows.some((r) => r[k] != null));
+  $("#dd-table").innerHTML = ddHeader(keys, [{ label: "Day" }, { label: "Uploads", num: true }]) + "<tbody>" +
+    (rows.map((r) => `<tr><td class="dd-day" title="${esc(r.day)}"><b>${ddDay(r.day)}</b></td><td class="num">${fmt(r.yt_uploads_read)}</td>
+      ${DD_GROUPS.flatMap(([, ks]) => ks.filter((k) => keys.includes(k))).map((k) => `<td class="num dd-first">${ddNum(r[k])}</td>${ddChangeCell(r, k)}`).join("")}</tr>`).join("")
+      || `<tr><td class="empty" colspan="${2 + keys.length * 2}">No daily data for this song yet.</td></tr>`) + "</tbody>";
 }
 ["day", "label", "sort"].forEach((k) => ($(`#dd-${k}`).onchange = (e) => { DD[k] = e.target.value; DD.offset = 0; loadDaily(); }));
 let ddTimer;
@@ -490,6 +556,9 @@ $("#dd-q").addEventListener("input", (e) => { clearTimeout(ddTimer); ddTimer = s
 $("#dd-prev").onclick = () => { DD.offset = Math.max(0, DD.offset - DD.limit); loadDaily(); };
 $("#dd-next").onclick = () => { DD.offset += DD.limit; loadDaily(); };
 $("#dd-back").onclick = () => { DD.song = ""; loadDaily(); };
+$("#dd-dprev").onclick = () => { const o = $("#dd-day").selectedIndex; if (o < $("#dd-day").options.length - 1) { DD.day = $("#dd-day").options[o + 1].value; DD.offset = 0; loadDaily(); } };
+$("#dd-dnext").onclick = () => { const o = $("#dd-day").selectedIndex; if (o > 0) { DD.day = $("#dd-day").options[o - 1].value; DD.offset = 0; loadDaily(); } };
+$("#dd-range").addEventListener("click", (e) => { const b = e.target.closest("button[data-r]"); if (b) { DD.range = +b.dataset.r; loadDaily(); } });
 $("#dd-metric").addEventListener("click", (e) => { const b = e.target.closest("button[data-m]"); if (b) { DD.metric = b.dataset.m; loadDaily(); } });
 $("#dd-table").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-song]"); if (tr) { DD.song = tr.dataset.song; loadDaily(); } });
 
