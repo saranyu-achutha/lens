@@ -48,6 +48,7 @@
 
 <main>
   <header class="top">
+    <button class="icon-btn" id="menu-btn" aria-label="Open menu" title="Menu"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
     <span id="job-pill" class="pill dev-only"><span class="dot"></span>Idle</span>
     <label class="pill" id="focus-label" title="Older songs are songs released before the period (re-uploads of earlier releases). They are always hidden unless this is ticked." style="cursor:pointer;gap:6px"><input type="checkbox" id="focus-older" style="margin:0">Include older songs</label>
     <span id="sched-pill" class="pill dev-only"></span>
@@ -228,7 +229,7 @@
   <!-- REVIEW -->
   <section class="page" id="page-review">
     <div class="page-head"><div><h1>Review</h1><p>Spotify ↔ YouTube matches. Rules decide; you confirm the uncertain ones. Decisions are kept across runs.</p></div></div>
-    <div class="grid" style="grid-template-columns: repeat(4, minmax(0,1fr))" id="rev-kpis"></div>
+    <div class="grid g4" id="rev-kpis"></div>
     <div class="tabs" id="rev-tabs" style="margin-top:16px">
       <button class="tab active" data-state="spotify_pending">Spotify links to check <span class="muted"></span></button>
       <button class="tab" data-state="duplicates">Duplicate songs <span class="muted"></span></button>
@@ -253,7 +254,7 @@
   <!-- RUNS -->
   <section class="page" id="page-runs">
     <div class="page-head"><div><h1>Runs</h1><p>Start jobs, watch them live, review history</p></div></div>
-    <div class="grid" style="grid-template-columns: 320px 1fr">
+    <div class="grid sidebar-grid sg-320">
       <div class="card">
         <h2>Run a job</h2>
         <label class="field"><span>Job</span><select id="run-job"></select></label>
@@ -355,7 +356,7 @@
   <section class="page" id="page-outputs">
     <div class="page-head"><div><h1>Outputs</h1><p>Everything the pipeline produced: CSV files per run and every raw API response</p></div></div>
     <div class="tabs"><button class="tab active" data-tab="files">Files</button><button class="tab" data-tab="raw">Raw API responses</button></div>
-    <div id="out-files" class="grid" style="grid-template-columns: 340px 1fr">
+    <div id="out-files" class="grid sidebar-grid sg-340">
       <div class="card flush"><h2>CSV files</h2><div id="out-list" class="file-list"></div></div>
       <div class="card flush">
         <div class="card-head" style="padding:16px 18px 0"><h2 id="out-title">Select a file</h2><span class="spacer"></span>
@@ -506,6 +507,7 @@
   </section>
 </main>
 
+<div class="nav-bg" id="nav-bg"></div>
 <div class="drawer-bg" id="drawer-bg"></div>
 <aside class="drawer" id="drawer"></aside>
 <div class="player" id="player" style="display:none">

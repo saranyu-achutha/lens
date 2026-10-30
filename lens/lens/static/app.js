@@ -1748,4 +1748,11 @@ document.addEventListener("change", (e) => { if (e.target.id === "focus-older" &
 /* ---------- Boot ---------- */
 refreshStatus().then(route);
 setInterval(refreshStatus, 5000);
-let rz; window.addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(() => location.hash.startsWith("#overview") || !location.hash ? loadOverview() : null, 200); });
+// Redraw the current page's charts when the width really changes (rotation, window resize); phones fire resize on scroll.
+let rz, lastW = innerWidth;
+window.addEventListener("resize", () => { if (innerWidth === lastW) return; lastW = innerWidth; clearTimeout(rz); rz = setTimeout(route, 250); });
+// Slide-in menu on tablets and phones
+const closeMenu = () => document.body.classList.remove("menu-open");
+$("#menu-btn").onclick = () => document.body.classList.toggle("menu-open");
+$("#nav-bg").onclick = closeMenu;
+document.querySelectorAll("a.nav").forEach((a) => a.addEventListener("click", closeMenu));
