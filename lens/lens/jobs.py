@@ -228,13 +228,19 @@ def _due_work(cfg, tried, browser=True, api=True):
                            AND NOT EXISTS (SELECT 1 FROM snapshot s WHERE s.platform_item_id=p.id AND s.metric='plays' AND s.capture_date=?)""", (today,))
         if todo or unread:
             return "jiosaavn", f"{todo} songs to search, {unread} tracks to read"
-    # 3. Songs: Spotify / iTunes / MusicBrainz lookups still pending, or Deezer not read today (at most hourly).
-    if ago("songs") > 3600 and hours_since("songs") >= 1:
+    # 3. Songs: Spotify / iTunes / MusicBrainz lookups still pending, Deezer not read today, or new releases still
+    #    without a Spotify link that the playlist / album / web-search routes haven't tried this week (every 30 min).
+    if ago("songs") > 1800 and hours_since("songs") >= 0.5:
         pending = _count(f"""SELECT count(*) FROM track t WHERE {in_window} AND (t.release_status IS NULL OR t.release_status='unchecked')""", (since, until))
         dz = _count("""SELECT count(*) FROM platform_item p WHERE p.platform='deezer' AND p.track_id IS NOT NULL
                        AND NOT EXISTS (SELECT 1 FROM snapshot s WHERE s.platform_item_id=p.id AND s.capture_date=?)""", (today,))
-        if pending or dz:
-            return "songs", f"{pending} songs awaiting lookups, {dz} Deezer ranks to read"
+        unlinked = _count(f"""SELECT count(*) FROM track t WHERE {in_window} AND coalesce(t.release_status, '') != 'catalogue'
+                              AND coalesce(t.release_check, '') != 'old'
+                              AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='spotify')
+                              AND coalesce((SELECT value FROM state WHERE key='spotify_links:' || t.id), '') < ?""",
+                          (since, until, (datetime.now().date() - timedelta(days=7)).isoformat()))
+        if pending or dz or unlinked:
+            return "songs", f"{pending} songs awaiting lookups, {dz} Deezer ranks to read, {unlinked} songs to find on Spotify"
     # 4. YouTube Music: songs not yet searched, while today's search quota lasts (one try an hour).
     if ago("ytmusic") > 3600:
         from .youtube import _SET_ASIDE, parse_keys
@@ -246,6 +252,10 @@ def _due_work(cfg, tried, browser=True, api=True):
                       (since, until, (datetime.now().date() - timedelta(days=7)).isoformat()))
         if can_search and todo:
             return "ytmusic", f"{todo} songs to search on YouTube Music"
+    # 5. Nothing else due: refresh YouTube readings (cheap: ~500 quota units) so new uploads and views keep coming in
+    #    between the 6-hourly pipelines; at most every 2 hours.
+    if ago("youtube_sync") > 7200 and hours_since("youtube_sync") >= 2:
+        return "youtube_sync", "keeping YouTube readings and new uploads fresh between pipelines"
     return None
 
 
