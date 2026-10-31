@@ -127,6 +127,7 @@ def run(conn, cfg, secrets, since, until, ts, log, check):
     log(f"Spotify links from MusicBrainz{', Odesli' if key else ''}{' and web search' if web else ''}: {len(todo)} songs without a Spotify link"
         + ("" if key else " (Odesli off: no ODESLI_API_KEY)"))
     found = {"musicbrainz": 0, "odesli": 0, "web": 0}
+    searches = 0
     pace = cfg["songs"].get("odesli_pace_seconds", 6.5)
 
 
@@ -177,6 +178,7 @@ def run(conn, cfg, secrets, since, until, ts, log, check):
                     break
         # 3. Web search (DuckDuckGo, then Bing): candidates checked on the embed page and by the match rules
         if not done and web:
+            searches += 1
             engine, ids = web_candidates(f'{song["title"]} {song["singer"] or ""} spotify'.strip(), cfg["songs"].get("web_search_pace_seconds", 5))
             vids = _vids(conn, song["id"]) if ids else []
             best = None
@@ -203,4 +205,4 @@ def run(conn, cfg, secrets, since, until, ts, log, check):
     conn.commit()
     log(f"Spotify links without the Spotify search: {found['musicbrainz']} from MusicBrainz, {found['odesli']} from Odesli, {found['web']} from web search, "
         f"{len(todo) - sum(found.values())} left for the Spotify search")
-    return {"spotify_links_musicbrainz": found["musicbrainz"], "spotify_links_odesli": found["odesli"], "spotify_links_web": found["web"]}
+    return {"spotify_links_musicbrainz": found["musicbrainz"], "spotify_links_odesli": found["odesli"], "spotify_links_web": found["web"], "spotify_web_searches": searches}

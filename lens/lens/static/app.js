@@ -32,7 +32,7 @@ function toast(msg, bad = false) {
 let STATUS = null;
 
 /* ---------- Router ---------- */
-const PAGES = ["overview", "dashboard", "dev", "platforms", "reports", "daily", "pdata", "catalogue", "explore", "insights", "review", "runs", "outputs", "sources", "settings"];
+const PAGES = ["overview", "dashboard", "dev", "crawl", "platforms", "reports", "daily", "pdata", "catalogue", "explore", "insights", "review", "runs", "outputs", "sources", "settings"];
 // The client login sees only these pages (the server refuses everything else for it).
 const CLIENT_PAGES = ["dashboard", "platforms", "reports", "daily", "catalogue"];
 // A developer can switch to "Client view" to see exactly what the client sees (menu, pages, header); not remembered.
@@ -45,7 +45,7 @@ function route() {
   const p = (isClient() ? CLIENT_PAGES : PAGES).includes(page) ? page : home;
   document.querySelectorAll("section.page").forEach((s) => s.classList.toggle("active", s.id === `page-${p}`));
   document.querySelectorAll("a.nav").forEach((a) => a.classList.toggle("active", a.getAttribute("href") === `#${p}`));
-  ({ overview: loadOverview, dashboard: loadClient, dev: loadDev, platforms: loadPlatform, reports: loadReport, daily: loadDaily, pdata: loadPData, catalogue: loadCatalogue, explore: loadExplore, insights: loadInsights, review: loadReview, runs: loadRuns, outputs: loadOutputs, sources: loadSources, settings: loadSettings })[p]();
+  ({ overview: loadOverview, dashboard: loadClient, dev: loadDev, crawl: loadCrawl, platforms: loadPlatform, reports: loadReport, daily: loadDaily, pdata: loadPData, catalogue: loadCatalogue, explore: loadExplore, insights: loadInsights, review: loadReview, runs: loadRuns, outputs: loadOutputs, sources: loadSources, settings: loadSettings })[p]();
   const track = new URLSearchParams(location.hash.split("?")[1] || "").get("track");
   if (track) openTrack(track);
   const meta = new URLSearchParams(location.hash.split("?")[1] || "").get("meta");  // e.g. #explore?meta=singer:arijit singh
@@ -402,6 +402,63 @@ async function loadDev() {
     : `<tbody><tr><td class="empty">No failed runs in the last 24 hours.</td></tr></tbody>`;
 }
 $("#dev-refresh").onclick = () => loadDev();
+
+/* ---------- Crawl stats (developer): runs, items, cost and failures by day, week, month or year ---------- */
+const CR = { period: "day", source: "", kind: "" };
+const CR_COLORS = { youtube: "var(--c-youtube)", ytmusic: "var(--c-ytmusic)", spotify_plays: "var(--c-spotify)", spotify_search: "#22a35a", spotify_playlists: "#7bd88f", spotify_web: "#4fb3a0",
+  jiosaavn: "var(--c-jiosaavn)", deezer: "var(--c-deezer)", apple: "var(--c-apple)", musicbrainz: "var(--c-musicbrainz)" };
+const crColor = (s, i) => CR_COLORS[s] || ["#4c94ec", "#9a8ff0", "#f5a524", "#38bdf8"][i % 4];
+const crKind = (k) => `<span class="pill ${["quota", "cancelled", "interrupted"].includes(k) ? "warn" : "bad"}"><span class="dot"></span>${esc(k)}</span>`;
+const crStatus = (s) => `<span class="pill ${s === "ok" ? "ok" : ["partial", "cancelled", "interrupted"].includes(s) ? "warn" : "bad"}"><span class="dot"></span>${esc(s)}</span>`;
+const crWhen = (t) => t ? new Date(t).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "–";
+const crNum = (v) => v ? (Math.abs(v) >= 1e5 ? compact(v) : fmt(v)) : '<span class="muted">0</span>';
+async function loadCrawl() {
+  const d = await api(`/api/crawl?${new URLSearchParams({ period: CR.period, source: CR.source, kind: CR.kind })}`);
+  document.querySelectorAll("#cr-period button").forEach((b) => b.classList.toggle("on", b.dataset.p === CR.period));
+  if (d.all_sources) { const sel = $("#cr-source"); sel.innerHTML = `<option value="">All sources</option>` + d.all_sources.map((s) => `<option value="${esc(s)}" ${s === CR.source ? "selected" : ""}>${esc(d.names[s] || s)}</option>`).join(""); }
+  const k = d.kpi || {};
+  const tile = (l, v, x, c) => `<div class="card kpi" style="--kpi-c:${c}"><div class="label">${l}</div><div class="value">${v}</div><div class="sub">${x}</div></div>`;
+  $("#cr-kpis").innerHTML = [tile("Runs", fmt(k.runs || 0), `${fmt(k.ok_runs || 0)} with no problems`, "var(--k1)"),
+    tile("Success rate", `${k.success ?? "–"}%`, `${fmt(k.problems || 0)} problem steps · ${fmt(k.cancelled || 0)} cancelled`, (k.success ?? 0) >= 95 ? "var(--good)" : "var(--warning)"),
+    tile("Items read", compact(k.items_read || 0), `${compact(k.found || 0)} found · ${compact(k.missing || 0)} not found`, "var(--k3)"),
+    tile("API calls", compact(k.api_calls || 0), "searches, lookups and pages", "var(--k2)"),
+    tile("YouTube quota", compact(k.quota_units || 0), "units used", "var(--k4)"),
+    tile("Busy time", `${fmt(Math.round(k.busy_hours || 0))} h`, "time jobs were running", "var(--k5)")].join("");
+  const lines = (d.series || []).map((s, i) => ({ name: s.name, color: crColor(s.source, i), points: s.points }));
+  multiLine($("#cr-items"), lines, { height: 260 });
+  $("#cr-items-legend").innerHTML = lines.map((l) => `<span><span style="display:inline-block;width:12px;height:3px;background:${l.color};vertical-align:middle;margin-right:5px"></span>${esc(l.name)}</span>`).join("");
+  const asc = (d.rows || []).slice().reverse();
+  const hl = [{ name: "OK", color: "var(--good)", points: asc.map((r) => ({ x: r.bucket, y: r.ok_runs })) }, { name: "Problems", color: "var(--critical)", points: asc.map((r) => ({ x: r.bucket, y: r.problems })) }];
+  multiLine($("#cr-health"), hl, { height: 260 });
+  $("#cr-health-legend").innerHTML = hl.map((l) => `<span><span style="display:inline-block;width:12px;height:3px;background:${l.color};vertical-align:middle;margin-right:5px"></span>${l.name}</span>`).join("");
+  $("#cr-sources").innerHTML = `<thead><tr><th>Source</th><th>Access</th><th class="num">Runs</th><th class="num">Success</th><th class="num">Read</th><th class="num">Found</th><th class="num">Not found</th><th class="num">Calls</th><th class="num">Quota</th><th class="num">Avg time</th><th>Last OK</th><th>Last problem</th></tr></thead><tbody>` +
+    (d.sources || []).map((s, i) => `<tr class="click" data-src="${esc(s.source)}"><td><i class="cr-dot" style="background:${crColor(s.source, i)}"></i><b>${esc(s.name)}</b></td><td class="muted">${esc(s.access)}</td><td class="num">${fmt(s.runs)}</td>
+      <td class="num ${s.success >= 95 ? "delta-up" : s.success < 70 ? "delta-down" : "warn-text"}">${s.success}%</td><td class="num">${crNum(s.items_read)}</td><td class="num">${crNum(s.found)}</td><td class="num">${crNum(s.missing)}</td><td class="num">${crNum(s.api_calls)}</td><td class="num">${crNum(s.quota_units)}</td>
+      <td class="num muted">${s.avg_seconds == null ? "–" : s.avg_seconds < 90 ? s.avg_seconds + " s" : Math.round(s.avg_seconds / 60) + " min"}</td><td class="muted">${crWhen(s.last_ok)}</td><td class="${s.last_problem ? "warn-text" : "muted"}">${crWhen(s.last_problem)}</td></tr>`).join("") + "</tbody>";
+  $("#cr-rows-title").textContent = { day: "By day", week: "By week", month: "By month", year: "By year" }[CR.period];
+  $("#cr-rows").innerHTML = `<thead><tr><th>${CR.period === "day" ? "Day" : CR.period === "week" ? "Week" : CR.period === "month" ? "Month" : "Year"}</th><th class="num">Runs</th><th class="num">Problems</th><th class="num">Read</th><th class="num">Found</th><th class="num">Calls</th><th class="num">Quota</th><th class="num">Busy</th></tr></thead><tbody>` +
+    (d.rows || []).map((r) => `<tr><td><b>${esc(CR.period === "day" ? ddDay(r.bucket) : r.bucket)}</b></td><td class="num">${fmt(r.runs)}</td><td class="num ${r.problems ? "delta-down" : "muted"}">${fmt(r.problems)}</td><td class="num">${crNum(r.items_read)}</td><td class="num">${crNum(r.found)}</td><td class="num">${crNum(r.api_calls)}</td><td class="num">${crNum(r.quota_units)}</td><td class="num muted">${r.busy_hours} h</td></tr>`).join("") + "</tbody>";
+  const plats = [...new Set((d.coverage || []).map((c) => c.platform))], names = { youtube: "YouTube", spotify: "Spotify", ytmusic: "YT Music", jiosaavn: "JioSaavn", deezer: "Deezer" };
+  const cov = {}; (d.coverage || []).forEach((c) => ((cov[c.bucket] ||= {})[c.platform] = c));
+  $("#cr-coverage").innerHTML = `<thead><tr><th>Period</th>${plats.map((p) => `<th class="num">${esc(names[p] || p)}</th>`).join("")}</tr></thead><tbody>` +
+    Object.keys(cov).sort().reverse().map((b) => `<tr><td><b>${esc(CR.period === "day" ? ddDay(b) : b)}</b></td>${plats.map((p) => { const c = cov[b][p]; return c ? `<td class="num ${CR.period !== "day" ? "" : c.pct >= 99 ? "delta-up" : c.pct < 90 ? "warn-text" : ""}" title="${fmt(c.readings)} of ${fmt(c.items)}">${CR.period === "day" ? c.pct + "%" : compact(c.readings)}</td>` : '<td class="num muted">–</td>'; }).join("")}</tr>`).join("") + "</tbody>";
+  $("#cr-kinds").innerHTML = (d.kinds || []).length ? `<thead><tr><th>Type</th><th class="num">Count</th><th class="num">Sources</th><th>Last seen</th><th>Example</th></tr></thead><tbody>` +
+    d.kinds.map((x) => `<tr class="click" data-kind="${esc(x.kind)}"><td>${crKind(x.kind)}</td><td class="num">${fmt(x.n)}</td><td class="num">${fmt(x.sources)}</td><td class="muted">${crWhen(x.last_seen)}</td><td class="muted cr-msg">${esc((x.sample || "").slice(0, 110))}</td></tr>`).join("") + "</tbody>"
+    : `<tbody><tr><td class="empty">No failures in this period.</td></tr></tbody>`;
+  $("#cr-health-table").innerHTML = (d.health || []).length ? `<thead><tr><th>API</th><th>Now</th><th class="num">Checks</th><th class="num">Blocked</th><th>Last blocked</th><th>Retry at</th></tr></thead><tbody>` +
+    d.health.map((h) => `<tr title="${esc(h.message || "")}"><td><b>${esc(h.source)}</b></td><td>${crStatus(h.ok_now ? "ok" : "blocked")}</td><td class="num">${fmt(h.checks)}</td><td class="num">${fmt(h.blocked)}</td><td class="muted">${crWhen(h.last_blocked)}</td><td class="muted">${crWhen(h.retry_at)}</td></tr>`).join("") + "</tbody>"
+    : `<tbody><tr><td class="empty">No API health checks in this period.</td></tr></tbody>`;
+  $("#cr-kind-chip").innerHTML = CR.kind ? `<button class="small" id="cr-kind-clear">${esc(CR.kind)} ✕</button>` : '<span class="muted" style="font-size:12px">click a failure type to filter</span>';
+  if ($("#cr-kind-clear")) $("#cr-kind-clear").onclick = () => { CR.kind = ""; loadCrawl(); };
+  $("#cr-failures").innerHTML = (d.failures || []).length ? `<thead><tr><th>When</th><th>Run</th><th>Job</th><th>Source</th><th>Status</th><th>Type</th><th>Message</th></tr></thead><tbody>` +
+    d.failures.map((f) => `<tr><td class="muted" style="white-space:nowrap">${crWhen(f.started_at)}</td><td class="muted">#${f.run_id}</td><td>${esc(f.job)}</td><td>${esc(f.name)}</td><td>${crStatus(f.status)}</td><td>${crKind(f.kind)}</td><td class="cr-msg">${esc(f.message || "")}</td></tr>`).join("") + "</tbody>"
+    : `<tbody><tr><td class="empty">No failures in this period.</td></tr></tbody>`;
+}
+document.querySelectorAll("#cr-period button").forEach((b) => (b.onclick = () => { CR.period = b.dataset.p; loadCrawl(); }));
+$("#cr-source").onchange = (e) => { CR.source = e.target.value; loadCrawl(); };
+$("#cr-refresh").onclick = () => loadCrawl();
+$("#cr-sources").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-src]"); if (tr) { CR.source = CR.source === tr.dataset.src ? "" : tr.dataset.src; loadCrawl(); } });
+$("#cr-kinds").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-kind]"); if (tr) { CR.kind = tr.dataset.kind; loadCrawl(); } });
 
 /* ---------- Reports: readings on two days and the change ---------- */
 const RP = { from: "", to: "", label: "", sort: "yt_views_delta", q: "", offset: 0, limit: 100 };

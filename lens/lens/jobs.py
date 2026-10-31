@@ -82,6 +82,7 @@ class JobManager:
                 break
             if len(steps) > 1:
                 self._log(j, f"── {name} ──")
+            step_start = time.time()
             try:
                 st = fn(conn, config.load(), config.read_secrets(), log=lambda m: self._log(j, m),
                         should_stop=j["stop"].is_set, since=params.get("since") or None,
@@ -98,7 +99,8 @@ class JobManager:
             except Exception as e:  # keep the studio alive and show the failure
                 st, step_status = {"error": repr(e)}, "failed"
                 self._log(j, "ERROR " + traceback.format_exc())
-            results[name] = {"status": step_status, "stop_reason": st.get("stop_reason"), "error": st.get("error")}
+            results[name] = {"status": step_status, "stop_reason": st.get("stop_reason"), "error": st.get("error"),
+                             "seconds": round(time.time() - step_start, 1)}
             stats.update({k: v for k, v in st.items() if k not in ("status", "stop_reason", "error", "csv")})
             if st.get("csv"):
                 stats.setdefault("csvs", []).append(st["csv"])

@@ -127,4 +127,4 @@ def run(conn, cfg, since, until, ts, log, check):
             linked += 1
     conn.commit()
     log(f"Spotify playlists and film albums: {read} of {len(sources)} pages read ({len(ids)} playlists, {len(albums)} albums; {len(seen):,} tracks); {linked} songs linked")
-    return {"spotify_playlist_links": linked, "spotify_playlist_tracks": len(seen)}
+    return {"spotify_playlist_links": linked, "spotify_playlist_tracks": len(seen), "spotify_playlist_pages": read}

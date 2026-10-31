@@ -24,7 +24,7 @@ from pathlib import Path
 
 import threading
 
-from . import ai, config, db, health, insights, jobs, merge, metadata, review, song_daily, songs, spotify_charts
+from . import ai, config, crawl_stats, db, health, insights, jobs, merge, metadata, review, song_daily, songs, spotify_charts
 from .discover_spotify import EXPORT_SQL
 from .spotify import Spotify, SpotifyError
 
@@ -1653,6 +1653,85 @@ def api_client(conn, qs):
             "labels": sorted(labels.values(), key=lambda t: -t["reach"]), "trend": trend}
 
 
+# ---------- Crawl stats (Developer): runs, items read and failures by day, week, month or year ----------
+CRAWL_PERIODS = {"day": ("day", 30), "week": ("strftime('%Y-W%W', day)", 16), "month": ("substr(day,1,7)", 12), "year": ("substr(day,1,4)", 5)}
+CRAWL_NAMES = {"youtube": "YouTube", "ytmusic": "YouTube Music", "spotify_plays": "Spotify plays (pages)", "spotify_search": "Spotify search (API)",
+               "spotify_playlists": "Spotify playlists + film albums", "spotify_web": "Spotify links: web search", "spotify_mb_links": "Spotify links: MusicBrainz",
+               "odesli": "Odesli", "jiosaavn": "JioSaavn", "deezer": "Deezer", "apple": "Apple Music (iTunes)",
+               "musicbrainz": "MusicBrainz", "songs": "Songs job", "daily": "Daily totals", "spotify": "Spotify label crawl"}
+
+
+def api_crawl(conn, qs):
+    crawl_stats.sync(conn)
+    period = qs.get("period") if qs.get("period") in CRAWL_PERIODS else "day"
+    expr, keep = CRAWL_PERIODS[period]
+    src = qs.get("source") or ""
+    where, args = (" AND source=?", [src]) if src else ("", [])
+    buckets = [r[0] for r in conn.execute(f"SELECT DISTINCT {expr} b FROM crawl_stat ORDER BY b DESC LIMIT ?", (keep,))]
+    if not buckets:
+        return {"period": period, "buckets": [], "sources": [], "rows": [], "failures": [], "kinds": [], "kpi": {}, "series": [], "coverage": [], "names": CRAWL_NAMES}
+    marks = ",".join("?" * len(buckets))
+    in_b = f"{expr} IN ({marks})"
+    probs = "('failed','partial','quota_exceeded','interrupted')"
+    # one row per period
+    rows = q(conn, f"""SELECT {expr} bucket, count(DISTINCT run_id) runs,
+                              count(DISTINCT CASE WHEN is_step=1 AND status='ok' THEN run_id END) ok_runs,
+                              sum(is_step=1 AND status IN {probs}) problems, sum(is_step=1 AND status='cancelled') cancelled,
+                              sum(items_read) items_read, sum(found) found, sum(missing) missing, sum(quota_units) quota_units, sum(api_calls) api_calls,
+                              round(sum(coalesce(seconds, 0)) / 3600.0, 1) busy_hours
+                       FROM crawl_stat WHERE {in_b}{where} GROUP BY 1 ORDER BY 1 DESC""", (*buckets, *args))
+    # time spent working, from the whole run (older multi-step runs have no per-step timing)
+    busy = {b: h for b, h in conn.execute(f"""SELECT {expr}, round(sum((julianday(finished_at) - julianday(started_at)) * 24), 1) FROM
+        (SELECT substr(started_at,1,10) day, started_at, finished_at FROM run_log WHERE finished_at IS NOT NULL) WHERE {in_b} GROUP BY 1""", buckets)}
+    for r in rows:
+        r["busy_hours"] = busy.get(r["bucket"], 0)
+    # one row per source over the whole selection
+    sources = q(conn, f"""SELECT source, count(DISTINCT run_id) runs, sum(status='ok') ok, sum(status IN {probs}) problems,
+                                 sum(items_read) items_read, sum(found) found, sum(missing) missing, sum(quota_units) quota_units, sum(api_calls) api_calls,
+                                 round(avg(seconds)) avg_seconds, max(CASE WHEN status='ok' THEN started_at END) last_ok,
+                                 max(CASE WHEN status IN {probs} THEN started_at END) last_problem
+                          FROM crawl_stat WHERE {in_b} GROUP BY 1 ORDER BY items_read DESC""", buckets)
+    for r in sources:
+        r["name"] = CRAWL_NAMES.get(r["source"], r["source"])
+        r["access"] = crawl_stats.METRICS.get(r["source"], {}).get("access", "Internal")
+        r["success"] = round(100 * r["ok"] / max(r["ok"] + r["problems"], 1), 1)
+    # chart series, oldest first
+    order = sorted(buckets)
+    by = {}
+    for b, s, n in conn.execute(f"SELECT {expr}, source, sum(items_read) FROM crawl_stat WHERE {in_b} AND source NOT IN ('daily','songs') GROUP BY 1, 2", buckets):
+        by.setdefault(s, {})[b] = n
+    series = [{"source": s, "name": CRAWL_NAMES.get(s, s), "points": [{"x": b, "y": v.get(b, 0)} for b in order]} for s, v in by.items() if any(v.values())]
+    health = {r["bucket"]: r for r in rows}
+    # readings captured, % of tracked items, per platform and period
+    coverage = q(conn, f"""SELECT {expr} bucket, platform, sum(readings) readings, sum(items) items FROM crawl_readings
+                           WHERE {in_b} GROUP BY 1, 2 ORDER BY 1 DESC""", buckets)
+    for r in coverage:
+        r["pct"] = min(100.0, round(100 * r["readings"] / r["items"], 1)) if r["items"] else None
+    # failures: groups by type, then the latest list
+    fw = f"is_step=1 AND status != 'ok' AND {in_b}{where}"
+    kinds = q(conn, f"""SELECT coalesce(kind, status) kind, count(*) n, max(started_at) last_seen, count(DISTINCT source) sources,
+                               (SELECT message FROM crawl_stat x WHERE coalesce(x.kind, x.status)=coalesce(crawl_stat.kind, crawl_stat.status) AND x.message != '' ORDER BY x.started_at DESC LIMIT 1) sample
+                        FROM crawl_stat WHERE {fw} GROUP BY 1 ORDER BY n DESC""", (*buckets, *args))
+    fk = qs.get("kind") or ""
+    failures = q(conn, f"""SELECT run_id, job, source, started_at, status, coalesce(kind, status) kind, message, seconds FROM crawl_stat
+                           WHERE {fw}{" AND coalesce(kind, status)=?" if fk else ""} ORDER BY started_at DESC LIMIT 200""",
+                 (*buckets, *args, *([fk] if fk else [])))
+    for f in failures:
+        f["name"] = CRAWL_NAMES.get(f["source"], f["source"])
+    # API health checks (e.g. Spotify blocked) over the same days
+    first = conn.execute(f"SELECT min(day) FROM crawl_stat WHERE {in_b}", buckets).fetchone()[0]
+    health_checks = q(conn, """SELECT source, count(*) checks, sum(ok=0) blocked, max(CASE WHEN ok=0 THEN checked_at END) last_blocked,
+                                      (SELECT ok FROM api_check x WHERE x.source=a.source ORDER BY id DESC LIMIT 1) ok_now,
+                                      (SELECT retry_at FROM api_check x WHERE x.source=a.source ORDER BY id DESC LIMIT 1) retry_at,
+                                      (SELECT message FROM api_check x WHERE x.source=a.source AND x.ok=0 ORDER BY id DESC LIMIT 1) message
+                               FROM api_check a WHERE substr(checked_at,1,10) >= ? GROUP BY source""", (first,))
+    t = {k: sum(r[k] or 0 for r in rows) for k in ("runs", "ok_runs", "problems", "cancelled", "items_read", "found", "missing", "quota_units", "api_calls", "busy_hours")}
+    t["success"] = round(100 * (1 - t["problems"] / max(t["problems"] + t["ok_runs"], 1)), 1)
+    return {"period": period, "source": src, "buckets": buckets, "kpi": t, "rows": rows, "sources": sources, "series": series, "order": order, "coverage": coverage,
+            "kinds": kinds, "failures": failures, "names": CRAWL_NAMES, "health": health_checks,
+            "all_sources": [r[0] for r in conn.execute("SELECT DISTINCT source FROM crawl_stat ORDER BY 1")]}
+
+
 # ---------- Developer dashboard: is the system healthy and on target? ----------
 def api_dev(conn, qs):
     import shutil
@@ -1769,7 +1848,7 @@ def fmt_n(n):
 
 GET = {"/api/coverage": api_coverage, "/api/insights": api_insights, "/api/insights/song": api_insights_song, "/api/ai/status": api_ai_status, "/api/ai/assist": api_ai_assist,
        "/api/meta/top": api_meta_top, "/api/meta/detail": api_meta_detail,
-       "/api/merge/suggestions": api_merge_suggestions, "/api/status": api_status, "/api/overview": api_overview, "/api/client": api_client, "/api/search": api_search, "/api/dev": api_dev, "/api/tracks": api_tracks,
+       "/api/merge/suggestions": api_merge_suggestions, "/api/status": api_status, "/api/overview": api_overview, "/api/crawl": api_crawl, "/api/client": api_client, "/api/search": api_search, "/api/dev": api_dev, "/api/tracks": api_tracks,
        "/api/track": api_track, "/api/platform": api_platform, "/api/report": api_report, "/api/daily": api_daily, "/api/items": api_items, "/api/song/compare": api_song_compare, "/api/items/history": api_item_history, "/api/runs": api_runs, "/api/seeds": api_seeds,
        "/api/artist_search": api_artist_search, "/api/health": api_health, "/api/outputs": api_outputs,
        "/api/outputs/preview": api_output_preview, "/api/raw": api_raw, "/api/raw/item": api_raw_item,

@@ -37,6 +37,7 @@
   <a class="nav dev-only" href="#insights"><svg viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>AI Insights</a>
   <a class="nav dev-only" href="#review"><svg viewBox="0 0 24 24"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/></svg>Review<span class="nav-badge" id="review-badge" style="display:none"></span></a>
   <a class="nav dev-only" href="#dev"><svg viewBox="0 0 24 24"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/></svg>Developer</a>
+  <a class="nav dev-only" href="#crawl"><svg viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>Crawl stats</a>
   <a class="nav dev-only" href="#runs"><svg viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z"/></svg>Runs</a>
   <a class="nav dev-only" href="#outputs"><svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg>Outputs</a>
   <a class="nav dev-only" href="#sources"><svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.6 0l3-3a4 4 0 0 0-5.6-5.6l-1 1"/><path d="M14 10a4 4 0 0 0-5.6 0l-3 3a4 4 0 0 0 5.6 5.6l1-1"/></svg>Sources</a>
@@ -148,6 +149,31 @@
       <div class="card flush"><h2>YouTube keys</h2><div class="table-wrap" style="max-height:320px"><table id="dev-keys"></table></div></div>
       <div class="card flush"><h2>Recent failures</h2><div class="table-wrap" style="max-height:320px"><table id="dev-failures"></table></div></div>
     </div>
+  </section>
+
+  <!-- CRAWL STATS (developer) -->
+  <section class="page" id="page-crawl">
+    <div class="page-head"><div><h1>Crawl stats</h1><p id="cr-sub">Every run of every source: what was read, what was found, what it cost and what failed.</p></div><span class="spacer"></span>
+      <button class="small" id="cr-refresh">↻ Refresh</button></div>
+    <div class="card" style="margin-bottom:16px"><div class="row" style="flex-wrap:wrap;gap:12px;align-items:center">
+      <div class="seg" id="cr-period"><button class="small" data-p="day">Day</button><button class="small" data-p="week">Week</button><button class="small" data-p="month">Month</button><button class="small" data-p="year">Year</button></div>
+      <span class="spacer"></span><label class="row" style="gap:8px;width:auto"><span class="muted" style="font-size:12.5px">Source</span><select id="cr-source" style="width:auto;min-width:220px"></select></label>
+    </div></div>
+    <div class="grid g6" id="cr-kpis"></div>
+    <div class="grid g2" style="margin-top:16px">
+      <div class="card"><div class="card-head"><h2>Items read by source</h2></div><div class="chart" id="cr-items"></div><div id="cr-items-legend" class="row" style="gap:12px;flex-wrap:wrap;margin-top:6px;font-size:12px"></div></div>
+      <div class="card"><div class="card-head"><h2>Run health</h2><span class="spacer"></span><span class="muted" style="font-size:12px">steps OK vs steps with problems</span></div><div class="chart" id="cr-health"></div><div id="cr-health-legend" class="row" style="gap:12px;margin-top:6px;font-size:12px"></div></div>
+    </div>
+    <div class="card flush" style="margin-top:16px"><h2>Sources</h2><div class="table-wrap"><table id="cr-sources"></table></div></div>
+    <div class="grid g2" style="margin-top:16px">
+      <div class="card flush"><h2 id="cr-rows-title">By day</h2><div class="table-wrap" style="max-height:420px"><table id="cr-rows"></table></div></div>
+      <div class="card flush"><h2>Readings captured</h2><div class="table-wrap" style="max-height:420px"><table id="cr-coverage"></table></div></div>
+    </div>
+    <div class="grid g2" style="margin-top:16px">
+      <div class="card flush"><h2>Failures by type</h2><div class="table-wrap"><table id="cr-kinds"></table></div></div>
+      <div class="card flush"><h2>API health checks</h2><div class="table-wrap"><table id="cr-health-table"></table></div></div>
+    </div>
+    <div class="card flush" style="margin-top:16px"><div class="card-head"><h2>Failure log</h2><span class="spacer"></span><span id="cr-kind-chip"></span></div><div class="table-wrap" style="max-height:520px"><table id="cr-failures"></table></div></div>
   </section>
 
   <!-- CATALOGUE -->

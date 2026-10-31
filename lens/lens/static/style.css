@@ -920,3 +920,9 @@ img, svg, video, iframe { max-width: 100%; }
   #cat-table .sel { display: none; }
 }
 @media (max-width: 860px) { #page-settings .grid, #page-sources .grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* Crawl stats */
+.cr-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 8px; }
+.cr-msg { white-space: normal; min-width: 240px; font-size: 12.5px; word-break: break-word; }
+#cr-period button.on { background: var(--accent-soft); border-color: var(--accent); }
+#cr-rows td, #cr-rows th, #cr-sources td:nth-last-child(-n+2), #cr-kinds td:nth-child(4) { white-space: nowrap; }
