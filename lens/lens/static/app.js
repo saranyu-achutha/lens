@@ -32,7 +32,7 @@ function toast(msg, bad = false) {
 let STATUS = null;
 
 /* ---------- Router ---------- */
-const PAGES = ["overview", "dashboard", "dev", "crawl", "platforms", "reports", "daily", "pdata", "catalogue", "explore", "insights", "review", "runs", "outputs", "sources", "settings"];
+const PAGES = ["overview", "dashboard", "dev", "crawl", "apis", "platforms", "reports", "daily", "pdata", "catalogue", "explore", "insights", "review", "runs", "outputs", "sources", "settings"];
 // The client login sees only these pages (the server refuses everything else for it).
 const CLIENT_PAGES = ["dashboard", "platforms", "reports", "daily", "catalogue"];
 // A developer can switch to "Client view" to see exactly what the client sees (menu, pages, header); not remembered.
@@ -43,9 +43,10 @@ function route() {
   const home = isClient() ? "dashboard" : "overview";
   const page = (location.hash.slice(1).split("?")[0]) || home;
   const p = (isClient() ? CLIENT_PAGES : PAGES).includes(page) ? page : home;
-  document.querySelectorAll("section.page").forEach((s) => s.classList.toggle("active", s.id === `page-${p}`));
+  const sec = p === "apis" ? "crawl" : p;  // Crawl stats and API stats share one page layout
+  document.querySelectorAll("section.page").forEach((s) => s.classList.toggle("active", s.id === `page-${sec}`));
   document.querySelectorAll("a.nav").forEach((a) => a.classList.toggle("active", a.getAttribute("href") === `#${p}`));
-  ({ overview: loadOverview, dashboard: loadClient, dev: loadDev, crawl: loadCrawl, platforms: loadPlatform, reports: loadReport, daily: loadDaily, pdata: loadPData, catalogue: loadCatalogue, explore: loadExplore, insights: loadInsights, review: loadReview, runs: loadRuns, outputs: loadOutputs, sources: loadSources, settings: loadSettings })[p]();
+  ({ overview: loadOverview, dashboard: loadClient, dev: loadDev, crawl: loadCrawl, apis: loadCrawl, platforms: loadPlatform, reports: loadReport, daily: loadDaily, pdata: loadPData, catalogue: loadCatalogue, explore: loadExplore, insights: loadInsights, review: loadReview, runs: loadRuns, outputs: loadOutputs, sources: loadSources, settings: loadSettings })[p]();
   const track = new URLSearchParams(location.hash.split("?")[1] || "").get("track");
   if (track) openTrack(track);
   const meta = new URLSearchParams(location.hash.split("?")[1] || "").get("meta");  // e.g. #explore?meta=singer:arijit singh
@@ -413,7 +414,15 @@ const crStatus = (s) => `<span class="pill ${s === "ok" ? "ok" : ["partial", "ca
 const crWhen = (t) => t ? new Date(t).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "–";
 const crNum = (v) => v ? (Math.abs(v) >= 1e5 ? compact(v) : fmt(v)) : '<span class="muted">0</span>';
 async function loadCrawl() {
-  const d = await api(`/api/crawl?${new URLSearchParams({ period: CR.period, source: CR.source, kind: CR.kind })}`);
+  const group = location.hash.startsWith("#apis") ? "api" : "crawl";
+  if (CR.group !== group) Object.assign(CR, { group, source: "", kind: "" });
+  const isApi = group === "api";
+  const d = await api(`/api/crawl?${new URLSearchParams({ group, period: CR.period, source: CR.source, kind: CR.kind })}`);
+  $("#cr-title").textContent = isApi ? "API stats" : "Crawl stats";
+  $("#cr-sub").textContent = isApi ? "Every API: calls, what they returned, quota, keys, health and failures." : "Scraping and crawling: public pages, embed pages, web search and internal jobs, with what they read and what failed.";
+  $("#cr-src-title").textContent = isApi ? "APIs" : "Crawl sources";
+  $("#cr-cov-title").textContent = isApi ? "Keys and quota" : "Readings captured";
+  $("#cr-health-card").style.display = isApi ? "" : "none";
   document.querySelectorAll("#cr-period button").forEach((b) => b.classList.toggle("on", b.dataset.p === CR.period));
   if (d.all_sources) { const sel = $("#cr-source"); sel.innerHTML = `<option value="">All sources</option>` + d.all_sources.map((s) => `<option value="${esc(s)}" ${s === CR.source ? "selected" : ""}>${esc(d.names[s] || s)}</option>`).join(""); }
   const k = d.kpi || {};
@@ -422,7 +431,7 @@ async function loadCrawl() {
     tile("Success rate", `${k.success ?? "–"}%`, `${fmt(k.problems || 0)} problem steps · ${fmt(k.cancelled || 0)} cancelled`, (k.success ?? 0) >= 95 ? "var(--good)" : "var(--warning)"),
     tile("Items read", compact(k.items_read || 0), `${compact(k.found || 0)} found · ${compact(k.missing || 0)} not found`, "var(--k3)"),
     tile("API calls", compact(k.api_calls || 0), "searches, lookups and pages", "var(--k2)"),
-    tile("YouTube quota", compact(k.quota_units || 0), "units used", "var(--k4)"),
+    isApi ? tile("YouTube quota", compact(k.quota_units || 0), "units used", "var(--k4)") : tile("Links found", compact(k.found || 0), "new links and items", "var(--k4)"),
     tile("Busy time", `${fmt(Math.round(k.busy_hours || 0))} h`, "time jobs were running", "var(--k5)")].join("");
   const lines = (d.series || []).map((s, i) => ({ name: s.name, color: crColor(s.source, i), points: s.points }));
   multiLine($("#cr-items"), lines, { height: 260 });
@@ -438,9 +447,16 @@ async function loadCrawl() {
   $("#cr-rows-title").textContent = { day: "By day", week: "By week", month: "By month", year: "By year" }[CR.period];
   $("#cr-rows").innerHTML = `<thead><tr><th>${CR.period === "day" ? "Day" : CR.period === "week" ? "Week" : CR.period === "month" ? "Month" : "Year"}</th><th class="num">Runs</th><th class="num">Problems</th><th class="num">Read</th><th class="num">Found</th><th class="num">Calls</th><th class="num">Quota</th><th class="num">Busy</th></tr></thead><tbody>` +
     (d.rows || []).map((r) => `<tr><td><b>${esc(CR.period === "day" ? ddDay(r.bucket) : r.bucket)}</b></td><td class="num">${fmt(r.runs)}</td><td class="num ${r.problems ? "delta-down" : "muted"}">${fmt(r.problems)}</td><td class="num">${crNum(r.items_read)}</td><td class="num">${crNum(r.found)}</td><td class="num">${crNum(r.api_calls)}</td><td class="num">${crNum(r.quota_units)}</td><td class="num muted">${r.busy_hours} h</td></tr>`).join("") + "</tbody>";
+  if (isApi && d.keys) {
+    const y = d.keys, pc = Math.min(100, Math.round((100 * y.units_today) / y.units_limit)), free = y.keys.filter((x) => x.available).length;
+    $("#cr-quota").innerHTML = `<div class="bar-row"><span class="bar-name">YouTube</span><span class="bar-track"><span class="bar-fill" style="width:${pc}%"></span></span><span class="bar-val">${pc}%</span></div>
+      <div class="muted" style="font-size:12.5px;margin-bottom:10px">${fmt(y.units_today)} of ${fmt(y.units_limit)} units today · about ${fmt(Math.max(0, Math.floor((y.units_limit - y.units_today) / 100)))} searches left · ${y.keys.length} keys, ${free} available · resets ${crWhen(y.resets)}<br>Spotify searches today: ${fmt(y.spotify_searches_today)} of ~600</div>`;
+    $("#cr-coverage").innerHTML = `<thead><tr><th>#</th><th>YouTube key</th><th>State</th><th>Until</th></tr></thead><tbody>` +
+      y.keys.map((x, i) => `<tr><td class="muted">${i + 1}</td><td class="mono">${esc(x.hint)}</td><td>${crStatus(x.available ? "ok" : "partial")}</td><td class="muted">${x.until ? crWhen(x.until) : ""}</td></tr>`).join("") + "</tbody>";
+  } else $("#cr-quota").innerHTML = "";
   const plats = [...new Set((d.coverage || []).map((c) => c.platform))], names = { youtube: "YouTube", spotify: "Spotify", ytmusic: "YT Music", jiosaavn: "JioSaavn", deezer: "Deezer" };
   const cov = {}; (d.coverage || []).forEach((c) => ((cov[c.bucket] ||= {})[c.platform] = c));
-  $("#cr-coverage").innerHTML = `<thead><tr><th>Period</th>${plats.map((p) => `<th class="num">${esc(names[p] || p)}</th>`).join("")}</tr></thead><tbody>` +
+  if (!isApi) $("#cr-coverage").innerHTML = `<thead><tr><th>Period</th>${plats.map((p) => `<th class="num">${esc(names[p] || p)}</th>`).join("")}</tr></thead><tbody>` +
     Object.keys(cov).sort().reverse().map((b) => `<tr><td><b>${esc(CR.period === "day" ? ddDay(b) : b)}</b></td>${plats.map((p) => { const c = cov[b][p]; return c ? `<td class="num ${CR.period !== "day" ? "" : c.pct >= 99 ? "delta-up" : c.pct < 90 ? "warn-text" : ""}" title="${fmt(c.readings)} of ${fmt(c.items)}">${CR.period === "day" ? c.pct + "%" : compact(c.readings)}</td>` : '<td class="num muted">–</td>'; }).join("")}</tr>`).join("") + "</tbody>";
   $("#cr-kinds").innerHTML = (d.kinds || []).length ? `<thead><tr><th>Type</th><th class="num">Count</th><th class="num">Sources</th><th>Last seen</th><th>Example</th></tr></thead><tbody>` +
     d.kinds.map((x) => `<tr class="click" data-kind="${esc(x.kind)}"><td>${crKind(x.kind)}</td><td class="num">${fmt(x.n)}</td><td class="num">${fmt(x.sources)}</td><td class="muted">${crWhen(x.last_seen)}</td><td class="muted cr-msg">${esc((x.sample || "").slice(0, 110))}</td></tr>`).join("") + "</tbody>"

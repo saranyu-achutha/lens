@@ -60,6 +60,7 @@ METRICS = {
     "spotify": dict(step="spotify", access="API (key)", read=["tracks"], found=["releases"], calls=["api_calls"]),
 }
 STEP_NAMES = ("youtube", "songs", "ytmusic", "jiosaavn", "spotify_plays", "daily", "spotify")
+API_ACCESS = ("API (key)", "Public API", "Open API")
 PROBLEM = ("failed", "partial", "quota_exceeded", "interrupted")
 
 

@@ -1666,7 +1666,13 @@ def api_crawl(conn, qs):
     period = qs.get("period") if qs.get("period") in CRAWL_PERIODS else "day"
     expr, keep = CRAWL_PERIODS[period]
     src = qs.get("source") or ""
-    where, args = (" AND source=?", [src]) if src else ("", [])
+    group = "api" if qs.get("group") == "api" else "crawl"  # two pages: APIs, and crawling (public pages, web search, internal jobs)
+    is_api = lambda s: crawl_stats.METRICS.get(s, {}).get("access") in crawl_stats.API_ACCESS
+    scope = [r[0] for r in conn.execute("SELECT DISTINCT source FROM crawl_stat") if is_api(r[0]) == (group == "api")]
+    in_scope = "source IN (" + ",".join("'" + s.replace("'", "") + "'" for s in scope or ["-"]) + ")"
+    where, args = (" AND source=?", [src]) if src and src in scope else (f" AND {in_scope}", [])
+    if src not in scope:
+        src = ""
     buckets = [r[0] for r in conn.execute(f"SELECT DISTINCT {expr} b FROM crawl_stat ORDER BY b DESC LIMIT ?", (keep,))]
     if not buckets:
         return {"period": period, "buckets": [], "sources": [], "rows": [], "failures": [], "kinds": [], "kpi": {}, "series": [], "coverage": [], "names": CRAWL_NAMES}
@@ -1690,7 +1696,7 @@ def api_crawl(conn, qs):
                                  sum(items_read) items_read, sum(found) found, sum(missing) missing, sum(quota_units) quota_units, sum(api_calls) api_calls,
                                  round(avg(seconds)) avg_seconds, max(CASE WHEN status='ok' THEN started_at END) last_ok,
                                  max(CASE WHEN status IN {probs} THEN started_at END) last_problem
-                          FROM crawl_stat WHERE {in_b} GROUP BY 1 ORDER BY items_read DESC""", buckets)
+                          FROM crawl_stat WHERE {in_b} AND {in_scope} GROUP BY 1 ORDER BY items_read DESC""", buckets)
     for r in sources:
         r["name"] = CRAWL_NAMES.get(r["source"], r["source"])
         r["access"] = crawl_stats.METRICS.get(r["source"], {}).get("access", "Internal")
@@ -1698,7 +1704,7 @@ def api_crawl(conn, qs):
     # chart series, oldest first
     order = sorted(buckets)
     by = {}
-    for b, s, n in conn.execute(f"SELECT {expr}, source, sum(items_read) FROM crawl_stat WHERE {in_b} AND source NOT IN ('daily','songs') GROUP BY 1, 2", buckets):
+    for b, s, n in conn.execute(f"SELECT {expr}, source, sum(items_read) FROM crawl_stat WHERE {in_b} AND {in_scope} AND source NOT IN ('daily','songs') GROUP BY 1, 2", buckets):
         by.setdefault(s, {})[b] = n
     series = [{"source": s, "name": CRAWL_NAMES.get(s, s), "points": [{"x": b, "y": v.get(b, 0)} for b in order]} for s, v in by.items() if any(v.values())]
     health = {r["bucket"]: r for r in rows}
@@ -1727,9 +1733,18 @@ def api_crawl(conn, qs):
                                FROM api_check a WHERE substr(checked_at,1,10) >= ? GROUP BY source""", (first,))
     t = {k: sum(r[k] or 0 for r in rows) for k in ("runs", "ok_runs", "problems", "cancelled", "items_read", "found", "missing", "quota_units", "api_calls", "busy_hours")}
     t["success"] = round(100 * (1 - t["problems"] / max(t["problems"] + t["ok_runs"], 1)), 1)
-    return {"period": period, "source": src, "buckets": buckets, "kpi": t, "rows": rows, "sources": sources, "series": series, "order": order, "coverage": coverage,
+    keys = None
+    if group == "api":  # keys and quota left today
+        from .youtube import DAILY_UNITS, key_status, next_reset, parse_keys
+        yk = parse_keys(config.read_secrets().get("YOUTUBE_API_KEY"))
+        start = datetime.fromtimestamp(next_reset() - 86400, timezone.utc).isoformat(timespec="seconds")
+        used = conn.execute("SELECT coalesce(sum(quota_units), 0) FROM crawl_stat WHERE started_at >= ?", (start,)).fetchone()[0]
+        keys = {"units_today": used, "units_limit": DAILY_UNITS * max(len(yk), 1), "keys": key_status(yk),
+                "resets": datetime.fromtimestamp(next_reset(), timezone.utc).isoformat(timespec="minutes"),
+                "spotify_searches_today": conn.execute("SELECT coalesce(sum(api_calls), 0) FROM crawl_stat WHERE source='spotify_search' AND day=?", (date.today().isoformat(),)).fetchone()[0]}
+    return {"period": period, "group": group, "keys": keys, "source": src, "buckets": buckets, "kpi": t, "rows": rows, "sources": sources, "series": series, "order": order, "coverage": coverage,
             "kinds": kinds, "failures": failures, "names": CRAWL_NAMES, "health": health_checks,
-            "all_sources": [r[0] for r in conn.execute("SELECT DISTINCT source FROM crawl_stat ORDER BY 1")]}
+            "all_sources": sorted(scope)}
 
 
 # ---------- Developer dashboard: is the system healthy and on target? ----------

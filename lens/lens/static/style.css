@@ -926,3 +926,4 @@ img, svg, video, iframe { max-width: 100%; }
 .cr-msg { white-space: normal; min-width: 240px; font-size: 12.5px; word-break: break-word; }
 #cr-period button.on { background: var(--accent-soft); border-color: var(--accent); }
 #cr-rows td, #cr-rows th, #cr-sources td:nth-last-child(-n+2), #cr-kinds td:nth-child(4) { white-space: nowrap; }
+.grid.g2:has(#cr-health-card[style*="none"]) { grid-template-columns: minmax(0, 1fr); }
