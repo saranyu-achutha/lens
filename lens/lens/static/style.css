@@ -1038,3 +1038,9 @@ button.danger-solid:hover { filter: brightness(1.08); background: var(--critical
 .sch-bar { height: 10px; border-radius: 6px; background: var(--surface-3); overflow: hidden; }
 .sch-bar span { display: block; height: 100%; border-radius: 6px; background: linear-gradient(90deg, var(--accent), var(--accent-2), var(--accent-3)); transition: width .3s; }
 .sch-ms { font-size: 12.5px; color: var(--text-secondary); margin-top: 8px; line-height: 1.5; }
+
+/* Top bar: icon buttons (theme, alerts) keep their size; the "last run" text gives way first when the bar is crowded */
+header.top .icon-btn { flex: none; display: inline-flex; align-items: center; justify-content: center; }
+header.top .icon-btn svg { flex: none; }
+header.top .bell-wrap { flex: none; }
+#top-lastok { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto; }
