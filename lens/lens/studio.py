@@ -1004,8 +1004,12 @@ def api_live(conn, qs):
 
 
 def api_alerts(conn, qs):
-    """Developer alerts: checked now, with what is open, snoozed and recently closed."""
-    alerts.sync(conn)
+    """Developer alerts: checked now, with what is open, snoozed and recently closed. If a job holds the database for a
+    long write, the stored list is shown as it is (the work loop refreshes it every 10 minutes)."""
+    try:
+        alerts.sync(conn)
+    except sqlite3.OperationalError:
+        conn.rollback()
     return alerts.listing(conn)
 
 
