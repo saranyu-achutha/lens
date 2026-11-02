@@ -1882,8 +1882,12 @@ POST = {"/api/config": post_config, "/api/secrets": post_secrets, "/api/test/spo
         "/api/merge/apply": post_merge_apply, "/api/merge/reject": post_merge_reject, "/api/review/undo": post_undo}
 
 
+# Keep the Console out of search engines: robots.txt (no crawling), plus a noindex header on every response.
+ROBOTS_TXT = b"User-agent: *\nDisallow: /\n"
+ROBOTS_TAG = "noindex, nofollow, noarchive, nosnippet, noimageindex"
+
 LOGOUT_PAGE = b"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Market Lens</title><style>body{font:15px system-ui,sans-serif;background:#141414;color:#eee;display:grid;place-items:center;height:100vh;margin:0}
+<title>Market Lens</title><meta name="robots" content="noindex, nofollow"><style>body{font:15px system-ui,sans-serif;background:#141414;color:#eee;display:grid;place-items:center;height:100vh;margin:0}
 a{color:#6aa8ff}</style></head><body><div id="m">Signing out...</div><script>
 // The browser keeps a Basic-auth login until it is closed. Logging in once with a throwaway user that the server accepts
 // only on this request replaces the saved login, so the next visit asks for a username and password again.
@@ -1917,6 +1921,7 @@ class Handler(BaseHTTPRequestHandler):
                 pass
         self.send_response(401)
         self.send_header("WWW-Authenticate", 'Basic realm="Market Lens"')
+        self.send_header("X-Robots-Tag", ROBOTS_TAG)
         self.end_headers()
         return None
 
@@ -1926,6 +1931,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Robots-Tag", ROBOTS_TAG)  # never indexed or followed by search engines
         for k, v in (extra or {}).items():
             self.send_header(k, v)
         self.end_headers()
@@ -1961,6 +1967,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         url = urllib.parse.urlparse(self.path)
+        if url.path == "/robots.txt":  # no login needed: crawlers must be able to read that they may not crawl
+            return self._send(200, ROBOTS_TXT, "text/plain; charset=utf-8")
         if url.path == "/logout":  # no login needed: the page itself signs the browser out
             return self._send(200, LOGOUT_PAGE, "text/html; charset=utf-8")
         if "signout=" in url.query and self.headers.get("Authorization", "") == "Basic " + base64.b64encode(b"signout:signout").decode():
