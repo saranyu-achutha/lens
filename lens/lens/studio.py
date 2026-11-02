@@ -1704,6 +1704,7 @@ def api_crawl(conn, qs):
     for r in sources:
         r["name"] = CRAWL_NAMES.get(r["source"], r["source"])
         r["access"] = crawl_stats.METRICS.get(r["source"], {}).get("access", "Internal")
+        r["yield"] = round(100 * (r["found"] or 0) / r["items_read"], 1) if r["items_read"] else None  # found per item tried
         r["success"] = round(100 * r["ok"] / max(r["ok"] + r["problems"], 1), 1)
     # chart series, oldest first
     order = sorted(buckets)

@@ -85,6 +85,10 @@ def run(conn, cfg, since, until, ts, log, check):
             JOIN track t2 ON t2.id=m2.track_id JOIN release r ON r.id=t2.release_id
             WHERE m.field='film' AND m.track_id IN ({",".join("?" * len(titles))})
               AND r.spotify_album_id IS NOT NULL AND coalesce(r.album_type, '') != 'compilation'""", list(titles))]
+    # Every recent multi-track album we already know (singles, EPs, soundtracks): its other tracks may be our songs.
+    albums = list(dict.fromkeys(albums + [r[0] for r in conn.execute(
+        """SELECT spotify_album_id FROM release WHERE spotify_album_id IS NOT NULL AND coalesce(album_type, '') != 'compilation'
+           AND coalesce(total_tracks, 2) > 1 AND release_date >= date(?, '-60 day') ORDER BY release_date DESC""", (since,))]))
     # An album's track list rarely changes: read each at most once a day (playlists change weekly; read every run).
     today = ts[:10]
     albums = [a for a in albums if (conn.execute("SELECT value FROM state WHERE key=?", (f"sp_album_read:{a}",)).fetchone() or [""])[0] != today]

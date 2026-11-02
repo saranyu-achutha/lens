@@ -89,6 +89,44 @@ def attach(conn, tid, sid, method, score, detail, title, ts):
     return True
 
 
+BACKOFF_DAYS = (1, 3, 7, 14, 30)  # wait after the 1st, 2nd, 3rd ... try without a result
+GIVE_UP_DAYS = 60                 # a song still not found 60 days after its first try is almost surely not on Spotify
+
+
+def due(conn, since, until, today=None, limit=None, need_mb=False):
+    """Songs without a Spotify link whose next try is due (back-off schedule), new releases first.
+    The state value is "first try|last try|tries" (an older plain date counts as one try)."""
+    today = date.fromisoformat(today or date.today().isoformat())
+    rows = conn.execute(
+        f"""SELECT t.id, coalesce(t.yt_title, t.title) title, coalesce(t.release_check, '') = 'old' old,
+                  (SELECT value FROM song_meta m WHERE m.track_id=t.id AND m.field='singer' ORDER BY position LIMIT 1) singer,
+                  (SELECT value FROM state WHERE key='spotify_links:' || t.id) st FROM track t
+           WHERE t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?
+             AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='spotify')
+             {"AND EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='musicbrainz')" if need_mb else ""}
+           ORDER BY old, t.first_published DESC""", (since, until)).fetchall()
+    out = []
+    for r in rows:
+        if r["st"]:
+            parts = r["st"].split("|")
+            first, last, n = (parts + [parts[0], "1"])[:3] if len(parts) < 3 else parts
+            first, last, n = date.fromisoformat(first[:10]), date.fromisoformat(last[:10]), int(n)
+            if (today - first).days > GIVE_UP_DAYS or (today - last).days < BACKOFF_DAYS[min(n, len(BACKOFF_DAYS)) - 1]:
+                continue
+        out.append(r)
+        if limit and len(out) >= limit:
+            break
+    return out
+
+
+def mark_tried(conn, tid, today):
+    st = conn.execute("SELECT value FROM state WHERE key=?", (f"spotify_links:{tid}",)).fetchone()
+    parts = (st[0].split("|") if st and st[0] else [])
+    first = parts[0][:10] if parts else today
+    n = int(parts[2]) + 1 if len(parts) == 3 else (2 if parts else 1)
+    conn.execute("INSERT OR REPLACE INTO state (key, value) VALUES (?,?)", (f"spotify_links:{tid}", f"{first}|{today}|{n}"))
+
+
 def _vids(conn, tid):
     return conn.execute("""SELECT title, description, published_at, duration_ms FROM platform_item
                            WHERE track_id=? AND platform='youtube' ORDER BY asset_type IN ('audio','lyric') DESC,
@@ -111,16 +149,15 @@ def run(conn, cfg, secrets, since, until, ts, log, check):
     web = cfg["songs"].get("spotify_web_search", True)
     mb_contact = (cfg["songs"].get("musicbrainz_contact") or "").strip()
     ua = {"User-Agent": f"MarketLens/0.1 ( {mb_contact} )" if mb_contact else "MarketLens/0.1"}
-    todo = conn.execute(
-        """SELECT t.id, coalesce(t.yt_title, t.title) title,
-                  (SELECT value FROM song_meta m WHERE m.track_id=t.id AND m.field='singer' ORDER BY position LIMIT 1) singer FROM track t
-           WHERE t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?
-             AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='spotify')
-             AND coalesce((SELECT value FROM state WHERE key='spotify_links:' || t.id), '') < ?
-             AND (EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='musicbrainz') OR ?)
-           ORDER BY coalesce(t.release_check, '') = 'old', t.first_published DESC LIMIT ?""",  # new releases first, older songs after
-        (since, until, (date.today() - timedelta(days=7)).isoformat(), 1 if key or web else 0,
-         cfg["songs"].get("spotify_links_per_run", 300))).fetchall()
+    per_run = cfg["songs"].get("spotify_links_per_run", 200)
+    if web:  # adapt: when web search has found almost nothing for a week, spend less time on it
+        tries, hits = conn.execute("""SELECT coalesce(sum(items_read), 0), coalesce(sum(found), 0) FROM crawl_stat
+                                      WHERE source='spotify_web' AND day >= date('now', '-7 day')""").fetchone() \
+            if conn.execute("SELECT 1 FROM sqlite_master WHERE name='crawl_stat'").fetchone() else (0, 0)
+        if tries >= 300 and hits / tries < 0.02:
+            per_run = min(per_run, 50)
+            log(f"Spotify web search: only {hits} links from {tries} searches in 7 days; {per_run} songs this run")
+    todo = due(conn, since, until, today, per_run, need_mb=not (key or web))
     if not todo:
         return {}
     log(f"Spotify links from MusicBrainz{', Odesli' if key else ''}{' and web search' if web else ''}: {len(todo)} songs without a Spotify link"
@@ -196,7 +233,7 @@ def run(conn, cfg, secrets, since, until, ts, log, check):
                              (best[3]["release_date"], best[3]["duration_ms"], best[2]))
                 found["web"] += 1
                 done = True
-        conn.execute("INSERT OR REPLACE INTO state (key, value) VALUES (?,?)", (f"spotify_links:{song['id']}", today))
+        mark_tried(conn, song["id"], today)
         if n % 10 == 0:
             conn.commit()
         if n % 50 == 0:

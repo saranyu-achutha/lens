@@ -237,12 +237,12 @@ def _due_work(cfg, tried, browser=True, api=True):
         pending = _count(f"""SELECT count(*) FROM track t WHERE {in_window} AND (t.release_status IS NULL OR t.release_status='unchecked')""", (since, until))
         dz = _count("""SELECT count(*) FROM platform_item p WHERE p.platform='deezer' AND p.track_id IS NOT NULL
                        AND NOT EXISTS (SELECT 1 FROM snapshot s WHERE s.platform_item_id=p.id AND s.capture_date=?)""", (today,))
-        unlinked = _count(f"""SELECT count(*) FROM track t WHERE {in_window}
-                              AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='spotify')
-                              AND coalesce((SELECT value FROM state WHERE key='spotify_links:' || t.id), '') < ?""",
-                          (since, until, (datetime.now().date() - timedelta(days=7)).isoformat()))
+        from . import spotify_links
+        c2 = db.connect(str(config.DB_FILE))
+        unlinked = len(spotify_links.due(c2, since, until, today, limit=1))
+        c2.close()
         if pending or dz or unlinked:
-            return "songs", f"{pending} songs awaiting lookups, {dz} Deezer ranks to read, {unlinked} songs to find on Spotify"
+            return "songs", f"{pending} songs awaiting lookups, {dz} Deezer ranks to read" + (", songs due a Spotify-link try" if unlinked else "")
     # 4. YouTube Music: songs not yet searched, while today's search quota lasts (one try an hour).
     if ago("ytmusic") > 3600:
         from .youtube import _SET_ASIDE, parse_keys

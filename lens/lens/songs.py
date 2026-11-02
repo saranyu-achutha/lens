@@ -359,12 +359,14 @@ def spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until="999
              AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='spotify')
              AND (t.spotify_checked_at IS NULL OR t.spotify_checked_at < ?)
              AND coalesce(t.release_check, 'unknown') != 'old'
-             -- search engines first: only songs the web search (spotify_links) has already tried use a Spotify search
-             AND EXISTS (SELECT 1 FROM state WHERE key='spotify_links:' || t.id)
+             -- search engines first: only songs the web search (spotify_links) has already tried use a Spotify search,
+             -- except songs with an ISRC (an exact lookup); songs searched before stop after 60 days
+             AND (t.isrc IS NOT NULL OR EXISTS (SELECT 1 FROM state WHERE key='spotify_links:' || t.id))
+             AND (t.spotify_checked_at IS NULL OR t.first_published >= date('now', '-60 day'))
              AND (t.release_check IN ('new', 'conflict')
                   OR (EXISTS (SELECT 1 FROM state WHERE key='itunes_lookup:' || t.id) OR EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='apple'))
                      AND (t.isrc IS NOT NULL OR EXISTS (SELECT 1 FROM state WHERE key='mb_lookup:' || t.id) OR EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='musicbrainz')))
-           ORDER BY t.release_check IN ('new', 'conflict') DESC, t.first_published DESC LIMIT ?""",
+           ORDER BY t.isrc IS NOT NULL DESC, t.release_check IN ('new', 'conflict') DESC, t.first_published DESC LIMIT ?""",
         (since, until, recheck_before, scfg["spotify_searches_per_run"])).fetchall()
     skipped = conn.execute("""SELECT count(*) FROM track t WHERE t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?
                               AND t.release_check='old' AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='spotify')""",
