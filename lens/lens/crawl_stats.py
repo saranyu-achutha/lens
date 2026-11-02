@@ -57,6 +57,7 @@ METRICS = {
     "spotify_search": dict(step="songs", access="API (key)", read=["spotify_searches", "spotify_artist_calls"], found=["spotify_matched", "spotify_artist_matched"], missing=["spotify_not_found"], calls=["spotify_searches", "spotify_artist_calls"]),
     "spotify_playlists": dict(step="songs", access="Public embed page", read=["spotify_playlist_tracks"], found=["spotify_playlist_links"], calls=["spotify_playlist_pages"]),
     "spotify_web": dict(step="songs", access="Web search", read=["spotify_web_searches"], found=["spotify_links_web"], calls=["spotify_web_searches"]),
+    "description_links": dict(step="songs", access="Label's YouTube text", read=["desc_scanned"], found=["desc_spotify", "desc_jiosaavn", "desc_ytmusic", "desc_instagram"]),
     "spotify_mb_links": dict(step="songs", access="Open API", found=["spotify_links_musicbrainz"]),
     "odesli": dict(step="songs", access="API (key)", found=["spotify_links_odesli"]),
     "spotify": dict(step="spotify", access="API (key)", read=["tracks"], found=["releases"], calls=["api_calls"]),

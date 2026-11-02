@@ -3,9 +3,9 @@ which any logged-out visitor sees with its "80K reels" count and top Reels. The 
 rendered with the same light headless browser as the Spotify play counts (`--dump-dom`), one page at a time, slowly,
 once a day per audio. No login, no key and no Instagram API.
 
-Finding the audio: Instagram's search needs a login and search engines don't index audio pages, so each song's audio
-link is added in the Console (Daily data → the song → Instagram audio), as a platform_item (platform 'instagram',
-platform_id = the audio id). A song can have several (e.g. the film version and a single).
+Finding the audio: Instagram's search needs a login and search engines don't index audio pages. Audio links come from
+the labels' own YouTube descriptions (description_links) or are added in the Console (Daily data → the song →
+Instagram audio), as a platform_item (platform 'instagram', platform_id = the audio id). A song can have several.
 Official audio only: a page counts when it is a music-library track (not "Original audio" made by an account) whose
 title matches the song. Others are kept with official=0 and never counted.
 
@@ -86,16 +86,17 @@ def parse(dom):
     return {"title": title, "artists": artists, "original": original, "count_text": count_text, "count": number(count_text), "reels": reels}
 
 
-def link(conn, song_id, text, who="console"):
-    """Attach an Instagram audio to a song (from the Console). Returns the platform_item id."""
+def link(conn, song_id, text, who="console", method="manual"):
+    """Attach an Instagram audio to a song (from the Console, or a label's own link in a YouTube description).
+    Returns the platform_item id."""
     aid = audio_id(text)
     if not aid:
         raise ValueError("not an Instagram audio link (instagram.com/reels/audio/<number>/)")
     ts = db.now_iso()
     conn.execute("""INSERT INTO platform_item (platform, platform_id, title, url, track_id, review_state, match_method, match_detail, first_seen_at)
-                    VALUES ('instagram', ?, NULL, ?, ?, 'approved', 'manual', ?, ?)
-                    ON CONFLICT(platform, platform_id) DO UPDATE SET track_id=excluded.track_id, review_state='approved'""",
-                 (aid, PAGE.format(aid), song_id, json.dumps({"added_by": who, "at": ts}), ts))
+                    VALUES ('instagram', ?, NULL, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(platform, platform_id) DO UPDATE SET track_id=excluded.track_id, review_state=excluded.review_state""",
+                 (aid, PAGE.format(aid), song_id, "approved" if method == "manual" else "auto", method, json.dumps({"added_by": who, "at": ts}), ts))
     conn.commit()
     return conn.execute("SELECT id FROM platform_item WHERE platform='instagram' AND platform_id=?", (aid,)).fetchone()[0]
 

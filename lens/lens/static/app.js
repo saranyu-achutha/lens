@@ -408,6 +408,10 @@ async function loadSystem() {
 async function loadDev() {
   loadSystem().catch(() => {});
   const d = await api("/api/dev");
+  const fr = d.freshness;
+  $("#dev-fresh").innerHTML = `<div class="fresh-grid">${fr.sources.map((x) => `<div class="fresh ${x.last == null ? "none" : x.ok ? "ok" : "bad"}"><span class="dot"></span><div><div class="t1">${esc(x.source)}</div>
+      <div class="t2">${x.last == null ? "no readings yet" : x.age_days === 0 ? "today" : `${x.age_days} day${x.age_days === 1 ? "" : "s"} old`}${x.last != null && !x.ok ? ` · expected within ${x.max_age} day${x.max_age === 1 ? "" : "s"}` : ""}</div></div></div>`).join("")}</div>` +
+    (fr.zero_reads.length ? `<div class="warn-text" style="margin-top:10px;font-size:13px">⚠ Read nothing in the last 24 h: ${fr.zero_reads.map((z) => `<b>${esc(z.job)}</b> (${z.runs} run${z.runs === 1 ? "" : "s"}${z.failed ? `, ${z.failed} pages not readable` : ""})`).join(", ")}. A page layout may have changed, or access is blocked.</div>` : "");
   $("#dev-targets").innerHTML = d.targets.map((t) => {
     const ok = t.value != null && (t.lower ? t.value <= t.target : t.value >= t.target);
     return `<div class="card kpi target ${t.value == null ? "" : ok ? "on" : "off"}"><div class="label">${esc(t.name)}</div><div class="value">${t.value == null ? "–" : t.value + "%"}</div>

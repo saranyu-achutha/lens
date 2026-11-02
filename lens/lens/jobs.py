@@ -251,8 +251,8 @@ def _due_work(cfg, tried, browser=True, api=True):
     #    without a Spotify link that the playlist / album / web-search routes haven't tried this week (every 30 min).
     if ago("songs") > 1800 and hours_since("songs") >= 0.5:
         pending = _count(f"""SELECT count(*) FROM track t WHERE {in_window} AND (t.release_status IS NULL OR t.release_status='unchecked')""", (since, until))
-        dz = _count("""SELECT count(*) FROM platform_item p WHERE p.platform='deezer' AND p.track_id IS NOT NULL
-                       AND NOT EXISTS (SELECT 1 FROM snapshot s WHERE s.platform_item_id=p.id AND s.capture_date=?)""", (today,))
+        dz = _count(f"""SELECT count(*) FROM track t LEFT JOIN release r ON r.id=t.release_id
+                        WHERE (t.first_published >= :since OR r.release_date >= :since) AND {songs.DEEZER_DUE}""", {"since": since, "today": today})
         from . import spotify_links
         c2 = db.connect(str(config.DB_FILE))
         unlinked = len(spotify_links.due(c2, since, until, today, limit=1))

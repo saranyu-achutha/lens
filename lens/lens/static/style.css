@@ -966,3 +966,9 @@ button.danger-solid:hover { filter: brightness(1.08); background: var(--critical
 .ob-mb i { width: 9px; height: 9px; border-radius: 50%; background: var(--pc); }
 #dd-table th.dd-gh i.pi { width: 18px; height: 18px; border-radius: 0; vertical-align: -4px; background: var(--ic) center / contain no-repeat; }
 #dd-table th.dd-gh i.pi.ic-spotify { width: 21px; height: 21px; vertical-align: -6px; }
+
+/* Developer: data freshness per source */
+.fresh-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.fresh { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); }
+.fresh .dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 6px; flex: none; background: var(--text-muted); }
+.fresh.ok .dot { background: var(--good-text); } .fresh.bad .dot { background: var(--critical); } .fresh.bad { border-color: color-mix(in srgb, var(--critical) 45%, var(--border)); }

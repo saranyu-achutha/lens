@@ -623,16 +623,21 @@ def itunes_lookup(conn, cfg, since, until, ts, log, check, run_id):
     return {"itunes_matched": found, "itunes_not_found": missing}
 
 
+# Deezer rank hardly moves once a song settles (81% unchanged after a week): daily in a song's first 30 days, then weekly.
+DEEZER_DUE = """t.isrc IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM platform_item p JOIN snapshot s ON s.platform_item_id=p.id
+                    WHERE p.track_id=t.id AND p.platform='deezer' AND s.capture_date >= CASE
+                      WHEN t.first_published >= date(:today, '-30 day') THEN :today ELSE date(:today, '-6 day') END)
+    AND coalesce((SELECT value FROM state WHERE key='deezer_missing:' || t.isrc), '') < date(:today, '-7 day')"""
+
+
 def deezer_readings(conn, cfg, since, ts, log, check, run_id):
-    """Daily Deezer rank per ISRC (free API, no key). One call per song per day."""
+    """Deezer rank per ISRC (free API, no key): daily in a song's first 30 days, then weekly (DEEZER_DUE)."""
     today = ts[:10]
     rows = conn.execute(
-        """SELECT t.id, t.isrc FROM track t LEFT JOIN release r ON r.id=t.release_id
-           WHERE t.isrc IS NOT NULL AND (t.first_published >= ? OR r.release_date >= ?)
-             AND NOT EXISTS (SELECT 1 FROM platform_item p JOIN snapshot s ON s.platform_item_id=p.id
-                             WHERE p.track_id=t.id AND p.platform='deezer' AND s.capture_date=?)
-             AND coalesce((SELECT value FROM state WHERE key='deezer_missing:' || t.isrc), '') < ?""",
-        (since, since, today, (date.today() - timedelta(days=7)).isoformat())).fetchall()
+        f"""SELECT t.id, t.isrc FROM track t LEFT JOIN release r ON r.id=t.release_id
+           WHERE (t.first_published >= :since OR r.release_date >= :since) AND {DEEZER_DUE}""",
+        {"since": since, "today": today}).fetchall()
     ok = miss = 0
     for r in rows:
         check()
@@ -694,7 +699,8 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
     stats["release_check"] = release_year.check_all(conn, since, until, log)
     # Spotify IDs without the Spotify search first: Spotify's editorial playlists (embed pages), then MusicBrainz,
     # Odesli and web search; the Spotify search only gets what is still unlinked.
-    from . import spotify_links, spotify_playlists
+    from . import description_links, spotify_links, spotify_playlists
+    stats.update(description_links.run(conn, cfg, ts, log, check))  # the labels' own links first: official and free
     stats.update(spotify_playlists.run(conn, cfg, since, until, ts, log, check))
     stats.update(spotify_links.run(conn, cfg, secrets, since, until, ts, log, check))
     stats.update(spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until))

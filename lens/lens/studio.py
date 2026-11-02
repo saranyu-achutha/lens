@@ -16,9 +16,10 @@ import json
 import mimetypes
 import os
 import re
+import sqlite3
 import sys
 import urllib.parse
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -1731,7 +1732,7 @@ def api_shorts(conn, qs):
 # ---------- Crawl stats (Developer): runs, items read and failures by day, week, month or year ----------
 CRAWL_PERIODS = {"day": ("day", 30), "week": ("strftime('%Y-W%W', day)", 16), "month": ("substr(day,1,7)", 12), "year": ("substr(day,1,4)", 5)}
 CRAWL_NAMES = {"youtube": "YouTube", "ytmusic": "YouTube Music", "spotify_plays": "Spotify plays (pages)", "spotify_search": "Spotify search (API)",
-               "spotify_playlists": "Spotify playlists + film albums", "spotify_web": "Spotify links: web search", "spotify_mb_links": "Spotify links: MusicBrainz",
+               "spotify_playlists": "Spotify playlists + film albums", "spotify_web": "Spotify links: web search", "spotify_mb_links": "Spotify links: MusicBrainz", "description_links": "Links in label descriptions",
                "odesli": "Odesli", "jiosaavn": "JioSaavn", "deezer": "Deezer", "apple": "Apple Music (iTunes)",
                "musicbrainz": "MusicBrainz", "youtube_shorts": "YouTube Shorts (sound pages)", "shorts": "Shorts job", "instagram": "Instagram Reels (audio pages)", "songs": "Songs job", "daily": "Daily totals", "spotify": "Spotify label crawl"}
 
@@ -1824,6 +1825,45 @@ def api_crawl(conn, qs):
 
 
 # ---------- Developer dashboard: is the system healthy and on target? ----------
+# Data freshness (Developer): the newest reading per source; a source that stops quietly (an expired token, a blocked
+# browser, a page whose layout changed) shows up here. Max age in days before it is flagged.
+FRESHNESS = [
+    ("YouTube views", "SELECT max(s.capture_date) FROM snapshot s JOIN platform_item p ON p.id=s.platform_item_id WHERE p.platform='youtube' AND s.metric='views'", 1),
+    ("YouTube Music plays", "SELECT max(s.capture_date) FROM snapshot s JOIN platform_item p ON p.id=s.platform_item_id WHERE p.platform='ytmusic' AND s.metric='plays'", 1),
+    ("Spotify plays (pages)", "SELECT max(s.capture_date) FROM snapshot s JOIN platform_item p ON p.id=s.platform_item_id WHERE p.platform='spotify' AND s.metric='plays'", 1),
+    ("JioSaavn plays", "SELECT max(s.capture_date) FROM snapshot s JOIN platform_item p ON p.id=s.platform_item_id WHERE p.platform='jiosaavn' AND s.metric='plays'", 1),
+    ("Deezer rank", "SELECT max(s.capture_date) FROM snapshot s JOIN platform_item p ON p.id=s.platform_item_id WHERE p.platform='deezer' AND s.metric='rank'", 1),
+    ("YouTube Shorts (sound pages)", "SELECT max(day) FROM sound_use WHERE platform='youtube'", 1),
+    ("Instagram Reels (audio pages)", "SELECT max(day) FROM sound_use WHERE platform='instagram'", 1),
+    ("Spotify India chart", "SELECT max(chart_date) FROM chart_entry WHERE chart='regional-in-daily'", 3),
+]
+READERS = {"shorts": ("shorts_sounds_read", "shorts_pages_failed"), "instagram": ("instagram_read", "instagram_failed"),
+           "jiosaavn": ("jiosaavn_read", None), "spotify_plays": ("spotify_plays_read", None)}
+
+
+def freshness(conn, today):
+    """Newest reading per source, and page readers that read nothing in their runs of the last 24 hours."""
+    from . import shorts_use
+    shorts_use.ensure(conn)
+    out = []
+    for name, sql, max_age in FRESHNESS:
+        try:
+            last = conn.execute(sql).fetchone()[0]
+        except sqlite3.OperationalError:
+            last = None
+        age = (date.fromisoformat(today) - date.fromisoformat(last[:10])).days if last else None
+        out.append({"source": name, "last": last, "age_days": age, "ok": age is not None and age <= max_age, "max_age": max_age})
+    zero = []
+    since = (datetime.now().astimezone() - timedelta(hours=24)).isoformat(timespec="seconds")
+    for job, (read_key, fail_key) in READERS.items():
+        runs = [json.loads(r[0] or "{}") for r in conn.execute("SELECT stats FROM run_log WHERE started_at >= ? AND stats LIKE ?", (since, f'%"{read_key}"%'))]
+        read = sum(int(r.get(read_key) or 0) for r in runs)
+        failed = sum(int(r.get(fail_key) or 0) for r in runs) if fail_key else 0
+        if runs and read == 0 and (failed or not fail_key):
+            zero.append({"job": job, "runs": len(runs), "failed": failed})
+    return {"sources": out, "zero_reads": zero}
+
+
 def api_dev(conn, qs):
     import shutil
     from . import spotify_plays
@@ -1923,6 +1963,7 @@ def api_dev(conn, qs):
     return {"today": today, "yesterday": yday, "since": since, "until": until, "songs": n_songs, "targets": targets,
             "job": MANAGER.state(10**9), "browser_job": BROWSER.state(10**9), "worker": cfg.get("worker", {}), "next": {"job": nxt[0], "why": nxt[1]} if nxt else None,
             "jobs": sorted(by_job.values(), key=lambda j: j["last"]["started_at"], reverse=True), "failures": failures,
+            "freshness": freshness(conn, today),
             "readings": readings, "backlog": backlog,
             "youtube": {"units_today": units, "units_limit": DAILY_UNITS * max(len(keys), 1), "keys": key_status(keys),
                         "resets": datetime.fromtimestamp(next_reset(), timezone.utc).isoformat(timespec="minutes")},

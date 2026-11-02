@@ -137,6 +137,9 @@ DEFAULTS = {
     # The client's focus: songs released in the period. Older songs re-uploaded in the period are kept but hidden
     # unless the Console's "All songs" switch is on.
     "focus": {"new_releases_only": True},
+    # CSV outputs (out/): every run writes new files. keep_days > 0 keeps the newest file of each kind per day for that
+    # many days and deletes the rest (all of it can be rebuilt from the database); 0 keeps everything.
+    "outputs": {"keep_days": 0},
     "worker": {
         "enabled": True,
         "pause_seconds": 20,  # short breather between jobs so the Console stays responsive
