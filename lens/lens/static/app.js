@@ -351,11 +351,20 @@ async function loadClient() {
   $("#cl-risers").innerHTML = d.risers.length ? `<thead><tr><th>#</th><th></th><th>Song</th><th class="num">Gained</th><th class="num">Reach</th></tr></thead><tbody>` +
     d.risers.map((r, i) => songRow(r, i, (r) => `<td class="num delta-up">+${compact(r.gain)}</td><td class="num">${compact(r.reach)}</td>`)).join("") + "</tbody>"
     : `<tbody><tr><td class="empty">Growth appears after two days of readings.</td></tr></tbody>`;
+  const sh = d.shorts;
+  $("#cl-shorts-card").style.display = sh ? "" : "none";
+  if (sh) {
+    $("#cl-shorts-sub").textContent = `${compact(sh.total)} Shorts made with the official audio of ${fmt(sh.songs)} songs${sh.gain ? ` · +${compact(sh.gain)} in the last day` : ""}`;
+    $("#cl-shorts").innerHTML = sh.top.length ? `<thead><tr><th>#</th><th>Song</th><th class="num">Shorts made</th><th class="num">Last day</th></tr></thead><tbody>` +
+      sh.top.map((r, i) => `<tr class="click" data-id="${r.id}"><td class="muted num">${i + 1}</td><td><div class="t1">${esc(r.title)}</div></td><td class="num"><b>${compact(r.shorts)}</b></td>
+        <td class="num ${r.gain > 0 ? "delta-up" : ""}">${r.gain ? "+" + compact(r.gain) : "–"}</td></tr>`).join("") + "</tbody>"
+      : `<tbody><tr><td class="empty">No Shorts made with the songs' official audio yet.</td></tr></tbody>`;
+  }
   $("#cl-labels").innerHTML = `<thead><tr><th>Label</th><th class="num">Songs</th><th class="num">New releases</th><th class="num">Hit songs</th><th class="num">Reach</th><th class="num">Share</th><th class="num">Gained, last day</th></tr></thead><tbody>` +
     d.labels.map((l) => `<tr class="label-row" data-label="${esc(l.label)}" style="cursor:pointer"><td>${labelTag(l.label)}</td><td class="num">${fmt(l.songs)}</td><td class="num">${fmt(l.new)}</td><td class="num">${fmt(l.hits)}</td>
       <td class="num">${compact(l.reach)}</td><td class="num">${pct(l.reach, d.reach)}%</td><td class="num ${l.gain > 0 ? "delta-up" : ""}">${l.gain ? "+" + compact(l.gain) : "–"}</td></tr>`).join("") + "</tbody>";
 }
-["#cl-top", "#cl-risers"].forEach((t) => $(t).addEventListener("click", (e) => { if (e.target.closest("[data-play]")) return; const tr = e.target.closest("tr[data-id]"); if (tr) openTrack(tr.dataset.id); }));
+["#cl-top", "#cl-risers", "#cl-shorts"].forEach((t) => $(t).addEventListener("click", (e) => { if (e.target.closest("[data-play]")) return; const tr = e.target.closest("tr[data-id]"); if (tr) openTrack(tr.dataset.id); }));
 $("#cl-labels").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-label]"); if (!tr || tr.dataset.label === "Other") return;
   Object.assign(CAT, { label: tr.dataset.label, channel: "", day: "", status: "", offset: 0 }); location.hash = "#catalogue"; });
 
@@ -512,12 +521,12 @@ $("#rp-table").addEventListener("click", (e) => { const tr = e.target.closest("t
 
 /* ---------- Daily data: song_daily by day (all songs) or by song (all days) ---------- */
 const DD = { day: "", label: "", sort: "yt_views_delta", q: "", song: "", metric: "yt_views", range: 14, offset: 0, limit: 100 };
-const GAIN_KEYS = ["yt_views", "yt_likes", "yt_comments", "ytm_plays", "sp_plays", "js_plays"];
+const GAIN_KEYS = ["yt_views", "yt_likes", "yt_comments", "ytm_plays", "sp_plays", "js_plays", "yt_shorts"];
 const ddChange = (r, k) => GAIN_KEYS.includes(k) ? r[k + "_gain"] : (r[k] != null && r["prev_" + k] != null ? r[k] - r["prev_" + k] : null);
 // Daily data: one song's day-by-day history (song view) or every song on one day (day view).
 const DD_GROUPS = [["YouTube", ["yt_views", "yt_likes", "yt_comments"], "youtube"], ["YouTube Music", ["ytm_plays"], "ytmusic"], ["Spotify", ["sp_plays"], "spotify"],
-  ["JioSaavn", ["js_plays"], "jiosaavn"], ["Deezer", ["dz_rank"], "deezer"], ["Spotify India chart", ["chart_rank"], "spotify"]];
-const DD_SHORT = { yt_views: "Views", yt_likes: "Likes", yt_comments: "Comments", ytm_plays: "Plays", sp_plays: "Plays", js_plays: "Plays", dz_rank: "Rank", chart_rank: "Position" };
+  ["JioSaavn", ["js_plays"], "jiosaavn"], ["Deezer", ["dz_rank"], "deezer"], ["Spotify India chart", ["chart_rank"], "spotify"], ["YouTube Shorts", ["yt_shorts"], "youtube"]];
+const DD_SHORT = { yt_views: "Views", yt_likes: "Likes", yt_comments: "Comments", ytm_plays: "Plays", sp_plays: "Plays", js_plays: "Plays", dz_rank: "Rank", chart_rank: "Position", yt_shorts: "Shorts made" };
 const ddDay = (d) => new Date(d + "T00:00:00Z").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
 const ddNum = (v) => v == null ? '<span class="muted">–</span>' : (Math.abs(v) >= 1e5 ? compact(v) : fmt(v));
 function ddChangeCell(r, k) {
@@ -550,7 +559,7 @@ async function loadDaily() {
   const d = await api(`/api/daily?${new URLSearchParams(song ? { song } : { day: DD.day, label: DD.label, sort: DD.sort, q: DD.q, offset: DD.offset, limit: DD.limit })}`);
   document.querySelectorAll("#dd-controls .dd-day").forEach((e) => (e.style.display = song ? "none" : ""));
   $("#dd-controls").parentElement.style.display = song ? "none" : "";
-  ["#dd-head", "#dd-kpis", "#dd-charts", "#dd-compare"].forEach((x) => ($(x).style.display = song ? "" : "none"));
+  ["#dd-head", "#dd-kpis", "#dd-charts", "#dd-compare", "#dd-shorts"].forEach((x) => ($(x).style.display = song ? "" : "none"));
   $("#dd-pager").style.display = song ? "none" : "";
   if (song) return ddSong(d, song);
   DD.day = d.day || "";
@@ -618,6 +627,7 @@ function ddSong(d, song) {
   barChart($("#dd-gain"), days.map((r) => ({ label: new Date(r.day + "T00:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" }), day: r.day, value: ddChange(r, DD.metric) || 0, missing: ddChange(r, DD.metric) == null })),
     { tip: (b) => `<b>${ddDay(b.day)}</b><br>${b.missing ? "no reading the day before" : (b.value > 0 ? "+" : "") + fmt(b.value)}` });
   loadCompare(song);
+  loadShorts(song);
   const keys = d.cols.map((c) => c.key).filter((k) => rows.some((r) => r[k] != null));
   $("#dd-table").innerHTML = ddHeader(keys, [{ label: "Day" }, { label: "Uploads", num: true }]) + "<tbody>" +
     (rows.map((r) => `<tr><td class="dd-day" title="${esc(r.day)}"><b>${ddDay(r.day)}</b></td><td class="num">${fmt(r.yt_uploads_read)}</td>
@@ -635,6 +645,32 @@ $("#dd-dnext").onclick = () => { const o = $("#dd-day").selectedIndex; if (o > 0
 $("#dd-range").addEventListener("click", (e) => { const b = e.target.closest("button[data-r]"); if (b) { DD.range = +b.dataset.r; loadDaily(); } });
 $("#dd-metric").addEventListener("click", (e) => { const b = e.target.closest("button[data-m]"); if (b) { DD.metric = b.dataset.m; loadDaily(); } });
 $("#dd-table").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-song]"); if (tr) { DD.song = tr.dataset.song; loadDaily(); } });
+
+/* ---------- Shorts made with the song's official audio (label-owned sounds only) ---------- */
+const SH = { period: "day" };
+async function loadShorts(song) {
+  const d = await api(`/api/shorts?${new URLSearchParams({ song, period: SH.period })}`);
+  const box = $("#dd-shorts");
+  box.style.display = "";
+  const official = d.sounds.filter((x) => x.official);
+  document.querySelectorAll("#sh-period button").forEach((b) => b.classList.toggle("on", b.dataset.p === SH.period));
+  if (!d.sounds.length) { $("#sh-body").innerHTML = `<div class="empty">Shorts counts are read once a day from YouTube's "Shorts using this sound" page of the song's official uploads; this song has none read yet.</div>`; return; }
+  const name = { day: "Day", week: "Week", month: "Month", year: "Year" }[SH.period];
+  const sounds = `<table><thead><tr><th>Official sound (upload)</th><th>Owner</th><th class="num">Shorts made</th><th class="num">Views of top Shorts</th></tr></thead><tbody>` +
+    d.sounds.map((x) => `<tr${x.official ? "" : ' class="muted" title="Not owned by a label channel: not counted"'}><td><div class="t1"><a href="https://www.youtube.com/source/${esc(x.video_id)}/shorts" target="_blank" rel="noopener">${esc(x.sound_title || x.upload)}</a></div>
+      <div class="t2">${esc(x.asset_type || "")} · read ${esc(x.day)}</div></td><td>${esc(x.sound_owner || "–")}</td>
+      <td class="num"><b>${x.official ? (x.count_text ? esc(x.count_text.replace(/ Shorts?$/, "")) : "0") : "not counted"}</b></td><td class="num">${compact(x.listed_views)}</td></tr>`).join("") + "</tbody></table>";
+  const series = `<table><thead><tr><th>${name}</th><th class="num">Shorts made (total)</th><th class="num">New in the ${name.toLowerCase()}</th></tr></thead><tbody>` +
+    (d.series.map((r) => `<tr><td>${esc(SH.period === "day" ? ddDay(r.period) : r.period)}</td><td class="num">${fmt(r.total)}</td><td class="num ${r.gain > 0 ? "delta-up" : ""}">${r.gain == null ? "–" : (r.gain > 0 ? "+" : "") + fmt(r.gain)}</td></tr>`).join("")
+      || `<tr><td class="empty" colspan="3">No readings yet.</td></tr>`) + "</tbody></table>";
+  const top = d.top.length ? `<table><thead><tr><th>Most-viewed Shorts using the official audio</th><th class="num">Views</th><th>First seen</th></tr></thead><tbody>` +
+    d.top.map((x) => `<tr><td><a href="https://www.youtube.com/shorts/${esc(x.video_id)}" target="_blank" rel="noopener">${esc(x.title || x.video_id)}</a></td><td class="num">${compact(x.views)}</td><td class="muted">${esc(x.first_seen)}</td></tr>`).join("") + "</tbody></table>" : "";
+  const total = official.reduce((a, x) => a + (x.shorts || 0), 0);
+  $("#sh-total").textContent = official.length ? `${fmt(total)} Shorts from ${official.length} official sound${official.length === 1 ? "" : "s"}` : "";
+  $("#sh-body").innerHTML = `<div class="grid g2"><div class="table-wrap">${sounds}</div><div class="table-wrap" style="max-height:320px">${series}</div></div>` +
+    (top ? `<div class="table-wrap" style="margin-top:14px;max-height:360px">${top}</div>` : "");
+}
+$("#sh-period").addEventListener("click", (e) => { const b = e.target.closest("button[data-p]"); if (b && DD.song) { SH.period = b.dataset.p; loadShorts(DD.song); } });
 
 /* ---------- Cross-platform comparison of one song ---------- */
 // Platform colours come from the theme (style.css --c-*), so charts and chips follow light / dark.

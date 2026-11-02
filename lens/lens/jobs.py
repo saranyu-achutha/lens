@@ -5,7 +5,7 @@ import time
 import traceback
 from datetime import datetime, timedelta
 
-from . import config, db, discover_spotify, health, jiosaavn, song_daily, songs, spotify_plays, sync_youtube, youtube_music
+from . import config, db, discover_spotify, health, jiosaavn, shorts_use, song_daily, songs, spotify_plays, sync_youtube, youtube_music
 from .spotify import SpotifyError
 from .youtube import YouTubeError
 
@@ -17,6 +17,7 @@ JOBS = {
     "ytmusic": "YouTube Music only (find songs' audio tracks, read their plays)",
     "jiosaavn": "JioSaavn only (find songs' tracks, read their plays)",
     "spotify_plays": "Spotify play counts (public track pages, light headless browser)",
+    "shorts": "YouTube Shorts made with each song's official audio (public sound pages)",
 }
 STEPS = {
     "pipeline": [("youtube", sync_youtube.run), ("songs", songs.run), ("ytmusic", youtube_music.run), ("jiosaavn", jiosaavn.run), ("daily", song_daily.run)],
@@ -26,9 +27,10 @@ STEPS = {
     "youtube_sync": [("youtube", sync_youtube.run), ("daily", song_daily.run)],
     "songs": [("songs", songs.run), ("daily", song_daily.run)],
     "spotify_discovery": [("spotify", discover_spotify.run)],
+    "shorts": [("shorts", shorts_use.run), ("daily", song_daily.run)],
 }
 SEVERITY = ["ok", "partial", "quota_exceeded", "cancelled", "failed"]
-CANCELLED = (discover_spotify.Cancelled, sync_youtube.Cancelled, songs.Cancelled, youtube_music.Cancelled, jiosaavn.Cancelled)
+CANCELLED = (discover_spotify.Cancelled, sync_youtube.Cancelled, songs.Cancelled, youtube_music.Cancelled, jiosaavn.Cancelled, shorts_use.Cancelled)
 
 
 class JobManager:
@@ -243,7 +245,17 @@ def _due_work(cfg, tried, browser=True, api=True):
         c2.close()
         if pending or dz or unlinked:
             return "songs", f"{pending} songs awaiting lookups, {dz} Deezer ranks to read" + (", songs due a Spotify-link try" if unlinked else "")
-    # 4. YouTube Music: songs not yet searched, while today's search quota lasts (one try an hour).
+    # 4. Shorts: official sounds without today's count (public pages, no quota; a run reads up to 300, ~15 min).
+    if ago("shorts") > 1200:
+        c3 = db.connect(str(config.DB_FILE))
+        try:
+            shorts_use.ensure(c3)
+            n = len(shorts_use.due(c3, cfg, today))
+        finally:
+            c3.close()
+        if n:
+            return "shorts", f"{n} official sounds without today's Shorts count"
+    # 5. YouTube Music: songs not yet searched, while today's search quota lasts (one try an hour).
     if ago("ytmusic") > 3600:
         from .youtube import _SET_ASIDE, parse_keys
         keys = parse_keys(config.read_secrets().get("YOUTUBE_API_KEY"))
@@ -254,7 +266,7 @@ def _due_work(cfg, tried, browser=True, api=True):
                       (since, until, (datetime.now().date() - timedelta(days=7)).isoformat()))
         if can_search and todo:
             return "ytmusic", f"{todo} songs to search on YouTube Music"
-    # 5. Nothing else due: refresh YouTube readings (a sync reads new uploads and videos in their first week, so it is
+    # 6. Nothing else due: refresh YouTube readings (a sync reads new uploads and videos in their first week, so it is
     #    cheap) so new uploads and views keep coming in between the 6-hourly pipelines; at most hourly.
     if ago("youtube_sync") > 3600 and hours_since("youtube_sync") >= 1:
         return "youtube_sync", "keeping YouTube readings and new uploads fresh between pipelines"

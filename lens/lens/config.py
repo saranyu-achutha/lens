@@ -106,6 +106,7 @@ DEFAULTS = {
         "spotify_links_per_run": 200,             # Spotify IDs from MusicBrainz links / Odesli (ODESLI_API_KEY) before searching
         "odesli_pace_seconds": 6.5,         # Odesli allows about 10 calls a minute
         "jiosaavn_refresh_hours": 3,        # JioSaavn has no quota: read play counts again during the day
+        "shorts_pages_per_run": 300,        # YouTube "Shorts using this sound" pages a run (official label sounds, once a day each)
         "spotify_web_search": True,         # also look for Spotify links through DuckDuckGo / Bing (checked by the match rules)
         "web_search_pace_seconds": 5,       # seconds between web searches
         "ytmusic_searches_per_run": 200,    # YouTube search: ~100 a day per Google project (6 projects)

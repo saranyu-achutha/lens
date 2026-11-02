@@ -18,6 +18,8 @@ The code lives in `lens/` and runs on the server as `/home/ubuntu/lens`. This la
 - **Trend data:**
   - YouTube views, likes and comments, every run in a video's first week and then daily.
   - Deezer rank by ISRC, from `api.deezer.com/track/isrc:{ISRC}`, daily, with no key needed.
+  - YouTube Shorts made with each song's **official audio only** (user rule, 2026-11-02): `lens/shorts_use.py` reads the public "Shorts using this sound" page (`youtube.com/source/<id>/shorts`) of the song's label-channel uploads (video, audio, lyric) once a day. A sound counts only when its owner channel is in `config.json` channels; art-track and re-upload sounds are not counted. Stored in `sound_use` / `sound_short`, summed into `song_daily.yt_shorts`; views `song_weekly`, `song_monthly`, `song_yearly`. YouTube rounds counts above 1,000.
+  - Instagram Reels per audio: not collected. Audio pages need a login and Meta has no API for them; scraping with a login is against Instagram's terms.
 - **Keep API calls low:**
   - A YouTube sync costs about 30 units of the 10,000 daily quota.
   - The old Spotify label crawl (`spotify_discovery`) is manual only because it exhausts Spotify's quota.

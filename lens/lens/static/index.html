@@ -115,6 +115,8 @@
       <div class="card flush"><h2>Top songs by total reach</h2><div class="table-wrap" style="max-height:460px"><table id="cl-top"></table></div></div>
       <div class="card flush"><h2>Fastest growing today</h2><div class="table-wrap" style="max-height:460px"><table id="cl-risers"></table></div></div>
     </div>
+    <div class="card flush" id="cl-shorts-card" style="margin-top:16px;display:none"><h2>Most used in YouTube Shorts</h2>
+      <div class="muted" style="font-size:12px;margin:-4px 16px 8px" id="cl-shorts-sub"></div><div class="table-wrap" style="max-height:420px"><table id="cl-shorts"></table></div></div>
     <div class="card flush" style="margin-top:16px"><h2>Labels</h2><div class="table-wrap"><table id="cl-labels"></table></div></div>
     <p class="muted" style="font-size:12px;margin-top:10px">Reach = YouTube views + YouTube Music plays + Spotify plays + JioSaavn plays, each song's latest reading. Growth = the change since the previous day's reading.</p>
   </section>
@@ -342,6 +344,12 @@
     </div></div>
     <div class="card dd-songhead" id="dd-head" style="display:none;margin-bottom:16px"></div>
     <div class="grid g6" id="dd-kpis" style="display:none;margin-bottom:16px"></div>
+    <div class="card" id="dd-shorts" style="display:none;margin-bottom:16px">
+      <div class="card-head"><h2>YouTube Shorts made with the official audio</h2><span class="muted" style="font-size:12px;margin-left:10px" id="sh-total"></span><span class="spacer"></span>
+        <div class="row" id="sh-period" style="gap:4px"><button class="small on" data-p="day">Day</button><button class="small" data-p="week">Week</button><button class="small" data-p="month">Month</button><button class="small" data-p="year">Year</button></div></div>
+      <p class="muted" style="font-size:12px;margin:0 0 10px">Counted only from the label's own sounds (the song's official uploads on the label channels), as YouTube shows them; above 1,000 YouTube rounds (5K). Shorts using a re-upload or someone else's audio are not counted.</p>
+      <div id="sh-body"></div>
+    </div>
     <div class="card" id="dd-compare" style="display:none;margin-bottom:16px">
       <div class="card-head"><h2>Cross-platform comparison</h2><span class="spacer"></span><span class="muted" style="font-size:12px" id="dd-compare-note"></span></div>
       <div class="table-wrap"><table id="dd-compare-table"></table></div>

@@ -37,7 +37,7 @@ PASSWORD = None  # client login: any username with STUDIO_PASSWORD
 DEV_LOGIN = (None, None)  # developer login: DEVELOPER_USERNAME + DEVELOPER_PASSWORD (.env)
 # What the client login may read: its dashboard, platforms, reports, daily data and songs. Everything else
 # (developer pages, raw data, review, runs, settings, docs) and every change (POST) is for the developer login only.
-CLIENT_GET = {"/api/status", "/api/client", "/api/platform", "/api/report", "/api/report.csv", "/api/daily", "/api/daily.csv",
+CLIENT_GET = {"/api/status", "/api/client", "/api/platform", "/api/report", "/api/report.csv", "/api/daily", "/api/daily.csv", "/api/shorts",
               "/api/song/compare", "/api/tracks", "/api/track", "/api/search", "/api/insights/song", "/api/meta/detail", "/api/export.csv"}
 
 SORTS = {"song_date": "song_date", "release_date": "release_date", "title": "title", "artists": "artists",
@@ -298,10 +298,10 @@ def api_platform(conn, qs):
 # Daily data page: song_daily rows, by day (all songs) or by song (all days), with the change from the previous day.
 DAILY_COLS = [("yt_views", "YouTube views"), ("yt_likes", "YouTube likes"), ("yt_comments", "YouTube comments"),
               ("ytm_plays", "YouTube Music plays"), ("sp_plays", "Spotify plays"), ("js_plays", "JioSaavn plays"), ("dz_rank", "Deezer rank"),
-              ("chart_rank", "Spotify India chart")]
+              ("chart_rank", "Spotify India chart"), ("yt_shorts", "YouTube Shorts made (official audio)")]
 
 
-GAIN = {"yt_views", "yt_likes", "yt_comments", "ytm_plays", "sp_plays", "js_plays"}
+GAIN = {"yt_views", "yt_likes", "yt_comments", "ytm_plays", "sp_plays", "js_plays", "yt_shorts"}
 
 
 def daily_change(r, k):
@@ -1654,7 +1654,60 @@ def api_client(conn, qs):
                          + [{"platform": p, "name": n, "songs": on.get(p, 0)} for p, n in (("apple", "Apple Music"), ("deezer", "Deezer"))],
             "top": pick(sorted(rows, key=lambda s: -s["reach"])[:15]),
             "risers": pick(sorted((s for s in rows if s["gain"] > 0), key=lambda s: -s["gain"])[:10]),
-            "labels": sorted(labels.values(), key=lambda t: -t["reach"]), "trend": trend}
+            "labels": sorted(labels.values(), key=lambda t: -t["reach"]), "trend": trend, "shorts": shorts_summary(conn, S, (since, until), last)}
+
+
+def shorts_summary(conn, S, args, last):
+    """Shorts made with the songs' official audio: total, gained, and the most-used songs (kept apart from reach,
+    which adds plays)."""
+    if not last:
+        return None
+    rows = q(conn, f"""SELECT d.song_id id, coalesce(t.yt_title, t.title) title, d.yt_shorts shorts, d.yt_shorts_gain gain
+                       FROM song_daily d JOIN track t ON t.id=d.song_id
+                       WHERE d.day=(SELECT max(day) FROM song_daily x WHERE x.song_id=d.song_id AND x.yt_shorts IS NOT NULL AND x.day > date(?, '-3 day'))
+                         AND d.song_id IN ({S}) AND d.yt_shorts IS NOT NULL""", (last, *args))
+    if not rows:
+        return None
+    return {"total": sum(r["shorts"] for r in rows), "gain": sum(r["gain"] or 0 for r in rows), "songs": sum(r["shorts"] > 0 for r in rows),
+            "read": len(rows), "top": sorted((r for r in rows if r["shorts"]), key=lambda r: -r["shorts"])[:10]}
+
+
+# ---------- Shorts made with each song's official audio (label-owned sounds) ----------
+SHORTS_PERIODS = {"day": None, "week": "song_weekly", "month": "song_monthly", "year": "song_yearly"}
+
+
+def api_shorts(conn, qs):
+    """?song=ID: the song's official sounds (latest count each), its Shorts by day / week / month / year and the most-viewed
+    Shorts seen. Without a song: songs ranked by Shorts made, for the chosen period."""
+    song_daily.ensure(conn)
+    period = qs.get("period") if qs.get("period") in SHORTS_PERIODS else "day"
+    view = SHORTS_PERIODS[period]
+    if qs.get("song"):
+        sid = int(qs["song"])
+        sounds = q(conn, """SELECT u.platform_item_id, p.platform_id video_id, p.asset_type, p.title upload, u.sound_title, u.sound_owner,
+                                   u.shorts, u.count_text, u.official, u.listed, u.listed_views, u.day
+                            FROM sound_use u JOIN platform_item p ON p.id=u.platform_item_id
+                            WHERE p.track_id=? AND u.day=(SELECT max(day) FROM sound_use x WHERE x.platform_item_id=u.platform_item_id)
+                            ORDER BY u.official DESC, u.shorts DESC""", (sid,))
+        if view:
+            series = q(conn, f"SELECT period, last_day, yt_shorts total, yt_shorts_gain gain FROM {view} WHERE song_id=? AND yt_shorts IS NOT NULL ORDER BY period DESC", (sid,))
+        else:
+            series = q(conn, "SELECT day period, day last_day, yt_shorts total, yt_shorts_gain gain FROM song_daily WHERE song_id=? AND yt_shorts IS NOT NULL ORDER BY day DESC", (sid,))
+        top = q(conn, """SELECT s.video_id, s.title, s.views, s.first_seen, s.last_seen FROM sound_short s
+                         JOIN sound_use u ON u.platform_item_id=s.platform_item_id AND u.official=1
+                         WHERE s.song_id=? GROUP BY s.video_id ORDER BY s.views DESC LIMIT 30""", (sid,))
+        return {"song": sid, "period": period, "sounds": sounds, "series": series, "top": top}
+    since, until = config.window(config.load())
+    src = view or "song_daily"
+    per = "period" if view else "day"
+    latest = conn.execute(f"SELECT max({per}) FROM {src} WHERE yt_shorts IS NOT NULL").fetchone()[0]
+    rows = tag_labels(q(conn, f"""SELECT d.song_id id, coalesce(t.yt_title, t.title) title, substr(t.first_published,1,10) song_date, d.yt_shorts shorts,
+                                      d.yt_shorts_gain gain,
+                                      (SELECT channel FROM platform_item x WHERE x.track_id=t.id AND x.platform='youtube' ORDER BY published_at LIMIT 1) yt_channel
+                                  FROM {src} d JOIN track t ON t.id=d.song_id
+                                  WHERE d.{per}=? AND d.yt_shorts IS NOT NULL AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?
+                                  ORDER BY d.yt_shorts DESC LIMIT ?""", (latest, since, until, int(qs.get("limit") or 50))))
+    return {"period": period, "latest": latest, "rows": rows}
 
 
 # ---------- Crawl stats (Developer): runs, items read and failures by day, week, month or year ----------
@@ -1662,7 +1715,7 @@ CRAWL_PERIODS = {"day": ("day", 30), "week": ("strftime('%Y-W%W', day)", 16), "m
 CRAWL_NAMES = {"youtube": "YouTube", "ytmusic": "YouTube Music", "spotify_plays": "Spotify plays (pages)", "spotify_search": "Spotify search (API)",
                "spotify_playlists": "Spotify playlists + film albums", "spotify_web": "Spotify links: web search", "spotify_mb_links": "Spotify links: MusicBrainz",
                "odesli": "Odesli", "jiosaavn": "JioSaavn", "deezer": "Deezer", "apple": "Apple Music (iTunes)",
-               "musicbrainz": "MusicBrainz", "songs": "Songs job", "daily": "Daily totals", "spotify": "Spotify label crawl"}
+               "musicbrainz": "MusicBrainz", "youtube_shorts": "YouTube Shorts (sound pages)", "shorts": "Shorts job", "songs": "Songs job", "daily": "Daily totals", "spotify": "Spotify label crawl"}
 
 
 def api_crawl(conn, qs):
@@ -1869,7 +1922,7 @@ def fmt_n(n):
 GET = {"/api/coverage": api_coverage, "/api/insights": api_insights, "/api/insights/song": api_insights_song, "/api/ai/status": api_ai_status, "/api/ai/assist": api_ai_assist,
        "/api/meta/top": api_meta_top, "/api/meta/detail": api_meta_detail,
        "/api/merge/suggestions": api_merge_suggestions, "/api/status": api_status, "/api/overview": api_overview, "/api/crawl": api_crawl, "/api/client": api_client, "/api/search": api_search, "/api/dev": api_dev, "/api/tracks": api_tracks,
-       "/api/track": api_track, "/api/platform": api_platform, "/api/report": api_report, "/api/daily": api_daily, "/api/items": api_items, "/api/song/compare": api_song_compare, "/api/items/history": api_item_history, "/api/runs": api_runs, "/api/seeds": api_seeds,
+       "/api/track": api_track, "/api/platform": api_platform, "/api/report": api_report, "/api/daily": api_daily, "/api/shorts": api_shorts, "/api/items": api_items, "/api/song/compare": api_song_compare, "/api/items/history": api_item_history, "/api/runs": api_runs, "/api/seeds": api_seeds,
        "/api/artist_search": api_artist_search, "/api/health": api_health, "/api/outputs": api_outputs,
        "/api/outputs/preview": api_output_preview, "/api/raw": api_raw, "/api/raw/item": api_raw_item,
        "/api/matching": api_matching, "/api/matching/candidates": api_match_candidates,
