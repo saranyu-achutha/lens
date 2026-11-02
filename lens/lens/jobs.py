@@ -274,12 +274,13 @@ def _due_work(cfg, tried, browser=True, api=True):
         from .youtube import _SET_ASIDE, parse_keys
         keys = parse_keys(config.read_secrets().get("YOUTUBE_API_KEY"))
         can_search = any(_SET_ASIDE.get((k, "search"), (0, ""))[0] <= now and _SET_ASIDE.get(k, (0, ""))[0] <= now for k in keys)
-        todo = _count(f"""SELECT count(*) FROM track t WHERE {in_window}
-                          AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='ytmusic')
-                          AND coalesce((SELECT value FROM state WHERE key='ytm_lookup:' || t.id), '') < ?""",
-                      (since, until, (datetime.now().date() - timedelta(days=7)).isoformat()))
+        c4 = db.connect(str(config.DB_FILE))
+        try:
+            todo = len(youtube_music._todo(c4, since, until, today, 1))  # never searched, or a miss whose wait is over
+        finally:
+            c4.close()
         if can_search and todo:
-            return "ytmusic", f"{todo} songs to search on YouTube Music"
+            return "ytmusic", "songs due a YouTube Music search, and the Topic-channel scan"
     # 6. Nothing else due: refresh YouTube readings (a sync reads new uploads and videos in their first week, so it is
     #    cheap) so new uploads and views keep coming in between the 6-hourly pipelines; at most hourly.
     if ago("youtube_sync") > 3600 and hours_since("youtube_sync") >= 1:

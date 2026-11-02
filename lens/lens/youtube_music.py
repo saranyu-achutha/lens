@@ -5,10 +5,15 @@ description that starts "Provided to YouTube by <label>". For each song of the p
   1. searches once for its Art Track (search.list, 100 quota units): a result is kept only when it is on a
      "- Topic" channel, its title matches the song (title score >= 0.9, no remix/male/female-version mismatch),
      and the providing label or a credited artist matches the song. Up to `ytmusic_searches_per_run` songs a run,
-     biggest songs first; songs not found are retried after 7 days. Quota note: the daily search cap and the
-     10,000 units are per Google Cloud project, so keys only add capacity when each comes from its own project.
+     never-searched songs first, then the biggest; a song not found is tried again after 7, 14 and 30 days and not
+     after 60 days from its first try (most quota used to go on re-searching misses). Quota note: the daily search cap
+     and the 10,000 units are per Google Cloud project, so keys only add capacity when each comes from its own project.
   2. reads the play count of every found track once a day (videos.list, 1 unit per 50 tracks), stored as
-     snapshot metric 'plays' on platform 'ytmusic'.
+     snapshot metric 'plays' on platform 'ytmusic'; the same call names each track's "<Artist> - Topic" channel.
+  3. scans those Topic channels (and album playlists linked in the labels' descriptions) for the songs still missing:
+     listing a channel's newest uploads costs 1 unit per 50 tracks against 100 units for one search. Only channels whose
+     artist has songs still missing are listed; the first time back to the period start, then the newest page a day.
+     Uploads are matched with the same rules as a search result (title score >= 0.9, versions and language, artist).
 """
 import html
 import json
@@ -28,10 +33,23 @@ class Cancelled(Exception):
     pass
 
 
+BACKOFF_DAYS = (7, 14, 30)  # wait after the 1st, 2nd, 3rd search without a result
+GIVE_UP_DAYS = 60
+GENERIC_TOPICS = ("release - topic", "various artists - topic")  # catch-all channels, too big to list
+
+
+def _tries(value):
+    """state 'ytm_lookup:<song>' -> (first try, last try, tries); an older plain date counts as one try."""
+    if not value:
+        return None
+    parts = value.split("|")
+    return (parts[0], parts[0], 1) if len(parts) == 1 else (parts[0], parts[1], int(parts[2]))
+
+
 def _todo(conn, since, until, today, limit):
-    recheck = (date.fromisoformat(today) - timedelta(days=7)).isoformat()
-    return conn.execute(
-        """SELECT t.id, coalesce(t.yt_title, t.title) title,
+    """Songs due a search: never searched first (biggest first), then misses whose wait is over."""
+    rows = conn.execute(
+        """SELECT t.id, coalesce(t.yt_title, t.title) title, (SELECT value FROM state WHERE key='ytm_lookup:' || t.id) tried,
                   (SELECT channel FROM platform_item p WHERE p.track_id=t.id AND p.platform='youtube' ORDER BY published_at LIMIT 1) channel,
                   (SELECT sum(s.value) FROM platform_item p JOIN snapshot s ON s.platform_item_id=p.id AND s.metric='views'
                      AND s.capture_date=(SELECT max(capture_date) FROM snapshot x WHERE x.platform_item_id=p.id AND x.metric='views')
@@ -39,8 +57,17 @@ def _todo(conn, since, until, today, limit):
            FROM track t
            WHERE t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?
              AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='ytmusic')
-             AND coalesce((SELECT value FROM state WHERE key='ytm_lookup:' || t.id), '') < ?
-           ORDER BY views DESC NULLS LAST LIMIT ?""", (since, until, recheck, limit)).fetchall()
+           ORDER BY views DESC NULLS LAST""", (since, until)).fetchall()
+    d = date.fromisoformat(today)
+    fresh, retry = [], []
+    for r in rows:
+        t = _tries(r["tried"])
+        if t is None:
+            fresh.append(r)
+        elif (d - date.fromisoformat(t[0][:10])).days < GIVE_UP_DAYS \
+                and (d - date.fromisoformat(t[1][:10])).days >= BACKOFF_DAYS[min(t[2], len(BACKOFF_DAYS)) - 1]:
+            retry.append(r)
+    return (fresh + retry)[:limit]
 
 
 def _artists(conn, tid):
@@ -127,7 +154,9 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
             if should_stop():
                 raise Cancelled()
             hit = find_track(yt, song["title"], labels.get(song["channel"]), _artists(conn, song["id"]), _song_lang(conn, song["id"]))
-            conn.execute("INSERT OR REPLACE INTO state (key, value) VALUES (?,?)", (f"ytm_lookup:{song['id']}", today))
+            t = _tries(song["tried"])
+            conn.execute("INSERT OR REPLACE INTO state (key, value) VALUES (?,?)",
+                         (f"ytm_lookup:{song['id']}", f"{t[0] if t else today}|{today}|{(t[2] if t else 0) + 1}"))
             if hit:
                 conn.execute("""INSERT INTO platform_item (platform, platform_id, title, url, published_at, channel, track_id,
                                     review_state, match_method, match_score, match_detail, first_seen_at)
@@ -148,7 +177,7 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
         log(f"⚠ {stop_reason}")
     conn.commit()
     if todo:
-        log(f"YouTube Music: {found} audio tracks found, {missing} not found (retried in 7 days)")
+        log(f"YouTube Music: {found} audio tracks found, {missing} not found (tried again after 7, 14, 30 days)")
 
     # Daily play counts of every known track of the period.
     due = [r[0] for r in conn.execute(
@@ -160,6 +189,9 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
     if due:  # play counts use videos.list, which the search limit does not affect
         for i in range(0, len(due), 50):
             for v in yt.videos(due[i:i + 50]):
+                ch = (v.get("snippet") or {}).get("channelTitle") or ""
+                if ch.endswith(" - Topic") and ch.lower() not in GENERIC_TOPICS:  # remember the artist's Topic channel (no extra cost)
+                    conn.execute("INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)", (f"ytm_topic:{v['snippet']['channelId']}", ch))
                 st = v.get("statistics", {})
                 if "viewCount" not in st:
                     continue
@@ -174,6 +206,106 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
                 read += 1
         conn.commit()
         log(f"YouTube Music: play counts read for {read} tracks")
+    scanned = {}
+    try:
+        scanned = scan_channels(conn, yt, cfg, since, until, today, ts, labels, log, should_stop)
+    except YouTubeError as e:
+        if not e.quota_exceeded:
+            raise
+        log("YouTube Music: quota reached during the Topic-channel scan; it continues in the next run")
     total = conn.execute("SELECT count(DISTINCT track_id) FROM platform_item WHERE platform='ytmusic'").fetchone()[0]
-    return {"status": status, "stop_reason": stop_reason, "ytmusic_found": found, "ytmusic_missing": missing,
-            "ytmusic_read": read, "ytmusic_songs": total, "ytmusic_quota_units": yt.units}
+    return {"status": status, "stop_reason": stop_reason, "ytmusic_found": found + scanned.get("found", 0), "ytmusic_missing": missing,
+            "ytmusic_read": read, "ytmusic_songs": total, "ytmusic_quota_units": yt.units,
+            "ytmusic_topic_found": scanned.get("found", 0), "ytmusic_topic_pages": scanned.get("pages", 0)}
+
+
+def _match_upload(sn, songs):
+    """The song (of `songs`) an Art Track upload is, or None: same rules as a search result."""
+    raw = sn.get("title") or ""
+    title = match.parse_spotify_title(raw)[0]
+    tag = _lang_tag(raw)
+    best = None
+    for s in songs:
+        ts = match.title_score(s["core"], title)
+        if ts < 0.9 or s["quals"] ^ match.recording_qualifiers(raw) or (tag and s["lang"] and tag != s["lang"]):
+            continue
+        if not best or ts > best[0]:
+            best = (ts, s)
+    return best
+
+
+def _attach(conn, s, vid, sn, method, score, ts):
+    conn.execute("""INSERT INTO platform_item (platform, platform_id, title, url, published_at, channel, track_id,
+                        review_state, match_method, match_score, match_detail, first_seen_at)
+                    VALUES ('ytmusic', ?, ?, ?, ?, ?, ?, 'auto', ?, ?, ?, ?) ON CONFLICT(platform, platform_id) DO NOTHING""",
+                 (vid, html.unescape(sn.get("title") or ""), f"https://music.youtube.com/watch?v={vid}", sn.get("publishedAt"),
+                  sn.get("videoOwnerChannelTitle") or sn.get("channelTitle"), s["id"], method, score, json.dumps({"via": method, "title": score}), ts))
+
+
+def scan_channels(conn, yt, cfg, since, until, today, ts, labels, log, should_stop):
+    """Find missing songs in the Topic channels of their artists and in album playlists the labels link (cheap lists)."""
+    rows = conn.execute("""SELECT t.id, coalesce(t.yt_title, t.title) title FROM track t
+                           WHERE t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?
+                             AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='ytmusic')""",
+                        (since, until)).fetchall()
+    songs = []
+    for r in rows:
+        core, _, quals = match.parse_spotify_title(r["title"])
+        songs.append({"id": r["id"], "core": core, "quals": quals, "lang": _song_lang(conn, r["id"]),
+                      "artists": [match.fold(a) for a in _artists(conn, r["id"])]})
+    if not songs:
+        return {}
+    found = pages = 0
+    linked = set()
+    # 1. Album playlists linked in the labels' descriptions (each listed once)
+    for tid, desc in conn.execute("""SELECT track_id, description FROM platform_item WHERE platform='youtube' AND track_id IS NOT NULL
+                                     AND description LIKE '%OLAK5uy%'""").fetchall():
+        for pid in set(re.findall(r"list=(OLAK5uy_[\w-]{20,})", desc or "")):
+            if conn.execute("SELECT 1 FROM state WHERE key=?", (f"ytm_album:{pid}",)).fetchone():
+                continue
+            res = yt.get("playlistItems", part="snippet", playlistId=pid, maxResults=50)
+            pages += 1
+            for it in res.get("items", []):
+                sn = it["snippet"]
+                hit = _match_upload(sn, [s for s in songs if s["id"] == tid and s["id"] not in linked])  # the song whose description links it
+                if hit:
+                    _attach(conn, hit[1], sn["resourceId"]["videoId"], sn, "album_playlist", hit[0], ts)
+                    linked.add(hit[1]["id"])
+                    found += 1
+            conn.execute("INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)", (f"ytm_album:{pid}", today))
+            conn.commit()
+    # 2. Artists' Topic channels, only those with songs still missing; full back to the period start once, then a page a day
+    for key, ch in conn.execute("SELECT key, value FROM state WHERE key LIKE 'ytm_topic:%'").fetchall():
+        if should_stop():
+            raise Cancelled()
+        artist = match.fold(ch[: -len(" - Topic")])
+        mine = [s for s in songs if s["id"] not in linked and any(artist in a or a in artist for a in s["artists"] if a)]
+        if not mine or len(artist) < 4:
+            continue
+        cid = key.split(":", 1)[1]
+        last = conn.execute("SELECT value FROM state WHERE key=?", (f"ytm_topic_scan:{cid}",)).fetchone()
+        if last and last[0] == today:
+            continue
+        token = None
+        while True:
+            res = yt.uploads(cid, token)
+            pages += 1
+            old = False
+            for it in res.get("items", []):
+                sn = it["snippet"]
+                if (it.get("contentDetails", {}).get("videoPublishedAt") or sn.get("publishedAt") or "")[:10] < since:
+                    old = True
+                    continue
+                hit = _match_upload(sn, [s for s in mine if s["id"] not in linked])
+                if hit:
+                    _attach(conn, hit[1], it["contentDetails"]["videoId"], sn, "topic_channel", hit[0], ts)
+                    linked.add(hit[1]["id"])
+                    found += 1
+            token = res.get("nextPageToken")
+            if not token or old or last:  # after the first full scan, the newest page is enough
+                break
+        conn.execute("INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)", (f"ytm_topic_scan:{cid}", today))
+        conn.commit()
+    if pages:
+        log(f"YouTube Music: {found} audio tracks found by listing {pages} Topic-channel / album pages ({pages} quota units)")
+    return {"found": found, "pages": pages}
