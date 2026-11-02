@@ -9,6 +9,7 @@ Built from the per-upload readings (snapshot) and the Spotify chart, summed over
   dz_rank                             Deezer rank (highest of the song's ISRC matches)
   chart_rank                          best position on the Spotify India daily chart
   yt_shorts                           YouTube Shorts made with the song's official audio (label-owned sounds, shorts_use)
+  ig_reels                            Instagram Reels made with the song's official audio (linked audio pages, instagram_audio)
   *_gain                              growth since the previous calendar day, over items read on both days
                                       (a new upload's first reading is not growth; a missed day leaves it empty)
 Weekly, monthly and yearly views (song_weekly, song_monthly, song_yearly): each song's totals on the period's last day
@@ -42,13 +43,15 @@ CREATE TABLE IF NOT EXISTS song_daily (
     js_plays_gain    INTEGER,
     yt_shorts        INTEGER,   -- Shorts made with the song's official (label-owned) sounds
     yt_shorts_gain   INTEGER,
+    ig_reels         INTEGER,   -- Instagram Reels made with the song's official audio
+    ig_reels_gain    INTEGER,
     built_at         TEXT,
     PRIMARY KEY (song_id, day)
 );
 CREATE INDEX IF NOT EXISTS song_daily_day ON song_daily(day);
 """
 COLS = ("song_id", "day", "yt_views", "yt_likes", "yt_comments", "yt_uploads_read", "ytm_plays", "sp_plays", "js_plays", "dz_rank",
-        "chart_rank", "yt_views_gain", "yt_likes_gain", "yt_comments_gain", "ytm_plays_gain", "sp_plays_gain", "js_plays_gain", "yt_shorts", "yt_shorts_gain")
+        "chart_rank", "yt_views_gain", "yt_likes_gain", "yt_comments_gain", "ytm_plays_gain", "sp_plays_gain", "js_plays_gain", "yt_shorts", "yt_shorts_gain", "ig_reels", "ig_reels_gain")
 GAINS = (("yt_views", "youtube", "views"), ("yt_likes", "youtube", "likes"), ("yt_comments", "youtube", "comments"),
          ("ytm_plays", "ytmusic", "plays"), ("sp_plays", "spotify", "plays"), ("js_plays", "jiosaavn", "plays"))
 
@@ -65,7 +68,7 @@ def ensure(conn):
 
 
 PERIODS = {"weekly": "strftime('%Y-W%W', day)", "monthly": "substr(day,1,7)", "yearly": "substr(day,1,4)"}
-TOTALS = ("yt_views", "yt_likes", "yt_comments", "ytm_plays", "sp_plays", "js_plays", "dz_rank", "yt_shorts")
+TOTALS = ("yt_views", "yt_likes", "yt_comments", "ytm_plays", "sp_plays", "js_plays", "dz_rank", "yt_shorts", "ig_reels")
 
 
 def periods(conn):
@@ -125,19 +128,21 @@ def build(conn, days=None, log=print):
                      AND (p.platform != 'spotify' OR p.review_state IN ('auto','approved'))
                    GROUP BY 1, 2, 3""", (day, day)):
             gains[(tid, plat, metric)] = g
-        # Shorts made with the song's label-owned sounds; growth over sounds read on both days.
-        shorts = dict(conn.execute("""SELECT p.track_id, sum(u.shorts) FROM sound_use u JOIN platform_item p ON p.id=u.platform_item_id
-                                      WHERE u.day=? AND u.official=1 AND p.track_id IS NOT NULL AND p.review_state IN ('auto','approved','song')
-                                      GROUP BY 1""", (day,)).fetchall())
-        shorts_gain = dict(conn.execute("""SELECT p.track_id, sum(u.shorts - y.shorts) FROM sound_use u
-                                           JOIN sound_use y ON y.platform_item_id=u.platform_item_id AND y.day=date(?, '-1 day') AND y.official=1
-                                           JOIN platform_item p ON p.id=u.platform_item_id
-                                           WHERE u.day=? AND u.official=1 AND p.track_id IS NOT NULL AND p.review_state IN ('auto','approved','song')
-                                           GROUP BY 1""", (day, day)).fetchall())
+        # Shorts / Reels made with the song's official sounds; growth over sounds read on both days.
+        use = {}
+        for plat in ("youtube", "instagram"):
+            use[plat] = dict(conn.execute("""SELECT p.track_id, sum(u.shorts) FROM sound_use u JOIN platform_item p ON p.id=u.platform_item_id
+                                             WHERE u.day=? AND u.platform=? AND u.official=1 AND p.track_id IS NOT NULL
+                                               AND p.review_state IN ('auto','approved','song') GROUP BY 1""", (day, plat)).fetchall())
+            use[plat + "_gain"] = dict(conn.execute("""SELECT p.track_id, sum(u.shorts - y.shorts) FROM sound_use u
+                                                  JOIN sound_use y ON y.platform_item_id=u.platform_item_id AND y.day=date(?, '-1 day') AND y.official=1
+                                                  JOIN platform_item p ON p.id=u.platform_item_id
+                                                  WHERE u.day=? AND u.platform=? AND u.official=1 AND p.track_id IS NOT NULL
+                                                    AND p.review_state IN ('auto','approved','song') GROUP BY 1""", (day, day, plat)).fetchall())
         conn.execute("DELETE FROM song_daily WHERE day=?", (day,))
         conn.executemany(f"INSERT INTO song_daily ({', '.join(COLS)}, built_at) VALUES ({', '.join('?' * len(COLS))}, ?)",
                          [tuple(r) + (chart.get(r[0]),) + tuple(gains.get((r[0], plat, m)) for _, plat, m in GAINS)
-                          + (shorts.get(r[0]), shorts_gain.get(r[0]), ts) for r in rows])
+                          + tuple(use[k].get(r[0]) for k in ("youtube", "youtube_gain", "instagram", "instagram_gain")) + (ts,) for r in rows])
         n += len(rows)
     conn.commit()
     log(f"song_daily: {n:,} song-day rows for {len(days)} day(s)")

@@ -5,7 +5,7 @@ import time
 import traceback
 from datetime import datetime, timedelta
 
-from . import config, db, discover_spotify, health, jiosaavn, shorts_use, song_daily, songs, spotify_plays, sync_youtube, youtube_music
+from . import config, db, discover_spotify, health, instagram_audio, jiosaavn, shorts_use, song_daily, songs, spotify_plays, sync_youtube, youtube_music
 from .spotify import SpotifyError
 from .youtube import YouTubeError
 
@@ -18,6 +18,7 @@ JOBS = {
     "jiosaavn": "JioSaavn only (find songs' tracks, read their plays)",
     "spotify_plays": "Spotify play counts (public track pages, light headless browser)",
     "shorts": "YouTube Shorts made with each song's official audio (public sound pages)",
+    "instagram": "Instagram Reels made with each song's official audio (public audio pages, light headless browser)",
 }
 STEPS = {
     "pipeline": [("youtube", sync_youtube.run), ("songs", songs.run), ("ytmusic", youtube_music.run), ("jiosaavn", jiosaavn.run), ("daily", song_daily.run)],
@@ -28,9 +29,10 @@ STEPS = {
     "songs": [("songs", songs.run), ("daily", song_daily.run)],
     "spotify_discovery": [("spotify", discover_spotify.run)],
     "shorts": [("shorts", shorts_use.run), ("daily", song_daily.run)],
+    "instagram": [("instagram", instagram_audio.run), ("daily", song_daily.run)],
 }
 SEVERITY = ["ok", "partial", "quota_exceeded", "cancelled", "failed"]
-CANCELLED = (discover_spotify.Cancelled, sync_youtube.Cancelled, songs.Cancelled, youtube_music.Cancelled, jiosaavn.Cancelled, shorts_use.Cancelled)
+CANCELLED = (discover_spotify.Cancelled, sync_youtube.Cancelled, songs.Cancelled, youtube_music.Cancelled, jiosaavn.Cancelled, shorts_use.Cancelled, instagram_audio.Cancelled)
 
 
 class JobManager:
@@ -198,7 +200,7 @@ def _count(sql, args=()):
         conn.close()
 
 
-BROWSER_JOBS = ("spotify_plays",)  # CPU-heavy headless-browser work, run in its own lane beside the API jobs
+BROWSER_JOBS = ("spotify_plays", "instagram")  # CPU-heavy headless-browser work, run in its own lane beside the API jobs
 
 
 def _due_work(cfg, tried, browser=True, api=True):
@@ -218,6 +220,18 @@ def _due_work(cfg, tried, browser=True, api=True):
             conn.close()
             if n:
                 return "spotify_plays", f"{n} Spotify tracks without today's play count"
+        except SystemExit:
+            pass
+    # 1b. Instagram audio pages: linked audios without today's Reels count (same browser; at most every 3 hours).
+    if browser and ago("instagram") > 3 * 3600:
+        try:
+            spotify_plays.find_chrome()
+            conn = db.connect(str(config.DB_FILE))
+            shorts_use.ensure(conn)
+            n = len(instagram_audio.due(conn, today))
+            conn.close()
+            if n:
+                return "instagram", f"{n} Instagram audios without today's Reels count"
         except SystemExit:
             pass
     if not api:

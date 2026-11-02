@@ -298,10 +298,11 @@ def api_platform(conn, qs):
 # Daily data page: song_daily rows, by day (all songs) or by song (all days), with the change from the previous day.
 DAILY_COLS = [("yt_views", "YouTube views"), ("yt_likes", "YouTube likes"), ("yt_comments", "YouTube comments"),
               ("ytm_plays", "YouTube Music plays"), ("sp_plays", "Spotify plays"), ("js_plays", "JioSaavn plays"), ("dz_rank", "Deezer rank"),
-              ("chart_rank", "Spotify India chart"), ("yt_shorts", "YouTube Shorts made (official audio)")]
+              ("chart_rank", "Spotify India chart"), ("yt_shorts", "YouTube Shorts made (official audio)"),
+              ("ig_reels", "Instagram Reels made (official audio)")]
 
 
-GAIN = {"yt_views", "yt_likes", "yt_comments", "ytm_plays", "sp_plays", "js_plays", "yt_shorts"}
+GAIN = {"yt_views", "yt_likes", "yt_comments", "ytm_plays", "sp_plays", "js_plays", "yt_shorts", "ig_reels"}
 
 
 def daily_change(r, k):
@@ -993,6 +994,15 @@ def post_run(conn, body):
     return {"run_id": run_id}
 
 
+def post_instagram_link(conn, body):
+    """Developer: attach an Instagram audio link to a song (or remove one with remove=<item id>)."""
+    from . import instagram_audio
+    if body.get("remove"):
+        instagram_audio.unlink(conn, int(body["remove"]))
+        return {"ok": True}
+    return {"ok": True, "item_id": instagram_audio.link(conn, int(body["song"]), body.get("url") or "", who="developer")}
+
+
 def post_cancel(conn, body):
     """Stop the running job in both lanes (API jobs and the browser job)."""
     return {"cancelled": MANAGER.cancel(), "cancelled_browser": BROWSER.cancel()}
@@ -1654,18 +1664,19 @@ def api_client(conn, qs):
                          + [{"platform": p, "name": n, "songs": on.get(p, 0)} for p, n in (("apple", "Apple Music"), ("deezer", "Deezer"))],
             "top": pick(sorted(rows, key=lambda s: -s["reach"])[:15]),
             "risers": pick(sorted((s for s in rows if s["gain"] > 0), key=lambda s: -s["gain"])[:10]),
-            "labels": sorted(labels.values(), key=lambda t: -t["reach"]), "trend": trend, "shorts": shorts_summary(conn, S, (since, until), last)}
+            "labels": sorted(labels.values(), key=lambda t: -t["reach"]), "trend": trend, "shorts": shorts_summary(conn, S, (since, until), last),
+            "reels": shorts_summary(conn, S, (since, until), last, "ig_reels")}
 
 
-def shorts_summary(conn, S, args, last):
-    """Shorts made with the songs' official audio: total, gained, and the most-used songs (kept apart from reach,
-    which adds plays)."""
+def shorts_summary(conn, S, args, last, col="yt_shorts"):
+    """Shorts (or Instagram Reels) made with the songs' official audio: total, gained, and the most-used songs (kept
+    apart from reach, which adds plays)."""
     if not last:
         return None
-    rows = q(conn, f"""SELECT d.song_id id, coalesce(t.yt_title, t.title) title, d.yt_shorts shorts, d.yt_shorts_gain gain
+    rows = q(conn, f"""SELECT d.song_id id, coalesce(t.yt_title, t.title) title, d.{col} shorts, d.{col}_gain gain
                        FROM song_daily d JOIN track t ON t.id=d.song_id
-                       WHERE d.day=(SELECT max(day) FROM song_daily x WHERE x.song_id=d.song_id AND x.yt_shorts IS NOT NULL AND x.day > date(?, '-3 day'))
-                         AND d.song_id IN ({S}) AND d.yt_shorts IS NOT NULL""", (last, *args))
+                       WHERE d.day=(SELECT max(day) FROM song_daily x WHERE x.song_id=d.song_id AND x.{col} IS NOT NULL AND x.day > date(?, '-3 day'))
+                         AND d.song_id IN ({S}) AND d.{col} IS NOT NULL""", (last, *args))
     if not rows:
         return None
     return {"total": sum(r["shorts"] for r in rows), "gain": sum(r["gain"] or 0 for r in rows), "songs": sum(r["shorts"] > 0 for r in rows),
@@ -1684,18 +1695,25 @@ def api_shorts(conn, qs):
     view = SHORTS_PERIODS[period]
     if qs.get("song"):
         sid = int(qs["song"])
-        sounds = q(conn, """SELECT u.platform_item_id, p.platform_id video_id, p.asset_type, p.title upload, u.sound_title, u.sound_owner,
+        sounds = q(conn, """SELECT u.platform_item_id, u.platform, p.platform_id video_id, p.asset_type, p.title upload, u.sound_title, u.sound_owner,
                                    u.shorts, u.count_text, u.official, u.listed, u.listed_views, u.day
                             FROM sound_use u JOIN platform_item p ON p.id=u.platform_item_id
                             WHERE p.track_id=? AND u.day=(SELECT max(day) FROM sound_use x WHERE x.platform_item_id=u.platform_item_id)
-                            ORDER BY u.official DESC, u.shorts DESC""", (sid,))
+                            ORDER BY u.platform DESC, u.official DESC, u.shorts DESC""", (sid,))
+        # Instagram audios linked but not read yet (they are read by the browser job)
+        sounds += q(conn, """SELECT id platform_item_id, 'instagram' platform, platform_id video_id, NULL asset_type, title upload, NULL sound_title,
+                                    NULL sound_owner, NULL shorts, NULL count_text, NULL official, NULL listed, NULL listed_views, NULL day
+                             FROM platform_item p WHERE platform='instagram' AND track_id=? AND review_state IN ('auto','approved')
+                               AND NOT EXISTS (SELECT 1 FROM sound_use u WHERE u.platform_item_id=p.id)""", (sid,))
         if view:
-            series = q(conn, f"SELECT period, last_day, yt_shorts total, yt_shorts_gain gain FROM {view} WHERE song_id=? AND yt_shorts IS NOT NULL ORDER BY period DESC", (sid,))
+            series = q(conn, f"""SELECT period, last_day, yt_shorts total, yt_shorts_gain gain, ig_reels reels, ig_reels_gain reels_gain FROM {view}
+                                 WHERE song_id=? AND coalesce(yt_shorts, ig_reels) IS NOT NULL ORDER BY period DESC""", (sid,))
         else:
-            series = q(conn, "SELECT day period, day last_day, yt_shorts total, yt_shorts_gain gain FROM song_daily WHERE song_id=? AND yt_shorts IS NOT NULL ORDER BY day DESC", (sid,))
-        top = q(conn, """SELECT s.video_id, s.title, s.views, s.first_seen, s.last_seen FROM sound_short s
-                         JOIN sound_use u ON u.platform_item_id=s.platform_item_id AND u.official=1
-                         WHERE s.song_id=? GROUP BY s.video_id ORDER BY s.views DESC LIMIT 30""", (sid,))
+            series = q(conn, """SELECT day period, day last_day, yt_shorts total, yt_shorts_gain gain, ig_reels reels, ig_reels_gain reels_gain FROM song_daily
+                                WHERE song_id=? AND coalesce(yt_shorts, ig_reels) IS NOT NULL ORDER BY day DESC""", (sid,))
+        top = q(conn, """SELECT s.video_id, coalesce(s.platform, 'youtube') platform, s.title, s.views, s.likes, s.comments, s.first_seen, s.last_seen
+                         FROM sound_short s JOIN sound_use u ON u.platform_item_id=s.platform_item_id AND u.official=1
+                         WHERE s.song_id=? GROUP BY s.video_id ORDER BY s.views DESC LIMIT 40""", (sid,))
         return {"song": sid, "period": period, "sounds": sounds, "series": series, "top": top}
     since, until = config.window(config.load())
     src = view or "song_daily"
@@ -1715,7 +1733,7 @@ CRAWL_PERIODS = {"day": ("day", 30), "week": ("strftime('%Y-W%W', day)", 16), "m
 CRAWL_NAMES = {"youtube": "YouTube", "ytmusic": "YouTube Music", "spotify_plays": "Spotify plays (pages)", "spotify_search": "Spotify search (API)",
                "spotify_playlists": "Spotify playlists + film albums", "spotify_web": "Spotify links: web search", "spotify_mb_links": "Spotify links: MusicBrainz",
                "odesli": "Odesli", "jiosaavn": "JioSaavn", "deezer": "Deezer", "apple": "Apple Music (iTunes)",
-               "musicbrainz": "MusicBrainz", "youtube_shorts": "YouTube Shorts (sound pages)", "shorts": "Shorts job", "songs": "Songs job", "daily": "Daily totals", "spotify": "Spotify label crawl"}
+               "musicbrainz": "MusicBrainz", "youtube_shorts": "YouTube Shorts (sound pages)", "shorts": "Shorts job", "instagram": "Instagram Reels (audio pages)", "songs": "Songs job", "daily": "Daily totals", "spotify": "Spotify label crawl"}
 
 
 def api_crawl(conn, qs):
@@ -1928,7 +1946,7 @@ GET = {"/api/coverage": api_coverage, "/api/insights": api_insights, "/api/insig
        "/api/matching": api_matching, "/api/matching/candidates": api_match_candidates,
        "/api/youtube/status": api_youtube_status, "/api/review/decisions": api_decisions}
 POST = {"/api/config": post_config, "/api/secrets": post_secrets, "/api/test/spotify": post_test_spotify,
-        "/api/seeds": post_seeds, "/api/run": post_run, "/api/cancel": post_cancel,
+        "/api/seeds": post_seeds, "/api/run": post_run, "/api/cancel": post_cancel, "/api/instagram/link": post_instagram_link,
         "/api/matching/decide": post_match_decide, "/api/matching/link": post_match_link,
         "/api/youtube/channel": post_youtube_channel, "/api/youtube/label": post_youtube_label,
         # Live Claude endpoints (lens/ai.py) are switched off until the API integration: add

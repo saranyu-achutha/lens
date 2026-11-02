@@ -49,6 +49,7 @@ METRICS = {
     "ytmusic": dict(step="ytmusic", access="API (key)", read=["ytmusic_read"], found=["ytmusic_found"], missing=["ytmusic_missing"], quota=["ytmusic_quota_units"], calls=["ytmusic_found", "ytmusic_missing"]),
     "jiosaavn": dict(step="jiosaavn", access="Public API", read=["jiosaavn_read"], found=["jiosaavn_found"], missing=["jiosaavn_missing"], calls=["jiosaavn_found", "jiosaavn_missing"]),
     "spotify_plays": dict(step="spotify_plays", access="Public page (browser)", read=["spotify_plays_read"], calls=["spotify_plays_read"]),
+    "instagram": dict(step="instagram", access="Public page (browser)", read=["instagram_read", "instagram_failed"], found=["instagram_read"], missing=["instagram_failed"], calls=["instagram_read", "instagram_failed"]),
     "youtube_shorts": dict(step="shorts", access="Public page", read=["shorts_sounds_read"], found=["shorts_sounds_used"], missing=["shorts_pages_failed"], calls=["shorts_sounds_read", "shorts_pages_failed"]),
     "apple": dict(step="songs", access="Public API", read=["itunes_matched", "itunes_not_found"], found=["itunes_matched"], missing=["itunes_not_found"], calls=["itunes_matched", "itunes_not_found"]),
     "musicbrainz": dict(step="songs", access="Open API", read=["musicbrainz_matched", "musicbrainz_not_found"], found=["musicbrainz_matched"], missing=["musicbrainz_not_found"], calls=["musicbrainz_matched", "musicbrainz_not_found"]),
@@ -60,7 +61,7 @@ METRICS = {
     "odesli": dict(step="songs", access="API (key)", found=["spotify_links_odesli"]),
     "spotify": dict(step="spotify", access="API (key)", read=["tracks"], found=["releases"], calls=["api_calls"]),
 }
-STEP_NAMES = ("youtube", "songs", "ytmusic", "jiosaavn", "spotify_plays", "shorts", "daily", "spotify")
+STEP_NAMES = ("youtube", "songs", "ytmusic", "jiosaavn", "spotify_plays", "shorts", "instagram", "daily", "spotify")
 API_ACCESS = ("API (key)", "Public API", "Open API")
 PROBLEM = ("failed", "partial", "quota_exceeded", "interrupted")
 

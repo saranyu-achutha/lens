@@ -51,6 +51,9 @@ CREATE TABLE IF NOT EXISTS sound_short (
     song_id          INTEGER,
     title            TEXT,
     views            INTEGER,
+    likes            INTEGER,            -- Instagram shows likes and comments on its tiles
+    comments         INTEGER,
+    platform         TEXT DEFAULT 'youtube',
     first_seen       TEXT,
     last_seen        TEXT
 );
@@ -64,6 +67,10 @@ class Cancelled(Exception):
 
 def ensure(conn):
     conn.executescript(SCHEMA)
+    have = {r[1] for r in conn.execute("PRAGMA table_info(sound_short)")}
+    for col, typ in (("likes", "INTEGER"), ("comments", "INTEGER"), ("platform", "TEXT DEFAULT 'youtube'")):
+        if col not in have:
+            conn.execute(f"ALTER TABLE sound_short ADD COLUMN {col} {typ}")
 
 
 def number(text):
