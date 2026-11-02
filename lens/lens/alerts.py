@@ -189,6 +189,25 @@ def save_charts_token(token):
     if len(tok) < 100 or any(ch.isspace() for ch in tok):
         raise ValueError("that doesn't look like a charts.spotify.com token (it starts with BQ… and is a few hundred characters)")
     config.set_env("SPOTIFY_CHARTS_TOKEN", tok)
+    conn = db.connect(str(config.DB_FILE))
+    conn.execute("INSERT OR REPLACE INTO state (key, value) VALUES ('charts_token_at', ?)", (json.dumps(db.now_iso()),))
+    conn.commit()
+    conn.close()
+
+
+def charts_status(conn):
+    """For the Spotify chart page: what is stored, the last import, and when a token was last saved (never the token)."""
+    from . import spotify_charts
+    spotify_charts.ensure(conn)
+    one = lambda sql: conn.execute(sql).fetchone()
+    daily = one("SELECT max(chart_date), count(DISTINCT chart_date) FROM chart_entry WHERE chart='regional-in-daily'")
+    weekly = one("SELECT max(chart_date), count(DISTINCT chart_date) FROM chart_entry WHERE chart='regional-in-weekly'")
+    ours = one("SELECT count(*) FROM song_daily WHERE chart_rank IS NOT NULL AND day=(SELECT max(chart_date) FROM chart_entry WHERE chart='regional-in-daily')")[0] \
+        if conn.execute("SELECT 1 FROM sqlite_master WHERE name='song_daily'").fetchone() else 0
+    age = (date.today() - date.fromisoformat(daily[0])).days if daily[0] else None
+    return {"daily_latest": daily[0], "daily_count": daily[1], "weekly_latest": weekly[0], "weekly_count": weekly[1],
+            "our_songs_on_latest": ours, "age_days": age, "behind": age is None or age > 2,
+            "token_saved_at": _state(conn, "charts_token_at") or None, "last_import": _state(conn, "charts_fetch"), "running": CHARTS["running"]}
 
 
 def import_charts():

@@ -39,6 +39,7 @@
   <a class="nav dev-only" href="#review"><svg viewBox="0 0 24 24"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/></svg>Review<span class="nav-badge" id="review-badge" style="display:none"></span></a>
   <a class="nav dev-only" href="#dev"><svg viewBox="0 0 24 24"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/></svg>Developer</a>
   <a class="nav dev-only" href="#crawl"><svg viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>Crawl stats</a>
+  <a class="nav dev-only" href="#charts"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Spotify chart</a>
   <a class="nav dev-only" href="#apis"><svg viewBox="0 0 24 24"><path d="M8 9l-4 3 4 3M16 9l4 3-4 3"/><circle cx="12" cy="12" r="1.6"/></svg>API stats</a>
   <a class="nav dev-only" href="#runs"><svg viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z"/></svg>Runs</a>
   <a class="nav dev-only" href="#outputs"><svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg>Outputs</a>
@@ -435,6 +436,22 @@
   </section>
 
   <!-- SOURCES -->
+  <section class="page" id="page-charts">
+    <div class="page-head"><div><h1>Spotify chart</h1><p>India Top 200 (daily and weekly) from charts.spotify.com. Importing needs a session token from a logged-in browser; paste it here when the chart falls behind.</p></div></div>
+    <div class="grid g2">
+      <div class="card"><h2>Status</h2><div id="ch-status"></div></div>
+      <div class="card"><h2>Paste the session token</h2>
+        <ol class="steps"><li>Open <a href="https://charts.spotify.com/charts/view/regional-in-daily/latest" target="_blank" rel="noopener">charts.spotify.com</a> and log in.</li>
+          <li>Press <b>F12</b>, open the <b>Network</b> tab, reload the page, and type <span class="mono">charts-spotify-com-service</span> in the filter box.</li>
+          <li>Click one of those requests; under <b>Request Headers</b> copy only the <b>authorization</b> value (it starts with <b>Bearer BQ…</b>).</li>
+          <li>Paste it below and click <b>Save and import</b>. The token lasts about an hour; it is saved only on the server and never shown again.</li></ol>
+        <textarea id="ch-token" rows="4" style="width:100%;font-family:var(--mono);font-size:12px" placeholder="Bearer BQ…" autocomplete="off" spellcheck="false"></textarea>
+        <div class="row" style="gap:10px;margin-top:10px;align-items:center"><button class="primary" id="ch-save">Save and import</button><span class="muted" id="ch-msg" style="font-size:13px"></span></div>
+        <p class="muted" style="font-size:12px;margin:12px 0 0">Paste only the authorization value: never cookies or a whole network log, and not in chat.</p>
+      </div>
+    </div>
+  </section>
+
   <section class="page" id="page-sources">
     <div class="page-head"><div><h1>Sources</h1><p>Connectors and credentials. Secrets are stored in <span class="mono">.env</span> on the server and never sent back to the browser.</p></div></div>
     <div class="grid g2">

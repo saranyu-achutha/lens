@@ -32,7 +32,7 @@ function toast(msg, bad = false) {
 let STATUS = null;
 
 /* ---------- Router ---------- */
-const PAGES = ["overview", "dashboard", "dev", "crawl", "apis", "platforms", "reports", "daily", "pdata", "catalogue", "explore", "insights", "review", "runs", "outputs", "sources", "settings"];
+const PAGES = ["overview", "dashboard", "dev", "crawl", "apis", "charts", "platforms", "reports", "daily", "pdata", "catalogue", "explore", "insights", "review", "runs", "outputs", "sources", "settings"];
 // The client login sees only these pages (the server refuses everything else for it).
 const CLIENT_PAGES = ["dashboard", "platforms", "reports", "daily", "catalogue"];
 // A developer can switch to "Client view" to see exactly what the client sees (menu, pages, header); not remembered.
@@ -46,7 +46,7 @@ function route() {
   const sec = p === "apis" ? "crawl" : p;  // Crawl stats and API stats share one page layout
   document.querySelectorAll("section.page").forEach((s) => s.classList.toggle("active", s.id === `page-${sec}`));
   document.querySelectorAll("a.nav").forEach((a) => a.classList.toggle("active", a.getAttribute("href") === `#${p}`));
-  ({ overview: loadOverview, dashboard: loadClient, dev: loadDev, crawl: loadCrawl, apis: loadCrawl, platforms: loadPlatform, reports: loadReport, daily: loadDaily, pdata: loadPData, catalogue: loadCatalogue, explore: loadExplore, insights: loadInsights, review: loadReview, runs: loadRuns, outputs: loadOutputs, sources: loadSources, settings: loadSettings })[p]();
+  ({ overview: loadOverview, dashboard: loadClient, dev: loadDev, crawl: loadCrawl, apis: loadCrawl, charts: loadCharts, platforms: loadPlatform, reports: loadReport, daily: loadDaily, pdata: loadPData, catalogue: loadCatalogue, explore: loadExplore, insights: loadInsights, review: loadReview, runs: loadRuns, outputs: loadOutputs, sources: loadSources, settings: loadSettings })[p]();
   const track = new URLSearchParams(location.hash.split("?")[1] || "").get("track");
   if (track) openTrack(track);
   const meta = new URLSearchParams(location.hash.split("?")[1] || "").get("meta");  // e.g. #explore?meta=singer:arijit singh
@@ -1964,7 +1964,7 @@ document.querySelectorAll("a.nav").forEach((a) => a.addEventListener("click", cl
 /* ---------- Alerts (Developer): bell, panel, desktop notifications, the chart-token form ---------- */
 const AL = { data: null, seen: new Set(JSON.parse((() => { try { return localStorage.getItem("ml-alerts-seen") || "[]"; } catch { return "[]"; } })())) };
 const SEV = { critical: "Critical", warning: "Needs attention", info: "Info" };
-const alertAction = (a) => a.action === "charts_token" ? `<button class="small primary" data-al-token>Paste session token</button>`
+const alertAction = (a) => a.action === "charts_token" ? `<button class="small primary" data-al-open="charts">Paste session token</button>`
   : a.action && a.action.startsWith("open:") ? `<button class="small" data-al-open="${esc(a.action.slice(5))}">Open</button>` : "";
 const alertRow = (a) => `<div class="al al-${a.severity}${a.snoozed ? " al-snoozed" : ""}"><span class="dot"></span><div class="al-body">
     <div class="t1">${esc(a.title)}</div><div class="t2">${esc(a.detail || "")}</div>
@@ -2004,39 +2004,33 @@ document.addEventListener("click", async (e) => {
   if (sn) { AL.data = await api("/api/alerts/snooze", { key: sn.dataset.alSnooze, hours: +sn.dataset.h }); renderAlerts(); return; }
   const op = e.target.closest("[data-al-open]");
   if (op) { $("#alerts-panel").hidden = true; location.hash = "#" + op.dataset.alOpen; return; }
-  if (e.target.closest("[data-al-token]")) chartsTokenForm();
 });
-function chartsTokenForm() {
-  const w = document.createElement("div");
-  w.className = "cbox-bg";
-  w.innerHTML = `<div class="cbox" style="width:min(560px,100%)" role="dialog" aria-modal="true"><div class="cbox-icon" style="background:var(--c-spotify);color:#0b0b0b">♪</div>
-    <h2>Import the Spotify India chart</h2>
-    <p>The chart is only available to a logged-in charts.spotify.com session, so it needs that session's token (valid for about an hour):</p>
-    <ol class="steps"><li>Open <a href="https://charts.spotify.com/charts/view/regional-in-daily/latest" target="_blank" rel="noopener">charts.spotify.com</a> and log in.</li>
-      <li>Press <b>F12</b>, open the <b>Network</b> tab, and reload the page.</li>
-      <li>Click a request to <b>charts-spotify-com-service.spotify.com</b>, and under Request Headers copy the <b>authorization</b> value (it starts with <b>Bearer BQ…</b>).</li>
-      <li>Paste it below. It is saved only on the server and never shown again.</li></ol>
-    <textarea id="ct-token" rows="4" style="width:100%;font-family:var(--mono);font-size:12px" placeholder="Bearer BQ…"></textarea>
-    <div class="muted" id="ct-msg" style="font-size:12.5px;margin:8px 0 12px;min-height:18px"></div>
-    <div class="cbox-btns"><button class="cbox-no">Close</button><button class="primary cbox-yes">Save and import</button></div></div>`;
-  const close = () => { clearInterval(w.timer); w.remove(); };
-  w.addEventListener("click", (e) => { if (e.target === w) close(); });
-  w.querySelector(".cbox-no").onclick = close;
-  w.querySelector(".cbox-yes").onclick = async () => {
-    const msg = w.querySelector("#ct-msg");
-    try {
-      await api("/api/charts/token", { token: w.querySelector("#ct-token").value });
-      w.querySelector("#ct-token").value = "";
-      msg.textContent = "Saved. Importing the missing chart days…";
-      w.timer = setInterval(async () => {
-        await loadAlerts();
-        const c = AL.data && AL.data.charts;
-        if (c && !c.running && c.message) { clearInterval(w.timer); msg.textContent = (c.ok ? "✓ " : "⚠ ") + c.message; }
-      }, 3000);
-    } catch (e) { msg.textContent = e.message || String(e); }
-  };
-  document.body.appendChild(w);
-  w.querySelector("#ct-token").focus();
+/* Spotify chart page: status and the token paste box (the token goes to the server only) */
+async function loadCharts() {
+  const c = await api("/api/charts");
+  const imp = c.last_import || {};
+  $("#ch-status").innerHTML = kv([
+    ["Newest daily chart", c.daily_latest ? `${esc(c.daily_latest)} ${c.behind ? '<span class="pill bad"><span class="dot"></span>behind</span>' : '<span class="pill ok"><span class="dot"></span>up to date</span>'}` : "none yet"],
+    ["Daily charts stored", fmt(c.daily_count)], ["Newest weekly chart", esc(c.weekly_latest || "–")], ["Weekly charts stored", fmt(c.weekly_count)],
+    ["Our songs on the newest chart", fmt(c.our_songs_on_latest)],
+    ["Token last saved", c.token_saved_at ? ago(c.token_saved_at) : "never"],
+    ["Last import", c.running ? "running…" : imp.message ? `${imp.ok ? "✓" : "⚠"} ${esc(imp.message)} · ${ago(imp.at)}` : "–"]]) +
+    `<p class="muted" style="font-size:12px;margin:12px 0 0">Spotify publishes the daily chart a day or two late; the reminder (bell) appears when the newest chart is more than 2 days old.</p>`;
+  return c;
 }
+$("#ch-save").onclick = async () => {
+  const msg = $("#ch-msg"), box = $("#ch-token");
+  if (!box.value.trim()) { msg.textContent = "Paste the token first."; return; }
+  $("#ch-save").disabled = true;
+  try {
+    await api("/api/charts/token", { token: box.value });
+    box.value = "";
+    msg.textContent = "Saved. Importing the missing chart days…";
+    const t = setInterval(async () => {
+      const c = await loadCharts();
+      if (!c.running) { clearInterval(t); $("#ch-save").disabled = false; const i = c.last_import || {}; msg.textContent = (i.ok ? "✓ " : "⚠ ") + (i.message || "done"); loadAlerts(); }
+    }, 3000);
+  } catch (e) { msg.textContent = e.message || String(e); $("#ch-save").disabled = false; }
+};
 setInterval(loadAlerts, 60000);
 setTimeout(loadAlerts, 1500);
