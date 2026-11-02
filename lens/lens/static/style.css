@@ -940,3 +940,29 @@ img, svg, video, iframe { max-width: 100%; }
 button.danger-solid { background: var(--critical); border-color: var(--critical); color: #fff; }
 button.danger-solid:hover { filter: brightness(1.08); background: var(--critical); }
 .removed-row a { color: var(--text-secondary); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--text-muted) 60%, transparent); }
+
+/* Platform icons: each platform's own icon file (static/icons: YouTube, YouTube Music, Instagram, Apple Music, JioSaavn and
+   Deezer from their own sites, Spotify from its brand kit), shown unmodified and only to name or link to that platform.
+   Play buttons stay a plain ▶ next to the icon (Spotify: no logo as a play control); Spotify's icon is never under 21px. */
+.ic-youtube, .pbtn.yt, .ob-yt { --ic: url(/icons/youtube.png); }
+.ic-ytmusic, .pbtn.ym, .ob-ym { --ic: url(/icons/ytmusic.png); }
+.ic-spotify, .pbtn.sp, .ob-sp { --ic: url(/icons/spotify.svg); }
+.ic-jiosaavn, .pbtn.js, .ob-js { --ic: url(/icons/jiosaavn.png); }
+.ic-apple, .pbtn.am, .ob-am { --ic: url(/icons/apple.png); }
+.ic-deezer, .pbtn.dz, .ob-dz { --ic: url(/icons/deezer.png); }
+.ic-instagram { --ic: url(/icons/instagram.webp); }
+.play-cell { width: 236px; }
+.pbtn { background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary); }
+.pbtn.yt, .pbtn.sp { width: auto; height: 27px; display: inline-flex; align-items: center; gap: 5px; padding: 0 9px 0 3px; border-radius: 999px; font-size: 9px; background: var(--surface-2); color: var(--text-primary); }
+.pbtn.yt::before, .pbtn.sp::before { content: ""; width: 20px; height: 20px; background: var(--ic) center / contain no-repeat; }
+.pbtn.sp::before { width: 21px; height: 21px; }
+.pbtn.big { height: 36px; padding: 0 12px 0 5px; font-size: 12px; }
+.pbtn.big::before { width: 26px; height: 26px; }
+.pbtn.ym, .pbtn.js, .pbtn.am, .pbtn.dz { width: 27px; height: 27px; font-size: 0; color: transparent; background: var(--ic) center / 19px 19px no-repeat, var(--surface-2); }
+.pbtn.off { opacity: .35; }
+.pbtn:not(.off):hover { filter: none; transform: scale(1.06); border-color: var(--accent); }
+.ob i { width: 18px; height: 18px; border-radius: 0; box-shadow: none; background: var(--ic) center / contain no-repeat; }
+.ob-sp i { width: 21px; height: 21px; }
+.ob-mb i { width: 9px; height: 9px; border-radius: 50%; background: var(--pc); }
+#dd-table th.dd-gh i.pi { width: 18px; height: 18px; border-radius: 0; vertical-align: -4px; background: var(--ic) center / contain no-repeat; }
+#dd-table th.dd-gh i.pi.ic-spotify { width: 21px; height: 21px; vertical-align: -6px; }

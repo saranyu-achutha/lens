@@ -320,7 +320,7 @@ $("#pf-table").addEventListener("click", (e) => { const tr = e.target.closest("t
 
 /* ---------- Dashboard (client home): reach and growth in plain terms ---------- */
 const legendHtml = (lines) => lines.map((l) => `<span><span style="display:inline-block;width:12px;height:3px;background:${PCOLOR[l.platform]};vertical-align:middle;margin-right:5px"></span>${esc(l.name)}</span>`).join("");
-const playOne = (r) => `<td class="play-cell">${r.yt_video_id ? `<button class="pbtn yt" data-play="youtube" data-pid="${esc(r.yt_video_id)}" data-ptitle="${esc(r.title)}" title="Play on YouTube">▶</button>` : `<span class="pbtn off">▶</span>`}</td>`;
+const playOne = (r) => `<td class="play-cell">${r.yt_video_id ? `<button class="pbtn yt" data-play="youtube" data-pid="${esc(r.yt_video_id)}" data-ptitle="${esc(r.title)}" title="Play on YouTube">▶</button>` : `<span class="pbtn yt off">▶</span>`}</td>`;
 const songRow = (r, i, extra) => `<tr class="click" data-id="${r.id}"><td class="muted num">${i + 1}</td>${playOne(r)}<td><div class="t1">${esc(r.title)}${labelTag(r.label)}</div><div class="t2">${esc(r.first_upload)}</div></td>${extra(r)}</tr>`;
 async function loadClient() {
   const d = await api("/api/client");
@@ -542,7 +542,7 @@ function ddChangeCell(r, k) {
 function ddHeader(keys, lead) {
   const groups = DD_GROUPS.map(([name, ks, plat]) => [name, ks.filter((k) => keys.includes(k)), plat]).filter((g) => g[1].length);
   return `<thead><tr class="dd-grp">${lead.map(() => "<th></th>").join("")}${groups.map(([n, ks, plat]) =>
-      `<th colspan="${ks.length * 2}" class="dd-gh"><i style="background:${PCOLOR[plat]}"></i>${esc(n)}</th>`).join("")}</tr>
+      `<th colspan="${ks.length * 2}" class="dd-gh"><i class="pi ic-${plat}"></i>${esc(n)}</th>`).join("")}</tr>
     <tr>${lead.map((l) => `<th class="${l.num ? "num" : ""}">${l.label}</th>`).join("")}${groups.flatMap(([, ks]) => ks.map((k) =>
       `<th class="num dd-first">${DD_SHORT[k]}</th><th class="num">Change</th>`)).join("")}</tr></thead>`;
 }
@@ -847,10 +847,10 @@ const openOnButtons = (urls) => `<div class="open-on"><span class="open-on-l">Op
   ? `<a class="ob ob-${c}" href="${esc(urls[k])}" target="_blank" rel="noopener"><i></i>${n}<span class="ob-arrow">↗</span></a>`
   : `<span class="ob off" title="Not found on ${n} yet"><i></i>${n}</span>`).join("")}</div>`;
 const PLATFORM_LINKS = [["ytm_url", "ym", "YM", "YouTube Music"], ["js_url", "js", "J", "JioSaavn"], ["apple_url", "am", "A", "Apple Music"], ["deezer_url", "dz", "D", "Deezer"]];
-const playBtns = (r) => `<td class="play-cell">${r.yt_video_id ? `<button class="pbtn yt" data-play="youtube" data-pid="${esc(r.yt_video_id)}" data-ptitle="${esc(r.title)}" title="Play on YouTube (${esc(r.yt_video_id)})">▶</button>` : `<span class="pbtn off">▶</span>`}${
-  r.spotify_id && ["auto", "approved"].includes(r.spotify_state) ? `<button class="pbtn sp" data-play="spotify" data-pid="${esc(r.spotify_id)}" data-ptitle="${esc(r.title)}" title="Play on Spotify (${esc(r.spotify_id)})">▶</button>` : `<span class="pbtn off" title="not on Spotify">▶</span>`}${PLATFORM_LINKS.map(([k, cls, txt, name]) => r[k]
+const playBtns = (r) => `<td class="play-cell">${r.yt_video_id ? `<button class="pbtn yt" data-play="youtube" data-pid="${esc(r.yt_video_id)}" data-ptitle="${esc(r.title)}" title="Play on YouTube (${esc(r.yt_video_id)})">▶</button>` : `<span class="pbtn yt off">▶</span>`}${
+  r.spotify_id && ["auto", "approved"].includes(r.spotify_state) ? `<button class="pbtn sp" data-play="spotify" data-pid="${esc(r.spotify_id)}" data-ptitle="${esc(r.title)}" title="Play on Spotify (${esc(r.spotify_id)})">▶</button>` : `<span class="pbtn sp off" title="not on Spotify">▶</span>`}${PLATFORM_LINKS.map(([k, cls, txt, name]) => r[k]
     ? `<a class="pbtn ${cls}" href="${esc(r[k])}" target="_blank" rel="noopener" title="Open on ${name}${k === "js_url" && r.js_plays != null ? ` (${fmt(r.js_plays)} plays)` : ""}">${txt}</a>`
-    : `<span class="pbtn off" title="not on ${name} yet">${txt}</span>`).join("")}</td>`;
+    : `<span class="pbtn ${cls} off" title="not on ${name} yet">${txt}</span>`).join("")}</td>`;
 
 /* ---------- Songs ---------- */
 const CAT = { q: "", status: "", label: "", language: "", category: "", meta: "", channel: "", day: "", since: "", until: "", sel: new Set(), sort: "song_date", order: "desc", offset: 0, limit: 50, total: 0 };
@@ -1879,7 +1879,7 @@ function gsRender(d) {
     ? `<div class="gs-empty">No songs match “${esc(d.q)}”.${FOCUS_ALL ? "" : " Older songs are hidden; tick “Include older songs” to search them too."}</div>`
     : `<div class="gs-head"><b>${fmt(d.total)}</b> song${d.total === 1 ? "" : "s"} · ${chips}</div>` +
       d.results.map((r, i) => `<div class="gs-row${i ? "" : " sel"}" data-i="${i}">
-        ${r.yt_video_id ? `<button class="pbtn yt" data-play="youtube" data-pid="${esc(r.yt_video_id)}" data-ptitle="${esc(r.title)}" title="Play">▶</button>` : `<span class="pbtn off">▶</span>`}
+        ${r.yt_video_id ? `<button class="pbtn yt" data-play="youtube" data-pid="${esc(r.yt_video_id)}" data-ptitle="${esc(r.title)}" title="Play">▶</button>` : `<span class="pbtn yt off">▶</span>`}
         <div class="gs-main"><div class="t1">${esc(r.title)}${labelTag(r.music_label)}</div>
           <div class="t2"><span class="gs-why">${esc(r.matched_on)}: ${esc(r.matched)}</span> · ${esc(r.first_upload || "")} · ${statusChip(r.release_status)}</div></div>
         <div class="gs-nums">${r.yt_views != null ? `<span title="YouTube views"><i style="background:var(--c-youtube)"></i>${compact(r.yt_views)}</span>` : ""}${r.sp_plays != null ? `<span title="Spotify plays"><i style="background:var(--c-spotify)"></i>${compact(r.sp_plays)}</span>` : ""}${r.js_plays != null ? `<span title="JioSaavn plays"><i style="background:var(--c-jiosaavn)"></i>${compact(r.js_plays)}</span>` : ""}</div>
