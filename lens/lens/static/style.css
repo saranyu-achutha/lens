@@ -992,3 +992,25 @@ button.danger-solid:hover { filter: brightness(1.08); background: var(--critical
 .al-note { font-size: 12.5px; color: var(--text-secondary); padding: 8px 2px 0; border-top: 1px solid var(--border); margin-top: 4px; }
 .cbox .steps { margin: 0 0 14px; padding-left: 20px; font-size: 13px; color: var(--text-secondary); line-height: 1.6; }
 @media (max-width: 600px) { .alerts-panel { position: fixed; left: 12px; right: 12px; top: 64px; width: auto; } }
+
+/* Collapsible menu (wide screens): a 68px icon bar; hover shows the full menu over the page, the toggle keeps it open */
+.side-toggle { display: flex; align-items: center; gap: 10px; padding: 7px 10px; margin: -10px 0 8px; border: 1px solid var(--border); border-radius: 8px;
+  background: transparent; color: var(--text-muted); font-size: 12.5px; cursor: pointer; white-space: nowrap; }
+.side-toggle:hover { color: var(--text-primary); background: var(--surface-2); }
+.side-toggle svg { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none; stroke-width: 2; transition: transform .2s; }
+@media (min-width: 1101px) {
+  body { transition: grid-template-columns .2s ease; }
+  nav.side { transition: width .2s ease, box-shadow .2s; overflow: hidden; z-index: 27; }
+  html.side-mini body { grid-template-columns: 68px 1fr; }
+  html.side-mini nav.side { width: 68px; padding: 18px 10px; }
+  html.side-mini nav.side:not(:hover) .brand { justify-content: center; padding: 4px 0 20px; }
+  html.side-mini nav.side:not(:hover) .brand-text, html.side-mini nav.side:not(:hover) .side-foot { display: none; }
+  html.side-mini nav.side:not(:hover) a.nav { justify-content: center; font-size: 0; gap: 0; padding: 10px 0; position: relative; }
+  html.side-mini nav.side:not(:hover) a.nav svg { width: 19px; height: 19px; }
+  html.side-mini nav.side:not(:hover) .nav-badge { position: absolute; top: 4px; right: 6px; min-width: 0; width: 9px; height: 9px; padding: 0; font-size: 0; }
+  html.side-mini nav.side:not(:hover) .side-toggle { justify-content: center; font-size: 0; gap: 0; padding: 7px 0; }
+  html.side-mini nav.side .side-toggle svg { transform: rotate(180deg); }
+  html.side-mini nav.side:hover { width: 224px; padding: 18px 12px; box-shadow: var(--shadow-lg); }
+  nav.side a.nav, nav.side .brand-text { white-space: nowrap; }
+}
+@media (max-width: 1100px) { .side-toggle { display: none; } }

@@ -2034,3 +2034,14 @@ $("#ch-save").onclick = async () => {
 };
 setInterval(loadAlerts, 60000);
 setTimeout(loadAlerts, 1500);
+
+// Menu: narrow icon bar or full width (wide screens); each link keeps its name as a tooltip for the icon bar
+document.querySelectorAll("nav.side a.nav").forEach((a) => { if (!a.title) a.title = a.textContent.trim(); });
+const sideLabel = () => { const mini = document.documentElement.classList.contains("side-mini");
+  $("#side-toggle span").textContent = mini ? "Keep menu open" : "Collapse menu"; $("#side-toggle").title = mini ? "Keep the full menu open" : "Collapse the menu to icons"; };
+$("#side-toggle").onclick = () => {
+  const mini = document.documentElement.classList.toggle("side-mini");
+  try { localStorage.setItem("ml-side", mini ? "mini" : "full"); } catch {}
+  sideLabel();
+};
+sideLabel();
