@@ -63,6 +63,7 @@ def ensure(conn):
     for col in COLS + ("built_at",):
         if col not in have:
             conn.execute(f"ALTER TABLE song_daily ADD COLUMN {col} {'TEXT' if col in ('day', 'built_at') else 'INTEGER'}")
+    shorts_use.ensure(conn)  # Shorts / Reels tables (and columns added later) before anything reads them
     periods(conn)
     conn.commit()
 
