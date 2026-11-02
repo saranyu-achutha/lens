@@ -357,6 +357,8 @@ def spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until="999
     # without waiting for a web-search try first; afterwards the normal order returns by itself.
     catchup = (scfg.get("spotify_catchup_until") or "") >= date.today().isoformat()
     web_first = "" if catchup else "AND (t.isrc IS NOT NULL OR EXISTS (SELECT 1 FROM state WHERE key='spotify_links:' || t.id))"
+    # On a catch-up day the spare quota also covers older songs (normally skipped to save quota for new releases).
+    skip_old = "" if catchup else "AND coalesce(t.release_check, 'unknown') != 'old'"
     if catchup:
         log(f"Spotify: catch-up until {scfg['spotify_catchup_until']}: searching unlinked songs without waiting for web search")
     todo = conn.execute(
@@ -364,12 +366,12 @@ def spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until="999
            WHERE t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?
              AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='spotify')
              AND (t.spotify_checked_at IS NULL OR t.spotify_checked_at < ?)
-             AND coalesce(t.release_check, 'unknown') != 'old'
+             {skip_old}
              -- search engines first: only songs the web search (spotify_links) has already tried use a Spotify search,
              -- except songs with an ISRC (an exact lookup); songs searched before stop after 60 days
              {web_first}
              AND (t.spotify_checked_at IS NULL OR t.first_published >= date('now', '-60 day'))
-             AND (t.release_check IN ('new', 'conflict')
+             AND (t.release_check IN ('new', 'conflict', 'old')
                   OR (EXISTS (SELECT 1 FROM state WHERE key='itunes_lookup:' || t.id) OR EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='apple'))
                      AND (t.isrc IS NOT NULL OR EXISTS (SELECT 1 FROM state WHERE key='mb_lookup:' || t.id) OR EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='musicbrainz')))
            ORDER BY t.isrc IS NOT NULL DESC, t.release_check IN ('new', 'conflict') DESC, t.first_published DESC LIMIT ?""",
@@ -377,7 +379,7 @@ def spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until="999
     skipped = conn.execute("""SELECT count(*) FROM track t WHERE t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?
                               AND t.release_check='old' AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='spotify')""",
                            (since, until)).fetchone()[0]
-    if skipped:
+    if skipped and not catchup:
         log(f"Spotify: {skipped:,} older songs (release year verified from free sources) skipped to save quota")
     if not todo:
         log("Spotify: every song already looked up")
