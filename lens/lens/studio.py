@@ -995,6 +995,14 @@ def post_run(conn, body):
     return {"run_id": run_id}
 
 
+def api_live(conn, qs):
+    """Status page: per source read today / waiting, quota used and left, backlogs, and both job lanes."""
+    from . import live_status
+    y = api_youtube_status(conn, None)
+    return live_status.compute(conn, MANAGER, BROWSER, {"units_today": y["units_today"], "units_limit": y["units_limit"],
+                                                        "keys": len(y["keys"]), "resets": y["quota_resets"]})
+
+
 def api_alerts(conn, qs):
     """Developer alerts: checked now, with what is open, snoozed and recently closed."""
     alerts.sync(conn)
@@ -1534,9 +1542,9 @@ def api_youtube_status(conn, _):
     # The quota day starts at midnight Pacific time; run_log times are UTC ISO strings.
     day_start = datetime.fromtimestamp(next_reset() - 86400, timezone.utc).isoformat(timespec="seconds")
     units, by_key = 0, {}
-    for r in conn.execute("SELECT stats FROM run_log WHERE job IN ('youtube_sync','pipeline') AND started_at >= ?", (day_start,)):
+    for r in conn.execute("SELECT stats FROM run_log WHERE started_at >= ?", (day_start,)):  # every job using YouTube: sync and YouTube Music
         st = json.loads(r["stats"] or "{}")
-        units += st.get("quota_units") or 0
+        units += (st.get("quota_units") or 0) + (st.get("ytmusic_quota_units") or 0)
         for h, n in (st.get("quota_units_by_key") or {}).items():
             by_key[h] = by_key.get(h, 0) + n
     if last:
@@ -1959,7 +1967,7 @@ def fmt_n(n):
 GET = {"/api/coverage": api_coverage, "/api/insights": api_insights, "/api/insights/song": api_insights_song, "/api/ai/status": api_ai_status, "/api/ai/assist": api_ai_assist,
        "/api/meta/top": api_meta_top, "/api/meta/detail": api_meta_detail,
        "/api/merge/suggestions": api_merge_suggestions, "/api/status": api_status, "/api/overview": api_overview, "/api/crawl": api_crawl, "/api/client": api_client, "/api/search": api_search, "/api/dev": api_dev, "/api/tracks": api_tracks,
-       "/api/track": api_track, "/api/platform": api_platform, "/api/report": api_report, "/api/daily": api_daily, "/api/shorts": api_shorts, "/api/system": lambda conn, qs: sysstats.api(conn), "/api/alerts": api_alerts, "/api/charts": lambda conn, qs: alerts.charts_status(conn),
+       "/api/track": api_track, "/api/platform": api_platform, "/api/report": api_report, "/api/daily": api_daily, "/api/shorts": api_shorts, "/api/system": lambda conn, qs: sysstats.api(conn), "/api/alerts": api_alerts, "/api/live": api_live, "/api/charts": lambda conn, qs: alerts.charts_status(conn),
        "/api/collection": lambda conn, qs: collection.estimate(conn, overrides={k: qs[k] for k in collection.CHOICES if qs.get(k)}), "/api/items": api_items, "/api/song/compare": api_song_compare, "/api/items/history": api_item_history, "/api/runs": api_runs, "/api/seeds": api_seeds,
        "/api/artist_search": api_artist_search, "/api/health": api_health, "/api/outputs": api_outputs,
        "/api/outputs/preview": api_output_preview, "/api/raw": api_raw, "/api/raw/item": api_raw_item,

@@ -42,6 +42,7 @@
   <a class="nav dev-only" href="#insights"><svg viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>AI Insights</a>
   <a class="nav dev-only" href="#review"><svg viewBox="0 0 24 24"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/></svg>Review<span class="nav-badge" id="review-badge" style="display:none"></span></a>
   <a class="nav dev-only" href="#dev"><svg viewBox="0 0 24 24"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/></svg>Developer</a>
+  <a class="nav dev-only" href="#status"><svg viewBox="0 0 24 24"><path d="M3 12h4l2-5 4 10 2-5h6"/><circle cx="12" cy="12" r="10" stroke-opacity=".35"/></svg>Status</a>
   <a class="nav dev-only" href="#crawl"><svg viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>Crawl stats</a>
   <a class="nav dev-only" href="#schedule"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Collection schedule</a>
   <a class="nav dev-only" href="#charts"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Spotify chart</a>
@@ -439,6 +440,13 @@
   </section>
 
   <!-- SOURCES -->
+  <section class="page" id="page-status">
+    <div class="page-head"><div><h1>Status</h1><p>Today's collection at a glance: what was read and what is still waiting, quota used and left, what still has to be found, and what the jobs are doing.</p></div>
+      <span class="spacer"></span><span class="muted" id="st-at" style="font-size:12.5px"></span><button class="small" id="st-refresh">↻ Refresh</button></div>
+    <div class="grid g2" id="st-lanes"></div>
+    <div class="st-grid" id="st-cards" style="margin-top:16px"></div>
+  </section>
+
   <section class="page" id="page-schedule">
     <div class="page-head"><div><h1>Collection schedule</h1><p>How often each source is read, and what it costs a day. Every source is read at least once a day per song; daily numbers are kept for good.</p></div></div>
     <div class="grid g2">

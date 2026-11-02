@@ -1044,3 +1044,19 @@ header.top .icon-btn { flex: none; display: inline-flex; align-items: center; ju
 header.top .icon-btn svg { flex: none; }
 header.top .bell-wrap { flex: none; }
 #top-lastok { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto; }
+
+/* Status page */
+.st-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+.st-card { display: flex; flex-direction: column; gap: 10px; }
+.st-head { display: flex; gap: 12px; align-items: center; }
+.st-head h2 { margin: 0; }
+.st-ic { width: 34px; height: 34px; flex: none; border-radius: 10px; background: var(--ic) center / 22px no-repeat, var(--surface-2); border: 1px solid var(--border); }
+.st-big { display: flex; align-items: baseline; gap: 8px; } .st-big b { font-size: 26px; font-family: var(--head-font); } .st-big span { color: var(--text-secondary); font-size: 13px; }
+.st-bar { height: 8px; border-radius: 5px; background: var(--surface-3); overflow: hidden; }
+.st-bar span { display: block; height: 100%; border-radius: 5px; background: linear-gradient(90deg, var(--accent), var(--accent-2), var(--accent-3)); }
+.st-sub { font-size: 12.5px; color: var(--text-secondary); }
+.st-wait { color: var(--warning); font-weight: 600; } .st-done { color: var(--good-text); font-weight: 600; }
+.st-q { padding-top: 8px; border-top: 1px solid var(--border); } .st-ql { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 6px; }
+.st-back { font-size: 13px; padding: 8px 10px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--border); }
+.st-last { margin-top: auto; padding-top: 8px; border-top: 1px solid var(--border); font-size: 11.5px; color: var(--text-muted); }
+.st-log { margin: 10px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--surface-2); font-size: 11.5px; white-space: pre-wrap; max-height: 110px; overflow: auto; }

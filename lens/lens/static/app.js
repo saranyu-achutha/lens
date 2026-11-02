@@ -32,7 +32,7 @@ function toast(msg, bad = false) {
 let STATUS = null;
 
 /* ---------- Router ---------- */
-const PAGES = ["overview", "dashboard", "dev", "crawl", "apis", "charts", "schedule", "platforms", "reports", "daily", "pdata", "catalogue", "explore", "insights", "review", "runs", "outputs", "sources", "settings"];
+const PAGES = ["overview", "dashboard", "dev", "status", "crawl", "apis", "charts", "schedule", "platforms", "reports", "daily", "pdata", "catalogue", "explore", "insights", "review", "runs", "outputs", "sources", "settings"];
 // The client login sees only these pages (the server refuses everything else for it).
 const CLIENT_PAGES = ["dashboard", "platforms", "reports", "daily", "catalogue"];
 // A developer can switch to "Client view" to see exactly what the client sees (menu, pages, header); not remembered.
@@ -46,7 +46,7 @@ function route() {
   const sec = p === "apis" ? "crawl" : p;  // Crawl stats and API stats share one page layout
   document.querySelectorAll("section.page").forEach((s) => s.classList.toggle("active", s.id === `page-${sec}`));
   document.querySelectorAll("a.nav").forEach((a) => a.classList.toggle("active", a.getAttribute("href") === `#${p}`));
-  ({ overview: loadOverview, dashboard: loadClient, dev: loadDev, crawl: loadCrawl, apis: loadCrawl, charts: loadCharts, schedule: loadSchedule, platforms: loadPlatform, reports: loadReport, daily: loadDaily, pdata: loadPData, catalogue: loadCatalogue, explore: loadExplore, insights: loadInsights, review: loadReview, runs: loadRuns, outputs: loadOutputs, sources: loadSources, settings: loadSettings })[p]();
+  ({ overview: loadOverview, dashboard: loadClient, dev: loadDev, crawl: loadCrawl, apis: loadCrawl, charts: loadCharts, schedule: loadSchedule, status: loadStatus, platforms: loadPlatform, reports: loadReport, daily: loadDaily, pdata: loadPData, catalogue: loadCatalogue, explore: loadExplore, insights: loadInsights, review: loadReview, runs: loadRuns, outputs: loadOutputs, sources: loadSources, settings: loadSettings })[p]();
   const track = new URLSearchParams(location.hash.split("?")[1] || "").get("track");
   if (track) openTrack(track);
   const meta = new URLSearchParams(location.hash.split("?")[1] || "").get("meta");  // e.g. #explore?meta=singer:arijit singh
@@ -2086,3 +2086,41 @@ $("#sch-reset").onclick = () => { SCH.pick = { ...SCH.saved }; loadSchedule(true
 $("#sch-save").onclick = async () => {
   try { await api("/api/collection", SCH.pick); toast("Schedule saved: it applies from the next run"); loadSchedule(); } catch (e) { toast(e.message || String(e), true); }
 };
+
+/* ---------- Status: read today / waiting, quota used / left, backlogs, job lanes (refreshes every 30 s) ---------- */
+const stBar = (done, total) => { const p = total ? Math.min(100, (100 * done) / total) : 0;
+  return `<div class="st-bar"><span style="width:${p}%"></span></div>`; };
+function stCard(c) {
+  const rows = [];
+  if (c.total != null) {
+    const left = Math.max(0, c.total - c.read);
+    rows.push(`<div class="st-big"><b>${fmt(c.read)}</b><span>of ${fmt(c.total)} ${esc(c.unit)} read today</span></div>${stBar(c.read, c.total)}
+      <div class="st-sub">${left ? `<span class="st-wait">${fmt(left)} still to read today</span>` : `<span class="st-done">✓ all read today</span>`}</div>`);
+  }
+  if (c.quota) {
+    const q = c.quota, left = Math.max(0, q.limit - q.used);
+    rows.push(`<div class="st-q"><div class="st-ql"><span>Quota used</span><b>${fmt(q.used)} / ${fmt(q.limit)} ${esc(q.unit)}</b></div>${stBar(q.used, q.limit)}
+      <div class="st-sub"><b>${fmt(left)}</b> ${esc(q.unit)} left · ${esc(q.note)}</div></div>`);
+  }
+  if (c.api) rows.push(`<div class="st-sub">Spotify API: ${c.api.ok ? '<span class="st-done">answering</span>' : `<span class="st-wait">blocked${c.api.retry_at ? " until " + new Date(c.api.retry_at).toLocaleTimeString() : ""}</span>`}</div>`);
+  if (c.backlog) rows.push(`<div class="st-back"><b>${fmt(c.backlog.count)}</b> ${esc(c.backlog.label)}${c.backlog.due != null ? ` · <b>${fmt(c.backlog.due)}</b> ${esc(c.backlog.due_label)}` : ""}</div>`);
+  if (c.extra && c.extra.length) rows.push(kv(c.extra.map(([k, v]) => [esc(k), esc(typeof v === "number" ? fmt(v) : v)])));
+  const last = c.last ? `<div class="st-last">Last run: ${esc(c.last.job)} #${c.last.id} · ${esc(c.last.status)} · ${ago(c.last.started_at)}</div>` : "";
+  return `<div class="card st-card"><div class="st-head"><i class="st-ic ic-${c.icon}"></i><div><h2>${esc(c.name)}</h2><div class="muted" style="font-size:12px">${esc(c.what)}</div></div></div>${rows.join("")}${last}</div>`;
+}
+function stLane(name, l) {
+  const run = l.running ? `<span class="pill ok"><span class="dot"></span>running</span> <b>${esc(l.job)}</b> #${l.run_id} · started ${ago(l.started_at)}` : `<span class="pill"><span class="dot"></span>idle</span>`;
+  return `<div class="card"><div class="card-head"><h2>${name}</h2></div><div>${run}</div>
+    ${l.running && l.log && l.log.length ? `<pre class="st-log">${esc(l.log.join("\n"))}</pre>` : ""}
+    <div class="st-sub" style="margin-top:8px">Next: ${l.next ? `<b>${esc(l.next.job)}</b>: ${esc(l.next.why)}` : "nothing due right now"}</div></div>`;
+}
+let stTimer;
+async function loadStatus() {
+  clearTimeout(stTimer);
+  const d = await api("/api/live");
+  $("#st-at").textContent = `Day ${d.day} (server) · updated ${new Date(d.at).toLocaleTimeString()}`;
+  $("#st-lanes").innerHTML = stLane("API lane", d.lanes.api) + stLane("Browser lane", d.lanes.browser);
+  $("#st-cards").innerHTML = d.cards.map(stCard).join("");
+  stTimer = setTimeout(() => { if (location.hash.startsWith("#status")) loadStatus(); }, 30000);
+}
+$("#st-refresh").onclick = () => loadStatus();
