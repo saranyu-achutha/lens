@@ -632,9 +632,10 @@ def itunes_lookup(conn, cfg, since, until, ts, log, check, run_id):
 
 
 # Every song is read every day: daily numbers are kept for good and must have no gaps (user rule, 2026-11-02).
+# (the "read today" list is built once, not per song: the per-song form took minutes on the server)
 DEEZER_DUE = """t.isrc IS NOT NULL
-    AND NOT EXISTS (SELECT 1 FROM platform_item p JOIN snapshot s ON s.platform_item_id=p.id
-                    WHERE p.track_id=t.id AND p.platform='deezer' AND s.capture_date = :today)
+    AND t.id NOT IN (SELECT p.track_id FROM snapshot s JOIN platform_item p ON p.id=s.platform_item_id
+                     WHERE s.capture_date = :today AND s.metric='rank' AND p.platform='deezer' AND p.track_id IS NOT NULL)
     AND coalesce((SELECT value FROM state WHERE key='deezer_missing:' || t.isrc), '') < date(:today, '-7 day')"""
 
 
