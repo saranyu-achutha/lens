@@ -32,7 +32,7 @@ function toast(msg, bad = false) {
 let STATUS = null;
 
 /* ---------- Router ---------- */
-const PAGES = ["overview", "dashboard", "dev", "crawl", "apis", "charts", "platforms", "reports", "daily", "pdata", "catalogue", "explore", "insights", "review", "runs", "outputs", "sources", "settings"];
+const PAGES = ["overview", "dashboard", "dev", "crawl", "apis", "charts", "schedule", "platforms", "reports", "daily", "pdata", "catalogue", "explore", "insights", "review", "runs", "outputs", "sources", "settings"];
 // The client login sees only these pages (the server refuses everything else for it).
 const CLIENT_PAGES = ["dashboard", "platforms", "reports", "daily", "catalogue"];
 // A developer can switch to "Client view" to see exactly what the client sees (menu, pages, header); not remembered.
@@ -46,7 +46,7 @@ function route() {
   const sec = p === "apis" ? "crawl" : p;  // Crawl stats and API stats share one page layout
   document.querySelectorAll("section.page").forEach((s) => s.classList.toggle("active", s.id === `page-${sec}`));
   document.querySelectorAll("a.nav").forEach((a) => a.classList.toggle("active", a.getAttribute("href") === `#${p}`));
-  ({ overview: loadOverview, dashboard: loadClient, dev: loadDev, crawl: loadCrawl, apis: loadCrawl, charts: loadCharts, platforms: loadPlatform, reports: loadReport, daily: loadDaily, pdata: loadPData, catalogue: loadCatalogue, explore: loadExplore, insights: loadInsights, review: loadReview, runs: loadRuns, outputs: loadOutputs, sources: loadSources, settings: loadSettings })[p]();
+  ({ overview: loadOverview, dashboard: loadClient, dev: loadDev, crawl: loadCrawl, apis: loadCrawl, charts: loadCharts, schedule: loadSchedule, platforms: loadPlatform, reports: loadReport, daily: loadDaily, pdata: loadPData, catalogue: loadCatalogue, explore: loadExplore, insights: loadInsights, review: loadReview, runs: loadRuns, outputs: loadOutputs, sources: loadSources, settings: loadSettings })[p]();
   const track = new URLSearchParams(location.hash.split("?")[1] || "").get("track");
   if (track) openTrack(track);
   const meta = new URLSearchParams(location.hash.split("?")[1] || "").get("meta");  // e.g. #explore?meta=singer:arijit singh
@@ -2047,3 +2047,42 @@ $("#side-toggle").onclick = () => {
 sideLabel();
 
 $("#year").textContent = new Date().getFullYear();
+
+/* ---------- Collection schedule: choose how often, see the daily cost before saving ---------- */
+const SCH = { saved: null, pick: {} };
+const schLabel = (h) => h >= 24 ? "Once a day" : `Every ${h} hours`;
+const VERDICT = { comfortable: "ok", fine: "ok", tight: "warn", "over the limit": "bad" };
+function meter(title, used, limit, sub, verdict) {
+  const p = limit ? Math.min(100, (100 * used) / limit) : 0;
+  return `<div class="sch-meter"><div class="sch-mt">${title}<span class="pill ${VERDICT[verdict] || ""}"><span class="dot"></span>${esc(verdict)}</span></div>
+    <div class="sch-bar"><span style="width:${p}%"></span></div><div class="sch-ms">${sub}</div></div>`;
+}
+async function loadSchedule(preview) {
+  const q = new URLSearchParams(Object.fromEntries(Object.entries(SCH.pick).map(([k, v]) => [k, v])));
+  const d = await api("/api/collection" + (preview ? "?" + q : ""));
+  if (!preview) { SCH.saved = d.settings; SCH.pick = { ...d.settings }; }
+  document.querySelectorAll("#page-schedule .seg").forEach((el) => {
+    const k = el.dataset.setting;
+    el.innerHTML = d.choices[k].map((h) => `<button class="${SCH.pick[k] === h ? "on" : ""}" data-h="${h}">${schLabel(h)}${SCH.saved[k] === h ? '<small>current</small>' : ""}</button>`).join("");
+  });
+  const y = d.youtube, t = d.time, changed = Object.keys(SCH.pick).some((k) => SCH.pick[k] !== SCH.saved[k]);
+  $("#sch-meters").innerHTML =
+    meter("YouTube quota for readings", y.reads_units, y.units_limit, `<b>${fmt(y.reads_units)}</b> of ${fmt(y.units_limit)} units a day (${y.keys} keys) · ${Math.round(100 * y.share)}%. With YouTube Music searches (up to ${fmt(y.search_units)}): ${Math.round(100 * y.share_with_search)}%. Used in the last 24 h: ${fmt(y.measured_24h)}.`, y.verdict) +
+    meter("API lane time", t.api_lane_hours, 24, `<b>${t.api_lane_hours} h</b> of reading a day (JioSaavn, Shorts, Deezer), beside the songs job and lookups`, t.api_verdict) +
+    meter("Browser lane time", t.browser_lane_hours, 24, `<b>${t.browser_lane_hours} h</b> a day of Spotify and Instagram pages`, t.browser_verdict);
+  $("#sch-table").innerHTML = `<thead><tr><th>Source</th><th>How often</th><th class="num">Items</th><th class="num">Reads a day</th><th class="num">Daily cost</th></tr></thead><tbody>` +
+    d.sources.map((x) => `<tr><td><div class="t1">${esc(x.name)}</div>${x.detail ? `<div class="t2">${esc(x.detail)}</div>` : ""}</td><td>${esc(x.rule)}</td>
+      <td class="num">${fmt(x.items)}</td><td class="num">${fmt(x.reads)}</td><td class="num">${esc(x.cost)}</td></tr>`).join("") + "</tbody>";
+  $("#sch-save").disabled = !changed; $("#sch-reset").hidden = !changed;
+  $("#sch-state").textContent = changed ? "Preview of the new schedule (not saved yet)" : "Current schedule";
+}
+$("#page-schedule").addEventListener("click", (e) => {
+  const b = e.target.closest(".seg button[data-h]");
+  if (!b) return;
+  SCH.pick[b.closest(".seg").dataset.setting] = +b.dataset.h;
+  loadSchedule(true);
+});
+$("#sch-reset").onclick = () => { SCH.pick = { ...SCH.saved }; loadSchedule(true); };
+$("#sch-save").onclick = async () => {
+  try { await api("/api/collection", SCH.pick); toast("Schedule saved: it applies from the next run"); loadSchedule(); } catch (e) { toast(e.message || String(e), true); }
+};

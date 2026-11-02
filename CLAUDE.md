@@ -3,7 +3,7 @@
 Saranyu Technologies is building a release market-data platform for Times Music (client contact: Amit Bardhan; Saranyu lead: Suresh BG). The requirements are in the email thread at `lens/req..html` (the filename has two dots).
 
 - **Phase 0 targets:** at least 95% of releases discovered within 24 hours, at least 90% matched across platforms, at least 99% of daily readings captured, and at most 10% of matches needing manual review.
-- **Data rules:** daily snapshots kept indefinitely. YouTube is read every 6 hours in a video's first 7 days.
+- **Data rules:** daily snapshots kept indefinitely. The client asked for YouTube every 6 hours in a video's first 7 days; on 2026-11-02 the user set every source, YouTube included, to one reading a day per item (`youtube.fresh_every_hours` = 24, `songs.jiosaavn_refresh_hours` = 24; both changeable on the Console's Collection schedule page).
 - **Output:** a model ready for Power BI.
 - **No AI or ML:** all matching is rule-based.
 

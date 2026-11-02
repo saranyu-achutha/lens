@@ -25,7 +25,7 @@ from pathlib import Path
 
 import threading
 
-from . import ai, alerts, config, crawl_stats, db, health, insights, jobs, merge, metadata, review, song_daily, songs, spotify_charts, sysstats
+from . import ai, alerts, collection, config, crawl_stats, db, health, insights, jobs, merge, metadata, review, song_daily, songs, spotify_charts, sysstats
 from .discover_spotify import EXPORT_SQL
 from .spotify import Spotify, SpotifyError
 
@@ -1959,13 +1959,15 @@ def fmt_n(n):
 GET = {"/api/coverage": api_coverage, "/api/insights": api_insights, "/api/insights/song": api_insights_song, "/api/ai/status": api_ai_status, "/api/ai/assist": api_ai_assist,
        "/api/meta/top": api_meta_top, "/api/meta/detail": api_meta_detail,
        "/api/merge/suggestions": api_merge_suggestions, "/api/status": api_status, "/api/overview": api_overview, "/api/crawl": api_crawl, "/api/client": api_client, "/api/search": api_search, "/api/dev": api_dev, "/api/tracks": api_tracks,
-       "/api/track": api_track, "/api/platform": api_platform, "/api/report": api_report, "/api/daily": api_daily, "/api/shorts": api_shorts, "/api/system": lambda conn, qs: sysstats.api(conn), "/api/alerts": api_alerts, "/api/charts": lambda conn, qs: alerts.charts_status(conn), "/api/items": api_items, "/api/song/compare": api_song_compare, "/api/items/history": api_item_history, "/api/runs": api_runs, "/api/seeds": api_seeds,
+       "/api/track": api_track, "/api/platform": api_platform, "/api/report": api_report, "/api/daily": api_daily, "/api/shorts": api_shorts, "/api/system": lambda conn, qs: sysstats.api(conn), "/api/alerts": api_alerts, "/api/charts": lambda conn, qs: alerts.charts_status(conn),
+       "/api/collection": lambda conn, qs: collection.estimate(conn, overrides={k: qs[k] for k in collection.CHOICES if qs.get(k)}), "/api/items": api_items, "/api/song/compare": api_song_compare, "/api/items/history": api_item_history, "/api/runs": api_runs, "/api/seeds": api_seeds,
        "/api/artist_search": api_artist_search, "/api/health": api_health, "/api/outputs": api_outputs,
        "/api/outputs/preview": api_output_preview, "/api/raw": api_raw, "/api/raw/item": api_raw_item,
        "/api/matching": api_matching, "/api/matching/candidates": api_match_candidates,
        "/api/youtube/status": api_youtube_status, "/api/review/decisions": api_decisions}
 POST = {"/api/config": post_config, "/api/secrets": post_secrets, "/api/test/spotify": post_test_spotify,
         "/api/seeds": post_seeds, "/api/run": post_run, "/api/cancel": post_cancel, "/api/instagram/link": post_instagram_link, "/api/alerts/snooze": post_alert_snooze, "/api/charts/token": post_charts_token,
+        "/api/collection": lambda conn, body: (collection.save(body), collection.estimate(conn))[1],
         "/api/matching/decide": post_match_decide, "/api/matching/link": post_match_link,
         "/api/youtube/channel": post_youtube_channel, "/api/youtube/label": post_youtube_label,
         # Live Claude endpoints (lens/ai.py) are switched off until the API integration: add

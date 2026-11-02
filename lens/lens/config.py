@@ -38,6 +38,7 @@ DEFAULTS = {
     },
     "youtube": {
         "enabled": True,
+        "fresh_every_hours": 24,  # videos in their first `fresh_days`: read every N hours (6, 12 or 24 = once a day)
         "every_hours": 6,     # sync cadence; videos in their first `fresh_days` are read every run
         "fresh_days": 7,
         "lookback_days": 31,  # also collect videos published this long before the release window

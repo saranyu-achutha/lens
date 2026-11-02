@@ -1,8 +1,8 @@
 """YouTube sync: collect uploads of the labels' channels, read view/like/comment counts,
 and match videos to Spotify tracks with fixed rules (lens.match).
 
-Readings: every run for videos published in the last `fresh_days` (the studio runs this every 6 h),
-otherwise once a day. Quota: playlistItems and videos cost 1 unit per 50 items, so a run uses a few
+Readings: once a day per video; videos published in the last `fresh_days` can be read more often
+(youtube.fresh_every_hours: 6, 12 or 24; 24 = once a day like everything else). Quota: playlistItems and videos cost 1 unit per 50 items, so a run uses a few
 hundred of the 10,000 daily units.
 """
 import csv
@@ -83,7 +83,9 @@ def take_readings(conn, yt, ycfg, channels, pool_start, ts, log, check, flush_ra
     today = ts[:10]
     titles = [c["title"] for c in channels]
     fresh_from = (datetime.now(timezone.utc) - timedelta(days=ycfg["fresh_days"])).isoformat()
-    six_h_ago = (datetime.now(timezone.utc) - timedelta(hours=5, minutes=30)).isoformat()
+    every = float(ycfg.get("fresh_every_hours", 24))
+    # a new video's next reading: `every` hours after the last one (half an hour early, so a 6-hourly run never just misses)
+    six_h_ago = today if every >= 24 else (datetime.now(timezone.utc) - timedelta(hours=every - 0.5)).isoformat()
     due = [r["platform_id"] for r in conn.execute(
         """SELECT pi.platform_id FROM platform_item pi
            WHERE pi.platform='youtube' AND pi.published_at >= ?  -- only uploads from the period start on, linked or not
