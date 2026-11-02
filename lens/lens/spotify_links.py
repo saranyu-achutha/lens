@@ -115,11 +115,10 @@ def run(conn, cfg, secrets, since, until, ts, log, check):
         """SELECT t.id, coalesce(t.yt_title, t.title) title,
                   (SELECT value FROM song_meta m WHERE m.track_id=t.id AND m.field='singer' ORDER BY position LIMIT 1) singer FROM track t
            WHERE t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?
-             AND coalesce(t.release_check, 'unknown') != 'old' AND coalesce(t.release_status, '') != 'catalogue'
              AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='spotify')
              AND coalesce((SELECT value FROM state WHERE key='spotify_links:' || t.id), '') < ?
              AND (EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='musicbrainz') OR ?)
-           ORDER BY t.first_published DESC LIMIT ?""",
+           ORDER BY coalesce(t.release_check, '') = 'old', t.first_published DESC LIMIT ?""",  # new releases first, older songs after
         (since, until, (date.today() - timedelta(days=7)).isoformat(), 1 if key or web else 0,
          cfg["songs"].get("spotify_links_per_run", 300))).fetchall()
     if not todo:

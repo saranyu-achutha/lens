@@ -103,7 +103,7 @@ DEFAULTS = {
         # Per-run limits of the other sources (each respects its own rate or quota; a backlog spreads over runs).
         "itunes_per_run": 300,              # ~20 calls a minute
         "musicbrainz_per_run": 600,         # 1 call a second
-        "spotify_links_per_run": 100,             # Spotify IDs from MusicBrainz links / Odesli (ODESLI_API_KEY) before searching
+        "spotify_links_per_run": 200,             # Spotify IDs from MusicBrainz links / Odesli (ODESLI_API_KEY) before searching
         "odesli_pace_seconds": 6.5,         # Odesli allows about 10 calls a minute
         "jiosaavn_refresh_hours": 3,        # JioSaavn has no quota: read play counts again during the day
         "spotify_web_search": True,         # also look for Spotify links through DuckDuckGo / Bing (checked by the match rules)
