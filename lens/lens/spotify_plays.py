@@ -116,10 +116,11 @@ class _WS:
 
     def call(self, method, **params):
         self.n += 1
-        self.send({"id": self.n, "method": method, "params": params})
+        want = self.n
+        self.send({"id": want, "method": method, "params": params})
         while True:
             m = self.recv()
-            if m.get("id") == self.n:
+            if m.get("id") == want:
                 return m.get("result", {})
 
 
@@ -134,7 +135,7 @@ READ_JS = """(() => { const p = document.querySelector('[data-testid="playcount"
 
 # Images, audio and video are not needed for the play count (blocking styles or scripts breaks Spotify's page).
 BLOCK = ["*.jpg*", "*.jpeg*", "*.png*", "*.webp*", "*.gif*", "*.mp3*", "*.mp4*", "*.m4a*", "*i.scdn.co/image*", "*mosaic.scdn.co*"]
-TAB_PAGES = 100  # a fresh tab every 100 pages keeps memory flat on long runs
+TAB_PAGES = 1  # a fresh tab for every track: a second Spotify page in the same tab hangs (since late Oct 2026)
 BATCH = 150      # tracks per browser start in the Console job
 
 
