@@ -373,7 +373,40 @@ $("#cl-labels").addEventListener("click", (e) => { const tr = e.target.closest("
 const runFor = (r) => { if (!r.finished_at) return "running"; const m = Math.round((new Date(r.finished_at) - new Date(r.started_at)) / 60000); return m < 60 ? `${m} min` : `${(m / 60).toFixed(1)} h`; };
 const gb = (b) => b == null ? "–" : `${(b / 1e9).toFixed(1)} GB`;
 const kv = (rows) => `<div class="kv">${rows.map(([k, v]) => `<div class="muted">${k}</div><div>${v}</div>`).join("")}</div>`;
+/* Server health: CPU, memory, swap, disk, folder sizes, hourly trend (lightweight: counters only) */
+const bytes = (b) => b == null ? "–" : b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : `${Math.round(b / 1e6)} MB`;
+const pctBar = (label, used, total, sub) => { const p = total ? (100 * used) / total : 0;
+  return `<div class="bar-row"><span class="bar-name">${label}</span><span class="bar-track"><span class="bar-fill" style="width:${Math.min(100, p)}%;background:${p > 90 ? "var(--critical)" : p > 75 ? "var(--warning)" : "var(--accent)"}"></span></span>
+    <span class="bar-val">${Math.round(p)}% <span class="muted">${sub}</span></span></div>`; };
+const uptime = (s) => { if (s == null) return "–"; const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600); return d ? `${d} d ${h} h` : `${h} h ${Math.floor((s % 3600) / 60)} min`; };
+async function loadSystem() {
+  const s = await api("/api/system");
+  const h = s.history;
+  $("#sys-host").textContent = [s.host, s.distro || s.os, s.arch].filter(Boolean).join(" · ");
+  $("#sys-now").innerHTML = pctBar("CPU", s.cpu_pct || 0, 100, `${s.cores} cores`) +
+    pctBar("Memory", s.mem_used, s.mem_total, `${bytes(s.mem_used)} of ${bytes(s.mem_total)}`) +
+    (s.swap_total ? pctBar("Swap", s.swap_used, s.swap_total, `${bytes(s.swap_used)} of ${bytes(s.swap_total)}`) : "") +
+    pctBar("Disk", s.disk_used, s.disk_total, `${bytes(s.disk_free)} free`) +
+    kv([["Load (1 / 5 / 15 min)", s.load ? s.load.join(" / ") : "–"], ["Up for", uptime(s.uptime_s)], ["Console memory", bytes(s.console_rss)],
+      ["Network since boot", `↓ ${bytes(s.network.rx)} · ↑ ${bytes(s.network.tx)}`], ["Python", esc(s.python)]]);
+  const pts = (k) => h.samples.filter((x) => x[k] != null).map((x) => ({ x: x.at.slice(5, 13).replace("T", " "), y: x[k] }));
+  const diskPct = h.samples.filter((x) => x.disk_total).map((x) => ({ x: x.at.slice(5, 13).replace("T", " "), y: Math.round((1000 * x.disk_used) / x.disk_total) / 10 }));
+  const series = [{ name: "CPU", color: "var(--accent)", points: pts("cpu_pct") }, { name: "Memory", color: "var(--accent-2)", points: pts("mem_pct") },
+    { name: "Disk", color: "var(--c-jiosaavn)", points: diskPct }];
+  if (h.samples.length >= 2) { multiLine($("#sys-trend"), series, { height: 180 }); $("#sys-legend").innerHTML = series.map((x) => `<span><span style="display:inline-block;width:12px;height:3px;background:${x.color};vertical-align:middle;margin-right:5px"></span>${x.name}</span>`).join(""); }
+  else { $("#sys-trend").innerHTML = `<div class="empty">A sample is stored every hour; the trend appears after two.</div>`; $("#sys-legend").innerHTML = ""; }
+  const g = h.disk_growth_per_day;
+  $("#sys-disk").innerHTML = kv([["Free", `${bytes(s.disk_free)} of ${bytes(s.disk_total)}`],
+    ["Growing", g == null ? "measured after 12 hours of samples" : `${g >= 0 ? "+" : ""}${(g / 1e9).toFixed(2)} GB a day`],
+    ["Full in", h.disk_days_left == null ? "–" : `about ${fmt(h.disk_days_left)} days${h.disk_days_left < 30 ? ' <span class="pill bad"><span class="dot"></span>soon</span>' : ""}`]]);
+  const tot = s.folders.reduce((a, f) => a + f.bytes, 0);
+  $("#sys-folders").innerHTML = `<thead><tr><th>Folder</th><th class="num">Size</th><th class="num">Share of disk</th></tr></thead><tbody>` +
+    s.folders.map((f) => `<tr><td>${esc(f.name)}</td><td class="num">${bytes(f.bytes)}</td><td class="num">${((100 * f.bytes) / s.disk_total).toFixed(1)}%</td></tr>`).join("") +
+    `</tbody><tfoot><tr><td><b>App data</b></td><td class="num"><b>${bytes(tot)}</b></td><td class="num">${((100 * tot) / s.disk_total).toFixed(1)}%</td></tr>
+     <tr><td colspan="3" class="muted" style="font-size:12px">Folder sizes are added up at most every 6 hours.</td></tr></tfoot>`;
+}
 async function loadDev() {
+  loadSystem().catch(() => {});
   const d = await api("/api/dev");
   $("#dev-targets").innerHTML = d.targets.map((t) => {
     const ok = t.value != null && (t.lower ? t.value <= t.target : t.value >= t.target);
