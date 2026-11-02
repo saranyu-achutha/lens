@@ -353,15 +353,21 @@ def spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until="999
     # MusicBrainz have had their try.
     from . import release_year
     release_year.ensure(conn)
+    # Catch-up day (songs.spotify_catchup_until, a date): until then every unlinked song may use the Spotify search
+    # without waiting for a web-search try first; afterwards the normal order returns by itself.
+    catchup = (scfg.get("spotify_catchup_until") or "") >= date.today().isoformat()
+    web_first = "" if catchup else "AND (t.isrc IS NOT NULL OR EXISTS (SELECT 1 FROM state WHERE key='spotify_links:' || t.id))"
+    if catchup:
+        log(f"Spotify: catch-up until {scfg['spotify_catchup_until']}: searching unlinked songs without waiting for web search")
     todo = conn.execute(
-        """SELECT t.id, t.title, t.song_key, t.isrc FROM track t
+        f"""SELECT t.id, t.title, t.song_key, t.isrc FROM track t
            WHERE t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?
              AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='spotify')
              AND (t.spotify_checked_at IS NULL OR t.spotify_checked_at < ?)
              AND coalesce(t.release_check, 'unknown') != 'old'
              -- search engines first: only songs the web search (spotify_links) has already tried use a Spotify search,
              -- except songs with an ISRC (an exact lookup); songs searched before stop after 60 days
-             AND (t.isrc IS NOT NULL OR EXISTS (SELECT 1 FROM state WHERE key='spotify_links:' || t.id))
+             {web_first}
              AND (t.spotify_checked_at IS NULL OR t.first_published >= date('now', '-60 day'))
              AND (t.release_check IN ('new', 'conflict')
                   OR (EXISTS (SELECT 1 FROM state WHERE key='itunes_lookup:' || t.id) OR EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='apple'))
