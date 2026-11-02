@@ -25,7 +25,7 @@ from pathlib import Path
 
 import threading
 
-from . import ai, config, crawl_stats, db, health, insights, jobs, merge, metadata, review, song_daily, songs, spotify_charts, sysstats
+from . import ai, alerts, config, crawl_stats, db, health, insights, jobs, merge, metadata, review, song_daily, songs, spotify_charts, sysstats
 from .discover_spotify import EXPORT_SQL
 from .spotify import Spotify, SpotifyError
 
@@ -995,6 +995,23 @@ def post_run(conn, body):
     return {"run_id": run_id}
 
 
+def api_alerts(conn, qs):
+    """Developer alerts: checked now, with what is open, snoozed and recently closed."""
+    alerts.sync(conn)
+    return alerts.listing(conn)
+
+
+def post_alert_snooze(conn, body):
+    alerts.snooze(conn, body["key"], int(body.get("hours", 24)))
+    return alerts.listing(conn)
+
+
+def post_charts_token(conn, body):
+    """Save a charts.spotify.com session token (never sent back) and import the missing chart days in the background."""
+    alerts.save_charts_token(body.get("token"))
+    return {"started": alerts.import_charts()}
+
+
 def post_instagram_link(conn, body):
     """Developer: attach an Instagram audio link to a song (or remove one with remove=<item id>)."""
     from . import instagram_audio
@@ -1825,45 +1842,6 @@ def api_crawl(conn, qs):
 
 
 # ---------- Developer dashboard: is the system healthy and on target? ----------
-# Data freshness (Developer): the newest reading per source; a source that stops quietly (an expired token, a blocked
-# browser, a page whose layout changed) shows up here. Max age in days before it is flagged.
-FRESHNESS = [
-    ("YouTube views", "SELECT max(s.capture_date) FROM snapshot s JOIN platform_item p ON p.id=s.platform_item_id WHERE p.platform='youtube' AND s.metric='views'", 1),
-    ("YouTube Music plays", "SELECT max(s.capture_date) FROM snapshot s JOIN platform_item p ON p.id=s.platform_item_id WHERE p.platform='ytmusic' AND s.metric='plays'", 1),
-    ("Spotify plays (pages)", "SELECT max(s.capture_date) FROM snapshot s JOIN platform_item p ON p.id=s.platform_item_id WHERE p.platform='spotify' AND s.metric='plays'", 1),
-    ("JioSaavn plays", "SELECT max(s.capture_date) FROM snapshot s JOIN platform_item p ON p.id=s.platform_item_id WHERE p.platform='jiosaavn' AND s.metric='plays'", 1),
-    ("Deezer rank", "SELECT max(s.capture_date) FROM snapshot s JOIN platform_item p ON p.id=s.platform_item_id WHERE p.platform='deezer' AND s.metric='rank'", 1),
-    ("YouTube Shorts (sound pages)", "SELECT max(day) FROM sound_use WHERE platform='youtube'", 1),
-    ("Instagram Reels (audio pages)", "SELECT max(day) FROM sound_use WHERE platform='instagram'", 1),
-    ("Spotify India chart", "SELECT max(chart_date) FROM chart_entry WHERE chart='regional-in-daily'", 3),
-]
-READERS = {"shorts": ("shorts_sounds_read", "shorts_pages_failed"), "instagram": ("instagram_read", "instagram_failed"),
-           "jiosaavn": ("jiosaavn_read", None), "spotify_plays": ("spotify_plays_read", None)}
-
-
-def freshness(conn, today):
-    """Newest reading per source, and page readers that read nothing in their runs of the last 24 hours."""
-    from . import shorts_use
-    shorts_use.ensure(conn)
-    out = []
-    for name, sql, max_age in FRESHNESS:
-        try:
-            last = conn.execute(sql).fetchone()[0]
-        except sqlite3.OperationalError:
-            last = None
-        age = (date.fromisoformat(today) - date.fromisoformat(last[:10])).days if last else None
-        out.append({"source": name, "last": last, "age_days": age, "ok": age is not None and age <= max_age, "max_age": max_age})
-    zero = []
-    since = (datetime.now().astimezone() - timedelta(hours=24)).isoformat(timespec="seconds")
-    for job, (read_key, fail_key) in READERS.items():
-        runs = [json.loads(r[0] or "{}") for r in conn.execute("SELECT stats FROM run_log WHERE started_at >= ? AND stats LIKE ?", (since, f'%"{read_key}"%'))]
-        read = sum(int(r.get(read_key) or 0) for r in runs)
-        failed = sum(int(r.get(fail_key) or 0) for r in runs) if fail_key else 0
-        if runs and read == 0 and (failed or not fail_key):
-            zero.append({"job": job, "runs": len(runs), "failed": failed})
-    return {"sources": out, "zero_reads": zero}
-
-
 def api_dev(conn, qs):
     import shutil
     from . import spotify_plays
@@ -1963,7 +1941,7 @@ def api_dev(conn, qs):
     return {"today": today, "yesterday": yday, "since": since, "until": until, "songs": n_songs, "targets": targets,
             "job": MANAGER.state(10**9), "browser_job": BROWSER.state(10**9), "worker": cfg.get("worker", {}), "next": {"job": nxt[0], "why": nxt[1]} if nxt else None,
             "jobs": sorted(by_job.values(), key=lambda j: j["last"]["started_at"], reverse=True), "failures": failures,
-            "freshness": freshness(conn, today),
+            "freshness": alerts.freshness(conn, today),
             "readings": readings, "backlog": backlog,
             "youtube": {"units_today": units, "units_limit": DAILY_UNITS * max(len(keys), 1), "keys": key_status(keys),
                         "resets": datetime.fromtimestamp(next_reset(), timezone.utc).isoformat(timespec="minutes")},
@@ -1981,13 +1959,13 @@ def fmt_n(n):
 GET = {"/api/coverage": api_coverage, "/api/insights": api_insights, "/api/insights/song": api_insights_song, "/api/ai/status": api_ai_status, "/api/ai/assist": api_ai_assist,
        "/api/meta/top": api_meta_top, "/api/meta/detail": api_meta_detail,
        "/api/merge/suggestions": api_merge_suggestions, "/api/status": api_status, "/api/overview": api_overview, "/api/crawl": api_crawl, "/api/client": api_client, "/api/search": api_search, "/api/dev": api_dev, "/api/tracks": api_tracks,
-       "/api/track": api_track, "/api/platform": api_platform, "/api/report": api_report, "/api/daily": api_daily, "/api/shorts": api_shorts, "/api/system": lambda conn, qs: sysstats.api(conn), "/api/items": api_items, "/api/song/compare": api_song_compare, "/api/items/history": api_item_history, "/api/runs": api_runs, "/api/seeds": api_seeds,
+       "/api/track": api_track, "/api/platform": api_platform, "/api/report": api_report, "/api/daily": api_daily, "/api/shorts": api_shorts, "/api/system": lambda conn, qs: sysstats.api(conn), "/api/alerts": api_alerts, "/api/items": api_items, "/api/song/compare": api_song_compare, "/api/items/history": api_item_history, "/api/runs": api_runs, "/api/seeds": api_seeds,
        "/api/artist_search": api_artist_search, "/api/health": api_health, "/api/outputs": api_outputs,
        "/api/outputs/preview": api_output_preview, "/api/raw": api_raw, "/api/raw/item": api_raw_item,
        "/api/matching": api_matching, "/api/matching/candidates": api_match_candidates,
        "/api/youtube/status": api_youtube_status, "/api/review/decisions": api_decisions}
 POST = {"/api/config": post_config, "/api/secrets": post_secrets, "/api/test/spotify": post_test_spotify,
-        "/api/seeds": post_seeds, "/api/run": post_run, "/api/cancel": post_cancel, "/api/instagram/link": post_instagram_link,
+        "/api/seeds": post_seeds, "/api/run": post_run, "/api/cancel": post_cancel, "/api/instagram/link": post_instagram_link, "/api/alerts/snooze": post_alert_snooze, "/api/charts/token": post_charts_token,
         "/api/matching/decide": post_match_decide, "/api/matching/link": post_match_link,
         "/api/youtube/channel": post_youtube_channel, "/api/youtube/label": post_youtube_label,
         # Live Claude endpoints (lens/ai.py) are switched off until the API integration: add

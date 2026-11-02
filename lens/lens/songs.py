@@ -623,16 +623,15 @@ def itunes_lookup(conn, cfg, since, until, ts, log, check, run_id):
     return {"itunes_matched": found, "itunes_not_found": missing}
 
 
-# Deezer rank hardly moves once a song settles (81% unchanged after a week): daily in a song's first 30 days, then weekly.
+# Every song is read every day: daily numbers are kept for good and must have no gaps (user rule, 2026-11-02).
 DEEZER_DUE = """t.isrc IS NOT NULL
     AND NOT EXISTS (SELECT 1 FROM platform_item p JOIN snapshot s ON s.platform_item_id=p.id
-                    WHERE p.track_id=t.id AND p.platform='deezer' AND s.capture_date >= CASE
-                      WHEN t.first_published >= date(:today, '-30 day') THEN :today ELSE date(:today, '-6 day') END)
+                    WHERE p.track_id=t.id AND p.platform='deezer' AND s.capture_date = :today)
     AND coalesce((SELECT value FROM state WHERE key='deezer_missing:' || t.isrc), '') < date(:today, '-7 day')"""
 
 
 def deezer_readings(conn, cfg, since, ts, log, check, run_id):
-    """Deezer rank per ISRC (free API, no key): daily in a song's first 30 days, then weekly (DEEZER_DUE)."""
+    """Daily Deezer rank per ISRC (free API, no key). One call per song per day."""
     today = ts[:10]
     rows = conn.execute(
         f"""SELECT t.id, t.isrc FROM track t LEFT JOIN release r ON r.id=t.release_id

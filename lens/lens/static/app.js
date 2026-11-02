@@ -407,6 +407,7 @@ async function loadSystem() {
 }
 async function loadDev() {
   loadSystem().catch(() => {});
+  loadAlerts();
   const d = await api("/api/dev");
   const fr = d.freshness;
   $("#dev-fresh").innerHTML = `<div class="fresh-grid">${fr.sources.map((x) => `<div class="fresh ${x.last == null ? "none" : x.ok ? "ok" : "bad"}"><span class="dot"></span><div><div class="t1">${esc(x.source)}</div>
@@ -1959,3 +1960,83 @@ const closeMenu = () => document.body.classList.remove("menu-open");
 $("#menu-btn").onclick = () => document.body.classList.toggle("menu-open");
 $("#nav-bg").onclick = closeMenu;
 document.querySelectorAll("a.nav").forEach((a) => a.addEventListener("click", closeMenu));
+
+/* ---------- Alerts (Developer): bell, panel, desktop notifications, the chart-token form ---------- */
+const AL = { data: null, seen: new Set(JSON.parse((() => { try { return localStorage.getItem("ml-alerts-seen") || "[]"; } catch { return "[]"; } })())) };
+const SEV = { critical: "Critical", warning: "Needs attention", info: "Info" };
+const alertAction = (a) => a.action === "charts_token" ? `<button class="small primary" data-al-token>Paste session token</button>`
+  : a.action && a.action.startsWith("open:") ? `<button class="small" data-al-open="${esc(a.action.slice(5))}">Open</button>` : "";
+const alertRow = (a) => `<div class="al al-${a.severity}${a.snoozed ? " al-snoozed" : ""}"><span class="dot"></span><div class="al-body">
+    <div class="t1">${esc(a.title)}</div><div class="t2">${esc(a.detail || "")}</div>
+    <div class="al-meta">${SEV[a.severity] || ""} · since ${ago(a.first_seen)}${a.snoozed ? ` · snoozed until ${new Date(a.snoozed_until).toLocaleString()}` : ""}</div>
+    <div class="al-btns">${alertAction(a)}${a.snoozed ? `<button class="small" data-al-snooze="${esc(a.key)}" data-h="0">Unsnooze</button>` : `<button class="small" data-al-snooze="${esc(a.key)}" data-h="24">Snooze 24 h</button>`}</div></div></div>`;
+function renderAlerts() {
+  const d = AL.data; if (!d) return;
+  const n = d.count;
+  $("#bell-n").hidden = !n; $("#bell-n").textContent = n > 9 ? "9+" : n;
+  $("#bell").classList.toggle("has-critical", d.active.some((a) => a.severity === "critical" && !a.snoozed));
+  const charts = d.charts.running ? `<div class="al-note">Importing Spotify chart data…</div>` : d.charts.message ? `<div class="al-note">Last chart import: ${esc(d.charts.message)}</div>` : "";
+  const html = (d.active.length ? d.active.map(alertRow).join("") : `<div class="empty" style="padding:14px">All clear: every source is reading normally.</div>`) + charts +
+    (d.resolved.length ? `<div class="al-res"><div class="muted" style="font-size:11.5px;margin:10px 0 4px;text-transform:uppercase;letter-spacing:.05em">Closed recently</div>${d.resolved.map((r) =>
+      `<div class="t2">✓ ${esc(r.title)} <span class="muted">· ${ago(r.resolved_at)}</span></div>`).join("")}</div>` : "");
+  $("#alerts-list").innerHTML = html;
+  if ($("#dev-alerts")) { $("#dev-alerts-card").hidden = !d.active.length; $("#dev-alerts").innerHTML = d.active.map(alertRow).join("") + charts; }
+  const perm = "Notification" in window ? Notification.permission : "unsupported";
+  $("#notif-btn").textContent = perm === "granted" ? "🔔 Desktop alerts on" : perm === "denied" ? "Desktop alerts blocked" : perm === "unsupported" ? "Desktop alerts: not available" : "Enable desktop alerts";
+  $("#notif-btn").disabled = perm !== "default";
+}
+async function loadAlerts() {
+  if (!STATUS || STATUS.role !== "developer") return;
+  try { AL.data = await api("/api/alerts"); } catch { return; }
+  // A desktop notification for each alert that opened since this browser last looked (critical and warning only)
+  const fresh = AL.data.active.filter((a) => !a.snoozed && a.severity !== "info" && !AL.seen.has(a.key + "|" + a.first_seen));
+  if (fresh.length && "Notification" in window && Notification.permission === "granted" && document.visibilityState !== "visible")
+    fresh.forEach((a) => { try { new Notification(`Market Lens: ${a.title}`, { body: a.detail || "", tag: a.key }); } catch {} });
+  fresh.forEach((a) => AL.seen.add(a.key + "|" + a.first_seen));
+  try { localStorage.setItem("ml-alerts-seen", JSON.stringify([...AL.seen].slice(-200))); } catch {}
+  renderAlerts();
+}
+$("#bell").onclick = (e) => { e.stopPropagation(); const p = $("#alerts-panel"); p.hidden = !p.hidden; if (!p.hidden) loadAlerts(); };
+document.addEventListener("click", (e) => { if (!e.target.closest(".bell-wrap") && !e.target.closest(".cbox-bg")) $("#alerts-panel").hidden = true; });
+$("#notif-btn").onclick = async () => { if ("Notification" in window) { await Notification.requestPermission(); renderAlerts(); } };
+document.addEventListener("click", async (e) => {
+  const sn = e.target.closest("[data-al-snooze]");
+  if (sn) { AL.data = await api("/api/alerts/snooze", { key: sn.dataset.alSnooze, hours: +sn.dataset.h }); renderAlerts(); return; }
+  const op = e.target.closest("[data-al-open]");
+  if (op) { $("#alerts-panel").hidden = true; location.hash = "#" + op.dataset.alOpen; return; }
+  if (e.target.closest("[data-al-token]")) chartsTokenForm();
+});
+function chartsTokenForm() {
+  const w = document.createElement("div");
+  w.className = "cbox-bg";
+  w.innerHTML = `<div class="cbox" style="width:min(560px,100%)" role="dialog" aria-modal="true"><div class="cbox-icon" style="background:var(--c-spotify);color:#0b0b0b">♪</div>
+    <h2>Import the Spotify India chart</h2>
+    <p>The chart is only available to a logged-in charts.spotify.com session, so it needs that session's token (valid for about an hour):</p>
+    <ol class="steps"><li>Open <a href="https://charts.spotify.com/charts/view/regional-in-daily/latest" target="_blank" rel="noopener">charts.spotify.com</a> and log in.</li>
+      <li>Press <b>F12</b>, open the <b>Network</b> tab, and reload the page.</li>
+      <li>Click a request to <b>charts-spotify-com-service.spotify.com</b>, and under Request Headers copy the <b>authorization</b> value (it starts with <b>Bearer BQ…</b>).</li>
+      <li>Paste it below. It is saved only on the server and never shown again.</li></ol>
+    <textarea id="ct-token" rows="4" style="width:100%;font-family:var(--mono);font-size:12px" placeholder="Bearer BQ…"></textarea>
+    <div class="muted" id="ct-msg" style="font-size:12.5px;margin:8px 0 12px;min-height:18px"></div>
+    <div class="cbox-btns"><button class="cbox-no">Close</button><button class="primary cbox-yes">Save and import</button></div></div>`;
+  const close = () => { clearInterval(w.timer); w.remove(); };
+  w.addEventListener("click", (e) => { if (e.target === w) close(); });
+  w.querySelector(".cbox-no").onclick = close;
+  w.querySelector(".cbox-yes").onclick = async () => {
+    const msg = w.querySelector("#ct-msg");
+    try {
+      await api("/api/charts/token", { token: w.querySelector("#ct-token").value });
+      w.querySelector("#ct-token").value = "";
+      msg.textContent = "Saved. Importing the missing chart days…";
+      w.timer = setInterval(async () => {
+        await loadAlerts();
+        const c = AL.data && AL.data.charts;
+        if (c && !c.running && c.message) { clearInterval(w.timer); msg.textContent = (c.ok ? "✓ " : "⚠ ") + c.message; }
+      }, 3000);
+    } catch (e) { msg.textContent = e.message || String(e); }
+  };
+  document.body.appendChild(w);
+  w.querySelector("#ct-token").focus();
+}
+setInterval(loadAlerts, 60000);
+setTimeout(loadAlerts, 1500);

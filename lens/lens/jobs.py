@@ -5,7 +5,7 @@ import time
 import traceback
 from datetime import datetime, timedelta
 
-from . import config, db, discover_spotify, health, instagram_audio, jiosaavn, shorts_use, song_daily, songs, spotify_plays, sync_youtube, sysstats, youtube_music
+from . import alerts, config, db, discover_spotify, health, instagram_audio, jiosaavn, shorts_use, song_daily, songs, spotify_plays, sync_youtube, sysstats, youtube_music
 from .spotify import SpotifyError
 from .youtube import YouTubeError
 
@@ -317,8 +317,17 @@ def start_worker(manager, browser_manager=None):
     def loop():
         tried = {}
         sampled = None
+        checked = 0.0
         time.sleep(90)  # let the scheduler claim a due pipeline first
         while True:
+            if time.time() - checked > 600:  # Developer alerts, every 10 minutes
+                checked = time.time()
+                try:
+                    conn = db.connect(str(config.DB_FILE))
+                    alerts.sync(conn)
+                    conn.close()
+                except Exception:
+                    traceback.print_exc()
             hour = datetime.now().strftime("%Y-%m-%d %H")
             if hour != sampled:  # server health sample for the Developer dashboard, once an hour
                 try:

@@ -226,6 +226,14 @@ def read_secrets():
     return vals
 
 
+def set_env(key, value):
+    """Set one value in .env (kept private), leaving every other line as it is."""
+    lines = ENV_FILE.read_text().splitlines() if ENV_FILE.exists() else []
+    lines = [l for l in lines if not l.startswith(key + "=")] + [f"{key}={value}"]
+    ENV_FILE.write_text("\n".join(lines) + "\n")
+    ENV_FILE.chmod(0o600)
+
+
 def write_secrets(updates):
     """Merge non-empty values into .env; empty strings leave the existing value alone.
     YouTube keys are added to the stored list rather than replacing it. Other keys already in the file (e.g. STUDIO_PASSWORD) are preserved."""
