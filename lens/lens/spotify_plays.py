@@ -336,11 +336,13 @@ def due_ids(conn, day=None):
     day = day or date.today().isoformat()
     read = {r[0] for r in conn.execute("""SELECT p.platform_id FROM snapshot s JOIN platform_item p ON p.id=s.platform_item_id
                                          WHERE p.platform='spotify' AND s.metric='plays' AND s.capture_date=?""", (day,))}
-    f = out_dir() / "server" / f"{day}.json"
     skip = set()
-    if f.exists():  # done for today: hidden counts (under 1,000) and pages Spotify says are gone; timeouts are tried again
-        r = json.loads(f.read_text())
-        skip = set(r.get("hidden", [])) | {t for t, why in r.get("missing", {}).items() if not str(why).startswith("page error")}
+    # done for today: hidden counts (under 1,000) and pages Spotify says are gone, found by the server or by a helper
+    # machine whose results were imported (laptop_<day>.json); timeouts are tried again
+    for f in (out_dir() / "server" / f"{day}.json", out_dir() / f"laptop_{day}.json"):
+        if f.exists():
+            r = json.loads(f.read_text())
+            skip |= set(r.get("hidden", [])) | {t for t, why in r.get("missing", {}).items() if not str(why).startswith("page error")}
     return [i for i in export_ids(conn) if i not in read and i not in skip]
 
 
