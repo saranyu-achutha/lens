@@ -212,7 +212,7 @@ def _due_work(cfg, tried, browser=True, api=True):
     ago = lambda job: now - tried.get(job, 0)
     in_window = "t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?"
     # 1. Spotify play counts: once a day for tracks without today's count (needs a browser on this machine).
-    if browser and ago("spotify_plays") > 2 * 3600:
+    if browser and ago("spotify_plays") > 600:  # tracks still waiting: go again soon (each run ends when its browser is done)
         try:
             spotify_plays.find_chrome()
             conn = db.connect(str(config.DB_FILE))

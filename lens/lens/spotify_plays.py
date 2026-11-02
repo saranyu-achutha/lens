@@ -74,7 +74,7 @@ class _WS:
 
     def __init__(self, url):
         u = urllib.parse.urlparse(url)
-        self.sock = socket.create_connection((u.hostname, u.port), timeout=120)
+        self.sock = socket.create_connection((u.hostname, u.port), timeout=45)  # a frozen tab fails fast instead of hanging the run
         key = base64.b64encode(os.urandom(16)).decode()
         self.sock.sendall((f"GET {u.path} HTTP/1.1\r\nHost: {u.hostname}:{u.port}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
                            f"Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n").encode())
@@ -135,6 +135,7 @@ READ_JS = """(() => { const p = document.querySelector('[data-testid="playcount"
 # Images, audio and video are not needed for the play count (blocking styles or scripts breaks Spotify's page).
 BLOCK = ["*.jpg*", "*.jpeg*", "*.png*", "*.webp*", "*.gif*", "*.mp3*", "*.mp4*", "*.m4a*", "*i.scdn.co/image*", "*mosaic.scdn.co*"]
 TAB_PAGES = 100  # a fresh tab every 100 pages keeps memory flat on long runs
+BATCH = 150      # tracks per browser start in the Console job
 
 
 def _kill_group(proc):
@@ -333,9 +334,9 @@ def due_ids(conn, day=None):
                                          WHERE p.platform='spotify' AND s.metric='plays' AND s.capture_date=?""", (day,))}
     f = out_dir() / "server" / f"{day}.json"
     skip = set()
-    if f.exists():
+    if f.exists():  # done for today: hidden counts (under 1,000) and pages Spotify says are gone; timeouts are tried again
         r = json.loads(f.read_text())
-        skip = set(r.get("hidden", [])) | set(r.get("missing", {}))
+        skip = set(r.get("hidden", [])) | {t for t, why in r.get("missing", {}).items() if not str(why).startswith("page error")}
     return [i for i in export_ids(conn) if i not in read and i not in skip]
 
 
@@ -349,10 +350,15 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
     if not todo:
         log("Spotify plays: every linked track already read today")
         return {"status": "ok", "spotify_plays_read": 0}
-    path = collect(todo, workers=cfg["songs"].get("spotify_plays_tabs", 2), log=log, should_stop=should_stop,
-                   folder=out_dir() / "server")
+    # Batches of BATCH tracks, each with a fresh browser: a browser that freezes costs one batch, not the rest of the day.
     conn.execute("PRAGMA busy_timeout = 120000")
-    n = import_file(conn, path, log=log)
+    n = 0
+    for i in range(0, len(todo), BATCH):
+        if should_stop():
+            break
+        path = collect(todo[i:i + BATCH], workers=cfg["songs"].get("spotify_plays_tabs", 2), log=log, should_stop=should_stop,
+                       folder=out_dir() / "server")
+        n = import_file(conn, path, log=log)
     return {"status": "ok", "spotify_plays_read": n}
 
 
