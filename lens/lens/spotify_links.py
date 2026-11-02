@@ -150,6 +150,8 @@ def run(conn, cfg, secrets, since, until, ts, log, check):
     mb_contact = (cfg["songs"].get("musicbrainz_contact") or "").strip()
     ua = {"User-Agent": f"MarketLens/0.1 ( {mb_contact} )" if mb_contact else "MarketLens/0.1"}
     per_run = cfg["songs"].get("spotify_links_per_run", 200)
+    if (cfg["songs"].get("spotify_catchup_until") or "") >= today:  # catch-up day: the run's time goes to the Spotify search
+        per_run = min(per_run, 30)
     if web:  # adapt: when web search has found almost nothing for a week, spend less time on it
         tries, hits = conn.execute("""SELECT coalesce(sum(items_read), 0), coalesce(sum(found), 0) FROM crawl_stat
                                       WHERE source='spotify_web' AND day >= date('now', '-7 day')""").fetchone() \
