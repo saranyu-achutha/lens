@@ -2045,3 +2045,5 @@ $("#side-toggle").onclick = () => {
   sideLabel();
 };
 sideLabel();
+
+$("#year").textContent = new Date().getFullYear();
