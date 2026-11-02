@@ -809,7 +809,11 @@ def api_track(conn, qs):
     if chart:  # daily India chart rank as one more series for the drawer's trend chart
         history = list(history) + [{"platform": "spotify_chart", "metric": "chart_rank", "capture_date": h["chart_date"], "value": h["rank"]}
                                    for h in chart["history"]]
-    return {"meta": metadata.for_song(conn, tid), "track": tag_labels(t)[0], "items": items, "history": history,
+    # Soft delete: uploads and links removed from this song stay stored and can be restored (the decision's exact undo).
+    removed = q(conn, """SELECT d.id decision_id, d.decided_at, d.decided_by, d.platform, p.title, p.url, p.channel
+                         FROM review_decision d JOIN platform_item p ON p.id=d.item_id
+                         WHERE d.track_id=? AND d.action='reject' AND d.undone_at IS NULL ORDER BY d.id DESC""", (tid,))
+    return {"meta": metadata.for_song(conn, tid), "track": tag_labels(t)[0], "items": items, "history": history, "removed": removed,
             "releases": releases, "chart": chart and {k: v for k, v in chart.items() if k != "history"},
             "by_type": sorted(by_type.values(), key=lambda b: -b["views"]), "merged_names": aliases}
 

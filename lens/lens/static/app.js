@@ -1173,6 +1173,9 @@ async function openTrack(id) {
 
     <h3 class="sp-sec">YouTube uploads (${yt.length})</h3>
     <div class="card flush"><table><tbody id="dr-uploads"></tbody></table>${yt.length > 10 ? `<div class="pager"><button class="small" id="dr-more">Show all ${yt.length}</button></div>` : ""}</div>
+    ${(d.removed || []).length ? `<h3 class="sp-sec dev-only">Removed (${d.removed.length})</h3><div class="card flush dev-only"><table><tbody>${d.removed.map((r) => `<tr class="removed-row"><td><a href="${esc(r.url || "#")}" target="_blank" rel="noopener">${esc(r.title || "(no title)")}</a>
+      <div class="t2">${esc(r.platform)}${r.channel ? " · " + esc(r.channel) : ""} · removed ${esc((r.decided_at || "").slice(0, 10))} by ${esc((r.decided_by || "").split(" @ ")[0])}</div></td>
+      <td style="width:1%"><button class="small" data-restore="${r.decision_id}">↩ Restore</button></td></tr>`).join("")}</tbody></table></div>` : ""}
 
     ${spAll.length ? `<h3 class="sp-sec">Spotify versions (${spAll.length})</h3><div class="card flush"><table><tbody>${spAll.map((i) => {
         const md = i.match_detail || {};
@@ -1185,9 +1188,20 @@ async function openTrack(id) {
   const upRow = (i) => `<tr><td style="width:34px"><button class="pbtn yt" data-play="youtube" data-pid="${esc(i.platform_id)}" data-ptitle="${esc(i.title)}">▶</button></td>
     <td><a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.title)}</a><div class="t2">${esc(i.channel || "")} · ${esc(i.asset_type || "")} · ${esc(i.published || "")} · ${stateChip(i.review_state, i.match_method)}</div></td>
     <td class="num" style="white-space:nowrap">${compact(i.views)} views<div class="t2">${compact(i.likes)} likes · ${compact(i.comments)} comments</div></td>
-    <td style="white-space:nowrap">${i.review_state === "pending" ? `<button class="small" data-decide="approve" data-item="${i.id}">✓</button> ` : ""}<button class="small" data-decide="reject" data-item="${i.id}" title="Not this song">✕</button></td></tr>`;
+    <td style="white-space:nowrap">${i.review_state === "pending" ? `<button class="small" data-decide="approve" data-item="${i.id}">✓</button> ` : ""}<button class="small" data-decide="reject" data-item="${i.id}" title="Remove from this song (asks first, can be restored)">✕</button></td></tr>`;
   const showUploads = (all) => { $("#dr-uploads").innerHTML = (all ? yt : yt.slice(0, 10)).map(upRow).join("") || `<tr><td class="empty">No YouTube upload linked.</td></tr>`; bindDecide(); };
-  const bindDecide = () => $("#drawer").querySelectorAll("[data-decide]").forEach((b) => (b.onclick = async () => { await decide(b.dataset.item, b.dataset.decide); openTrack(id); refreshStatus(); }));
+  const bindDecide = () => $("#drawer").querySelectorAll("[data-decide]").forEach((b) => (b.onclick = async () => {
+    if (b.dataset.decide === "reject") {
+      const item = d.items.find((i) => String(i.id) === b.dataset.item);
+      const yes = await confirmBox({ title: "Remove from this song?", ok: "Remove",
+        text: `<b>${esc(item ? item.title : "This link")}</b> will be removed from <b>${esc(t.title)}</b> and left out of its totals.<br><br>Nothing is deleted: its data is kept, and you can restore it from “Removed” at the bottom of this song.` });
+      if (!yes) return;
+    }
+    await decide(b.dataset.item, b.dataset.decide); openTrack(id); refreshStatus();
+  }));
+  $("#drawer").querySelectorAll("[data-restore]").forEach((b) => (b.onclick = async () => {
+    try { await api("/api/review/undo", { id: +b.dataset.restore }); toast("Restored to this song"); openTrack(id); refreshStatus(); } catch (e) { toast(e.message, true); }
+  }));
   showUploads(false);
   if ($("#dr-more")) $("#dr-more").onclick = (e) => { showUploads(true); e.target.closest(".pager").remove(); };
 
@@ -1219,8 +1233,25 @@ async function openTrack(id) {
   $("#dr-metric").onclick = (e) => { const b = e.target.closest("button[data-m]"); if (b) draw(b.dataset.m); };
 }
 const stateChip = (st, method) => st === "song" ? "same song (grouped)" : st === "auto" ? "auto-matched" : st === "approved" ? (method === "manual" ? "linked manually" : "approved") : st === "pending" ? "<b>awaiting review</b>" : esc(st || "");
+// Confirmation box for anything that changes data: resolves true on the main button, false on Cancel, Esc or a click outside.
+function confirmBox({ title, text, ok = "OK" }) {
+  return new Promise((done) => {
+    const w = document.createElement("div");
+    w.className = "cbox-bg";
+    w.innerHTML = `<div class="cbox" role="alertdialog" aria-modal="true"><div class="cbox-icon">!</div><h2>${esc(title)}</h2><p>${text}</p>
+      <div class="cbox-btns"><button class="cbox-no">Cancel</button><button class="danger-solid cbox-yes">${esc(ok)}</button></div></div>`;
+    const close = (v) => { document.removeEventListener("keydown", key); w.remove(); done(v); };
+    const key = (e) => { if (e.key === "Escape") close(false); };
+    document.addEventListener("keydown", key);
+    w.addEventListener("click", (e) => { if (e.target === w) close(false); });
+    w.querySelector(".cbox-no").onclick = () => close(false);
+    w.querySelector(".cbox-yes").onclick = () => close(true);
+    document.body.appendChild(w);
+    w.querySelector(".cbox-no").focus();
+  });
+}
 async function decide(itemId, action) {
-  try { await api("/api/matching/decide", { item_id: +itemId, action }); toast(action === "approve" ? "Match approved" : "Match rejected"); }
+  try { await api("/api/matching/decide", { item_id: +itemId, action }); toast(action === "approve" ? "Match approved" : "Removed. You can restore it from this song."); }
   catch (e) { toast(e.message, true); }
 }
 
