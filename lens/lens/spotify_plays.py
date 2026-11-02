@@ -134,7 +134,10 @@ READ_JS = """(() => { const p = document.querySelector('[data-testid="playcount"
 
 
 # Images, audio and video are not needed for the play count (blocking styles or scripts breaks Spotify's page).
-BLOCK = ["*.jpg*", "*.jpeg*", "*.png*", "*.webp*", "*.gif*", "*.mp3*", "*.mp4*", "*.m4a*", "*i.scdn.co/image*", "*mosaic.scdn.co*"]
+# Trackers, cookie banner and fonts aren't needed either (~15% less work per page).
+BLOCK = ["*.jpg*", "*.jpeg*", "*.png*", "*.webp*", "*.gif*", "*.mp3*", "*.mp4*", "*.m4a*", "*i.scdn.co/image*", "*mosaic.scdn.co*",
+         "*google-analytics.com*", "*googletagmanager.com*", "*doubleclick.net*", "*sentry.io*", "*cookielaw.org*", "*onetrust*", "*hotjar*",
+         "*analytics.tiktok.com*", "*pinterest*", "*facebook.net*", "*redditstatic*", "*snapchat*", "*.woff2*", "*.woff*", "*.ttf*"]
 TAB_PAGES = 1  # a fresh tab for every track: a second Spotify page in the same tab hangs (since late Oct 2026)
 BATCH = 150      # tracks per browser start in the Console job
 
