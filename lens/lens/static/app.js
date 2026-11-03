@@ -431,6 +431,20 @@ async function loadDev() {
   $("#dev-storage").innerHTML = `<div class="bar-row"><span class="bar-track"><span class="bar-fill" style="width:${(100 * used) / st.disk_total}%;background:${used / st.disk_total > 0.85 ? "var(--critical)" : "var(--accent)"}"></span></span><span class="bar-val">${Math.round((100 * used) / st.disk_total)}%</span></div>` +
     kv([["Disk free", `${gb(st.disk_free)} of ${gb(st.disk_total)}`], ["Database", gb(st.db_bytes)], ["Readings stored", `${fmt(st.snapshot_rows)} since ${esc(st.first_day || "–")}`],
       ["Song-day rows", fmt(st.song_daily_rows)], ["Last backup", st.backup ? `${esc(st.backup.name)} · ${ago(st.backup.at)}` : '<span class="pill bad"><span class="dot"></span>none found</span>']]);
+  const ids = d.ids, dd = (x) => new Date(x + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  const ROUTE = { search: "API search", web_search: "web search", same_recording: "same recording", description: "label's link", album: "album", playlist: "playlist",
+    musicbrainz_link: "MusicBrainz link", topic_channel: "Topic channel", album_playlist: "album playlist", isrc: "ISRC", manual: "pasted", spotify_source: "Spotify discovery" };
+  $("#dev-ids-note").textContent = `${fmt(ids.songs)} songs in the period${FOCUS_ALL ? " (all songs)" : " (new releases)"}`;
+  $("#dev-ids").innerHTML = `<thead><tr><th class="num">#</th><th>Platform</th><th class="num">Songs with an ID</th><th class="num">Coverage</th><th class="num">Still without</th>` +
+    ids.days.map((x, i) => `<th class="num">${i === ids.days.length - 1 ? "Today" : dd(x)}</th>`).join("") + `<th>Found today by route</th></tr></thead><tbody>` +
+    ids.platforms.map((r, i) => `<tr><td class="num muted">${i + 1}</td><td>${esc(r.name)}</td><td class="num">${fmt(r.with_id)}</td>
+      <td class="num ${r.share >= 90 ? "delta-up" : r.share < 50 ? "warn-text" : ""}">${r.share == null ? "–" : r.share + "%"}</td><td class="num">${fmt(r.without_id)}</td>` +
+      r.days.map((n) => `<td class="num ${n ? "" : "muted"}">${n ? fmt(n) : "–"}</td>`).join("") +
+      `<td style="font-size:12.5px">${r.routes_today.length ? r.routes_today.map((x) => `${esc(ROUTE[x.route] || x.route)} <b>${fmt(x.songs)}</b>`).join(" · ") : '<span class="muted">none</span>'}</td></tr>`).join("") +
+    `</tbody><tfoot><tr><td colspan="${6 + ids.days.length}" class="muted" style="font-size:12px;line-height:1.5">
+      <b>Songs with an ID</b>: the period's songs linked to the platform (accepted links only) · <b>Coverage</b>: share of the period's songs ·
+      <b>Still without</b>: songs not yet linked there (many are simply not released on that platform) · <b>Date columns</b>: songs that got their ID that day ·
+      <b>Found today by route</b>: how today's IDs were found. Older releases count only with "All songs" on.</td></tr></tfoot>`;
   const NAMES = { youtube: "YouTube", spotify: "Spotify", ytmusic: "YouTube Music", jiosaavn: "JioSaavn", deezer: "Deezer" };
   const cov = (n, t) => { const p = t ? (100 * n) / t : 0; return `<td class="num ${t && p >= 99 ? "delta-up" : p < 90 ? "warn-text" : ""}">${fmt(n)} <span class="muted">${t ? p.toFixed(1) + "%" : ""}</span></td>`; };
   $("#dev-readings").innerHTML = `<thead><tr><th>Platform</th><th class="num">Linked items</th><th class="num">Yesterday (${esc(d.yesterday.slice(5))})</th><th class="num">Today so far</th></tr></thead><tbody>` +

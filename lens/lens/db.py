@@ -235,3 +235,8 @@ def _migrate(conn):
     if "retry_at" not in {r["name"] for r in conn.execute("PRAGMA table_info(api_check)")}:
         conn.execute("ALTER TABLE api_check ADD COLUMN retry_at TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS api_check_source ON api_check(source, id)")
+    # Lookups every page and job makes: a song's item on one platform, items found per day, the period's songs, a job's runs
+    conn.execute("CREATE INDEX IF NOT EXISTS platform_item_platform_track ON platform_item(platform, track_id, review_state)")
+    conn.execute("CREATE INDEX IF NOT EXISTS platform_item_seen ON platform_item(platform, first_seen_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS track_window ON track(source, first_published)")
+    conn.execute("CREATE INDEX IF NOT EXISTS run_log_job ON run_log(job, started_at)")

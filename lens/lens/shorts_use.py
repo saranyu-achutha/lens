@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS sound_use (
     PRIMARY KEY (platform_item_id, day)
 );
 CREATE INDEX IF NOT EXISTS sound_use_song ON sound_use(song_id, day);
+CREATE INDEX IF NOT EXISTS sound_use_day ON sound_use(day, platform);
 CREATE TABLE IF NOT EXISTS sound_short (
     video_id         TEXT PRIMARY KEY,
     platform_item_id INTEGER,            -- the sound it uses

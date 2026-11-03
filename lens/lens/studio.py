@@ -1827,6 +1827,37 @@ def api_crawl(conn, qs):
 
 
 # ---------- Developer dashboard: is the system healthy and on target? ----------
+ID_PLATFORMS = (("spotify", "Spotify"), ("ytmusic", "YouTube Music"), ("jiosaavn", "JioSaavn"), ("apple", "Apple Music"),
+                ("deezer", "Deezer"), ("musicbrainz", "MusicBrainz"), ("instagram", "Instagram audio"))
+
+
+def song_ids(conn, qs, today):
+    """Developer dashboard: per platform, how many of the period's songs have an ID there, how many were found on each of
+    the last 7 days and by which route today, and how many are still without one."""
+    since, until, S = _song_set(qs)
+    args = (since, until)
+    songs = conn.execute(f"SELECT count(*) FROM ({S})", args).fetchone()[0]
+    ok = "p.review_state IN ('auto','approved') AND p.track_id IN (" + S + ")"
+    have = dict(conn.execute(f"SELECT p.platform, count(DISTINCT p.track_id) FROM platform_item p WHERE {ok} GROUP BY 1", args).fetchall())
+    days = [r[0] for r in conn.execute("SELECT date(?, '-' || n || ' day') FROM (SELECT 6 n UNION ALL SELECT 5 UNION ALL SELECT 4 UNION ALL "
+                                       "SELECT 3 UNION ALL SELECT 2 UNION ALL SELECT 1 UNION ALL SELECT 0)", (today,))]
+    per_day = {}
+    for plat, d, n in conn.execute(f"""SELECT p.platform, substr(p.first_seen_at,1,10), count(DISTINCT p.track_id) FROM platform_item p
+                                      WHERE {ok} AND p.first_seen_at >= ? GROUP BY 1, 2""", args + (days[0],)):
+        per_day.setdefault(plat, {})[d] = n
+    routes = {}
+    for plat, m, n in conn.execute(f"""SELECT p.platform, coalesce(p.match_method,'other'), count(DISTINCT p.track_id) FROM platform_item p
+                                      WHERE {ok} AND p.first_seen_at >= ? GROUP BY 1, 2 ORDER BY 3 DESC""", args + (today,)):
+        routes.setdefault(plat, []).append({"route": m, "songs": n})
+    rows = []
+    for key, name in ID_PLATFORMS:
+        h = have.get(key, 0)
+        rows.append({"platform": key, "name": name, "with_id": h, "without_id": songs - h, "share": round(100 * h / songs, 1) if songs else None,
+                     "days": [per_day.get(key, {}).get(d, 0) for d in days], "today": per_day.get(key, {}).get(today, 0),
+                     "routes_today": routes.get(key, [])})
+    return {"songs": songs, "days": days, "platforms": rows}
+
+
 def api_dev(conn, qs):
     import shutil
     from . import spotify_plays
@@ -1927,7 +1958,7 @@ def api_dev(conn, qs):
             "job": MANAGER.state(10**9), "browser_job": BROWSER.state(10**9), "worker": cfg.get("worker", {}), "next": {"job": nxt[0], "why": nxt[1]} if nxt else None,
             "jobs": sorted(by_job.values(), key=lambda j: j["last"]["started_at"], reverse=True), "failures": failures,
             "freshness": alerts.freshness(conn, today),
-            "readings": readings, "backlog": backlog,
+            "readings": readings, "backlog": backlog, "ids": song_ids(conn, qs, today),
             "youtube": {"units_today": units, "units_limit": DAILY_UNITS * max(len(keys), 1), "keys": key_status(keys),
                         "resets": datetime.fromtimestamp(next_reset(), timezone.utc).isoformat(timespec="minutes")},
             "spotify": {"ok": sp and sp["ok"], "checked_at": sp and sp["checked_at"], "retry_at": sp and sp.get("retry_at")},
