@@ -25,7 +25,7 @@ from pathlib import Path
 
 import threading
 
-from . import ai, alerts, collection, config, crawl_stats, db, health, insights, jobs, merge, metadata, review, song_daily, songs, spotify_charts, sysstats
+from . import ai, alerts, collection, config, crawl_stats, db, exports, health, insights, jobs, merge, metadata, review, song_daily, songs, spotify_charts, sysstats
 from .discover_spotify import EXPORT_SQL
 from .spotify import Spotify, SpotifyError
 
@@ -910,43 +910,12 @@ def api_health(conn, _):
     return {"spotify": {"last": checks[0] if checks else None, "history": checks}, "config": cfg}
 
 
-OUTPUT_RE = re.compile(r"[\w.-]+\.csv")
+def api_datasets(conn, _):
+    return exports.listing(conn)
 
 
-def _output_path(name):
-    if not name or not OUTPUT_RE.fullmatch(name):
-        raise ValueError("bad file name")
-    f = config.OUT_DIR / name
-    if not f.is_file():
-        raise ValueError("file not found")
-    return f
-
-
-def api_outputs(conn, _):
-    runs = {r["id"]: r for r in q(conn, "SELECT id, started_at, status FROM run_log")}
-    files = []
-    for f in sorted(config.OUT_DIR.glob("*.csv"), key=lambda f: f.stat().st_mtime, reverse=True):
-        m = re.search(r"_run(\d+)\.csv$", f.name)
-        run_id = int(m.group(1)) if m else None
-        with f.open(encoding="utf-8", errors="replace") as fh:
-            rows = max(sum(1 for _ in fh) - 1, 0)
-        files.append({"name": f.name, "size": f.stat().st_size, "rows": rows, "run_id": run_id,
-                      "run": runs.get(run_id),
-                      "modified": datetime.fromtimestamp(f.stat().st_mtime).astimezone().isoformat(timespec="seconds")})
-    return {"files": files}
-
-
-def api_output_preview(conn, qs):
-    f = _output_path(qs.get("name"))
-    with f.open(encoding="utf-8-sig", errors="replace", newline="") as fh:
-        reader = csv.reader(fh)
-        header = next(reader, [])
-        rows = list(reader)
-    if qs.get("q"):
-        needle = qs["q"].lower()
-        rows = [r for r in rows if any(needle in c.lower() for c in r)]
-    offset, limit = int(qs.get("offset", 0)), min(int(qs.get("limit", 100)), 1000)
-    return {"name": f.name, "header": header, "total": len(rows), "rows": rows[offset:offset + limit]}
+def api_dataset_view(conn, qs):
+    return exports.view(conn, qs)
 
 
 def api_raw(conn, qs):
@@ -1973,8 +1942,8 @@ GET = {"/api/coverage": api_coverage, "/api/insights": api_insights, "/api/insig
        "/api/merge/suggestions": api_merge_suggestions, "/api/status": api_status, "/api/overview": api_overview, "/api/crawl": api_crawl, "/api/client": api_client, "/api/search": api_search, "/api/dev": api_dev, "/api/tracks": api_tracks,
        "/api/track": api_track, "/api/platform": api_platform, "/api/report": api_report, "/api/daily": api_daily, "/api/shorts": api_shorts, "/api/system": lambda conn, qs: sysstats.api(conn), "/api/alerts": api_alerts, "/api/live": api_live, "/api/charts": lambda conn, qs: alerts.charts_status(conn),
        "/api/collection": lambda conn, qs: collection.estimate(conn, overrides={k: qs[k] for k in collection.CHOICES if qs.get(k)}), "/api/items": api_items, "/api/song/compare": api_song_compare, "/api/items/history": api_item_history, "/api/runs": api_runs, "/api/seeds": api_seeds,
-       "/api/artist_search": api_artist_search, "/api/health": api_health, "/api/outputs": api_outputs,
-       "/api/outputs/preview": api_output_preview, "/api/raw": api_raw, "/api/raw/item": api_raw_item,
+       "/api/artist_search": api_artist_search, "/api/health": api_health, "/api/datasets": api_datasets,
+       "/api/datasets/view": api_dataset_view, "/api/raw": api_raw, "/api/raw/item": api_raw_item,
        "/api/matching": api_matching, "/api/matching/candidates": api_match_candidates,
        "/api/youtube/status": api_youtube_status, "/api/review/decisions": api_decisions}
 POST = {"/api/config": post_config, "/api/secrets": post_secrets, "/api/test/spotify": post_test_spotify,
@@ -2114,13 +2083,15 @@ class Handler(BaseHTTPRequestHandler):
             conn.close()
             return self._send(200, text.encode("utf-8-sig"), "text/csv; charset=utf-8",
                               {"Content-Disposition": f'attachment; filename="market_lens_report_{frm}_to_{to}.csv"'})
-        if url.path == "/api/outputs/download":
+        if url.path in ("/api/datasets/download", "/api/datasets/archived"):  # CSV built in memory on request; nothing kept on disk
+            conn = db.connect(str(config.DB_FILE))
             try:
-                f = _output_path(qs.get("name"))
+                body, name = exports.download(conn, qs) if url.path.endswith("download") else exports.archived(qs.get("name"))
             except ValueError as e:
                 return self._send(404, {"error": str(e)})
-            return self._send(200, f.read_bytes(), "text/csv; charset=utf-8",
-                              {"Content-Disposition": f'attachment; filename="{f.name}"'})
+            finally:
+                conn.close()
+            return self._send(200, body, "text/csv; charset=utf-8", {"Content-Disposition": f'attachment; filename="{name}"'})
         if url.path.startswith("/api/"):
             return self._dispatch(GET, qs, role)
         if url.path.startswith("/docs/"):

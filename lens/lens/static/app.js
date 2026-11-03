@@ -1411,7 +1411,7 @@ async function loadRunsTable() {
     (runs.length ? runs.map((r) => `<tr><td class="muted">${r.id}</td><td>${esc(STATUS.jobs[r.job] || r.job)}${r.stats.trigger ? `<div class="t2">${esc(r.stats.trigger)}</div>` : ""}</td><td>${new Date(r.started_at).toLocaleString()}</td>
       <td class="num">${secs(r.started_at, r.finished_at)}</td><td>${pill(r.status)}</td><td class="num">${fmt(r.stats.releases)}</td><td class="num">${fmt(r.stats.tracks)}</td>
       <td class="num">${fmt(r.stats.api_calls)}</td><td>${r.stats.error ? `<span class="delta-down">${esc(r.stats.error.slice(0, 80))}</span>` : ""}${r.stats.stop_reason ? `<div class="t2">${esc(r.stats.stop_reason)}</div>` : ""}
-      ${(r.stats.csvs || (r.stats.csv ? [r.stats.csv] : [])).map((f) => `<a href="#outputs?file=${encodeURIComponent(f)}">${f.includes("songs") ? "Songs CSV" : f.includes("youtube") ? "YouTube CSV" : "Spotify CSV"}</a> · `).join("")}<a href="#outputs?raw_run=${r.id}">Raw API</a>
+      <a href="#outputs?ds=song_daily">Data</a> · <a href="#outputs?raw_run=${r.id}">Raw API</a>
       <details><summary>stats & log</summary><pre class="stats">${esc(JSON.stringify(r.stats, null, 2))}</pre></details></td></tr>`).join("")
       : `<tr><td colspan="9" class="empty">No runs yet.</td></tr>`) + "</tbody>";
 }
@@ -1807,7 +1807,7 @@ function copyText(text) {
   try { document.execCommand("copy"); toast("Copied"); } catch { toast("Copy failed", true); }
   ta.remove();
 }
-const OUT = { file: null, offset: 0, limit: 100, q: "", total: 0 };
+const OUT = { ds: null, day: "", offset: 0, limit: 100, q: "", total: 0, sets: [] };
 const RAW = { run: "", result: "", q: "", offset: 0, limit: 50, total: 0 };
 const kb = (n) => (n == null ? "–" : n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`);
 function showTab(t) {
@@ -1820,36 +1820,48 @@ document.querySelectorAll(".tab[data-tab]").forEach((b) => (b.onclick = () => sh
 async function loadOutputs() {
   if (!STATUS) await refreshStatus();
   const p = hashParams();
-  if (p.get("file")) { OUT.file = p.get("file"); OUT.offset = 0; }
+  if (p.get("ds")) { OUT.ds = p.get("ds"); OUT.offset = 0; }
   if (p.get("raw_run")) { RAW.run = p.get("raw_run"); RAW.offset = 0; showTab("raw"); return; }
   showTab(p.get("tab") === "raw" ? "raw" : "files");
 }
 async function loadFiles() {
-  const { files } = await api("/api/outputs");
-  if (!OUT.file && files.length) OUT.file = files[0].name;
-  $("#out-list").innerHTML = files.length ? files.map((f) => `<div class="file-item ${f.name === OUT.file ? "active" : ""}" data-name="${esc(f.name)}">
-      <div class="name">${esc(f.name)}</div>
-      <div class="meta">${fmt(f.rows)} rows · ${kb(f.size)} · ${new Date(f.modified).toLocaleString()}${f.run_id ? ` · run #${f.run_id}` : ""}</div></div>`).join("")
-    : `<div class="empty">No output files yet. Each successful run writes one CSV.</div>`;
-  if (OUT.file) previewFile(); else { $("#out-title").textContent = "No file selected"; $("#out-table").innerHTML = ""; $("#out-dl").style.display = "none"; }
+  const d = await api("/api/datasets");
+  OUT.sets = d.datasets;
+  if (!OUT.ds || !d.datasets.some((x) => x.key === OUT.ds)) OUT.ds = d.datasets[0]?.key;
+  $("#out-list").innerHTML = d.datasets.map((x) => `<div class="file-item ${x.key === OUT.ds ? "active" : ""}" data-ds="${esc(x.key)}">
+      <div class="name">${esc(x.name)}</div><div class="meta">${esc(x.what)}</div></div>`).join("");
+  $("#out-day").innerHTML = d.days.map((x) => `<option value="${x}">${x}</option>`).join("");
+  if (OUT.day) $("#out-day").value = OUT.day;
+  $("#out-arch").innerHTML = d.archived.length ? d.archived.map((f) => `<a class="file-item" style="display:block;text-decoration:none;color:inherit" href="/api/datasets/archived?name=${encodeURIComponent(f.name)}">
+      <div class="name">${esc(f.name.replace(/\.gz$/, ""))}</div><div class="meta">${kb(f.size)} compressed · ↓ download</div></a>`).join("")
+    : `<div class="empty">None.</div>`;
+  if (OUT.ds) previewFile();
 }
 $("#out-list").addEventListener("click", (e) => {
   const it = e.target.closest(".file-item"); if (!it) return;
-  OUT.file = it.dataset.name; OUT.offset = 0;
-  document.querySelectorAll(".file-item").forEach((x) => x.classList.toggle("active", x === it));
+  OUT.ds = it.dataset.ds; OUT.offset = 0;
+  document.querySelectorAll("#out-list .file-item").forEach((x) => x.classList.toggle("active", x === it));
   previewFile();
 });
+$("#out-day").onchange = (e) => { OUT.day = e.target.value; OUT.offset = 0; previewFile(); };
 async function previewFile() {
+  const set = OUT.sets.find((x) => x.key === OUT.ds);
+  $("#out-day").style.display = set?.by_day ? "" : "none";
+  const params = { ds: OUT.ds, q: OUT.q, ...(set?.by_day && OUT.day ? { day: OUT.day } : {}) };
   let d;
-  try { d = await api(`/api/outputs/preview?${new URLSearchParams({ name: OUT.file, offset: OUT.offset, limit: OUT.limit, q: OUT.q })}`); }
-  catch (e) { $("#out-title").textContent = OUT.file; $("#out-table").innerHTML = `<tbody><tr><td class="empty">${esc(e.message)}</td></tr></tbody>`; return; }
+  $("#out-title").textContent = set ? set.name : OUT.ds;
+  $("#out-table").innerHTML = `<tbody><tr><td class="empty">Loading…</td></tr></tbody>`;
+  try { d = await api(`/api/datasets/view?${new URLSearchParams({ ...params, offset: OUT.offset, limit: OUT.limit })}`); }
+  catch (e) { $("#out-table").innerHTML = `<tbody><tr><td class="empty">${esc(e.message)}</td></tr></tbody>`; return; }
   OUT.total = d.total;
-  $("#out-title").textContent = d.name;
-  const dl = $("#out-dl"); dl.style.display = ""; dl.href = `/api/outputs/download?name=${encodeURIComponent(d.name)}`;
+  if (d.day) { OUT.day = d.day; $("#out-day").value = d.day; }
+  $("#out-title").textContent = d.name + (d.day ? ` · ${d.day}` : "");
+  const dl = $("#out-dl"); dl.style.display = ""; dl.href = `/api/datasets/download?${new URLSearchParams({ ...params, ...(d.day ? { day: d.day } : {}) })}`;
+  dl.textContent = OUT.q ? "↓ Download CSV (filtered)" : "↓ Download CSV";
   const urlCol = d.header.indexOf("url");
   $("#out-table").innerHTML = `<thead><tr><th class="num">#</th>${d.header.map((h) => `<th>${esc(h)}</th>`).join("")}</tr></thead><tbody>` +
     (d.rows.length ? d.rows.map((r, i) => `<tr><td class="num muted">${OUT.offset + i + 1}</td>${r.map((c, j) => j === urlCol && c
-      ? `<td><a href="${esc(c)}" target="_blank" rel="noopener">open ↗</a></td>` : `<td style="white-space:nowrap">${esc(c)}</td>`).join("")}</tr>`).join("")
+      ? `<td><a href="${esc(c)}" target="_blank" rel="noopener">open ↗</a></td>` : `<td style="white-space:nowrap">${esc(c ?? "")}</td>`).join("")}</tr>`).join("")
       : `<tr><td colspan="${d.header.length + 1}" class="empty">No rows.</td></tr>`) + "</tbody>";
   $("#out-count").textContent = d.total ? `${fmt(OUT.offset + 1)}–${fmt(Math.min(OUT.offset + OUT.limit, d.total))} of ${fmt(d.total)} rows` : "0 rows";
   $("#out-prev").disabled = OUT.offset === 0; $("#out-next").disabled = OUT.offset + OUT.limit >= d.total;

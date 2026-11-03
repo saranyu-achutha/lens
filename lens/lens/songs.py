@@ -725,22 +725,7 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
                      (since, until)).fetchone()
     log(f"songs {since} .. {until}: {s['n']} (new releases {s['new'] or 0}, re-uploads/catalogue {s['cat'] or 0}, "
         f"not on Spotify {s['missing'] or 0}, Spotify match awaiting review {s['pending'] or 0})")
-    out = config.OUT_DIR / f"market_lens_songs_{ts[:10]}_run{run_id or 0}.csv"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    rows = export_rows(conn, since, until)
-    with out.open("w", newline="", encoding="utf-8") as f:
-        write_csv(rows, f)
-    log(f"wrote {len(rows)} songs -> {out.name}")
-    meta_out = config.OUT_DIR / f"market_lens_song_metadata_{ts[:10]}_run{run_id or 0}.csv"
-    with meta_out.open("w", newline="", encoding="utf-8") as f:
-        w = csv.writer(f)
-        w.writerow(["song_id", "song", "field", "value", "value_key", "source"])
-        w.writerows(conn.execute("""SELECT m.track_id, t.title, m.field, m.value, m.value_key, m.source FROM song_meta m
-                                    JOIN track t ON t.id=m.track_id WHERE t.first_published >= ?
-                                    AND substr(t.first_published,1,10) <= ? ORDER BY m.track_id, m.field, m.position""",
-                                 (since, until)))
-    log(f"wrote song metadata (one row per value) -> {meta_out.name}")
-    stats["csv"] = out.name
+    # No CSV files: the Outputs page reads songs and metadata from the database and builds a CSV on download (lens/exports.py).
     stats.update({"songs_in_window": s["n"], "new_releases": s["new"] or 0, "catalogue": s["cat"] or 0,
                   "not_on_spotify": s["missing"] or 0, "spotify_review": s["pending"] or 0, "status": "ok"})
     return stats

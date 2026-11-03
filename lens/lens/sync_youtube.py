@@ -5,7 +5,6 @@ Readings: once a day per video; videos published in the last `fresh_days` can be
 (youtube.fresh_every_hours: 6, 12 or 24; 24 = once a day like everything else). Quota: playlistItems and videos cost 1 unit per 50 items, so a run uses a few
 hundred of the 10,000 daily units.
 """
-import csv
 import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -252,19 +251,10 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
         (SELECT count(*) FROM platform_item WHERE platform='youtube' AND review_state='pending') pending_total,
         (SELECT count(*) FROM platform_item WHERE platform='youtube' AND review_state IN ('auto','approved','song')) videos_matched,
         (SELECT count(*) FROM platform_item WHERE platform='youtube') videos""", (since, since)).fetchone()
-    out = config.OUT_DIR / f"market_lens_youtube_{ts[:10]}_run{run_id or 0}.csv"
-    rows = conn.execute(YT_EXPORT_SQL).fetchall()
-    out.parent.mkdir(parents=True, exist_ok=True)
-    with out.open("w", newline="", encoding="utf-8") as f:
-        w = csv.writer(f)
-        w.writerow(rows[0].keys() if rows else [])
-        w.writerows(tuple(r) for r in rows)
     pct = 100 * s["matched"] / s["tracks"] if s["tracks"] else 0
     log(f"tracks with a YouTube video: {s['matched']}/{s['tracks']} ({pct:.0f}%), "
         f"awaiting review: {s['pending_total']}, quota used: {yt.units} units")
-    log(f"wrote {len(rows)} rows -> {out.name}")
     return {"status": status, "stop_reason": stop_reason, "new_videos": new, "videos_read": read,
             "videos": s["videos"], "auto_matched": auto, "sent_to_review": pending,
             "tracks_in_window": s["tracks"], "tracks_matched": s["matched"], "match_rate": round(pct, 1),
-            "pending_review": s["pending_total"], "quota_units": yt.units, "quota_units_by_key": yt.units_by_key,
-            "csv": out.name}
+            "pending_review": s["pending_total"], "quota_units": yt.units, "quota_units_by_key": yt.units_by_key}

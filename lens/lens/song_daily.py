@@ -14,12 +14,10 @@ Built from the per-upload readings (snapshot) and the Spotify chart, summed over
                                       (a new upload's first reading is not growth; a missed day leaves it empty)
 Weekly, monthly and yearly views (song_weekly, song_monthly, song_yearly): each song's totals on the period's last day
 read, and every *_gain summed over the period.
-Rebuilt at the end of every run for the days that have readings (so merges and review decisions are reflected),
-and each run writes the latest day's rows to out/market_lens_song_daily_<day>.csv.
+Rebuilt at the end of every run for the days that have readings (so merges and review decisions are reflected).
+No CSV is written: the Outputs page reads the table and builds a CSV on download (lens/exports.py).
 """
-import csv
-import re
-from datetime import date, timedelta
+from datetime import date
 
 from . import config, db, shorts_use, spotify_charts
 
@@ -151,47 +149,9 @@ def build(conn, days=None, log=print):
     return n
 
 
-def write_day_csv(conn, day, run_id=None):
-    out = config.OUT_DIR / f"market_lens_song_daily_{day}.csv"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    with out.open("w", newline="", encoding="utf-8") as f:
-        w = csv.writer(f)
-        w.writerow(("song_id", "song", "label_channel", "first_upload") + COLS[1:])
-        w.writerows(conn.execute(f"""SELECT d.song_id, t.title,
-                                        (SELECT channel FROM platform_item p WHERE p.track_id=t.id AND p.platform='youtube' ORDER BY published_at LIMIT 1),
-                                        substr(t.first_published,1,10), {', '.join('d.' + c for c in COLS[1:])}
-                                     FROM song_daily d JOIN track t ON t.id=d.song_id WHERE d.day=? ORDER BY d.yt_views DESC""", (day,)))
-    return out
-
-
-OUT_NAME = re.compile(r"^(?P<kind>.+?)_(?P<day>\d{4}-\d{2}-\d{2})(?:_run(?P<run>\d+))?\.csv$")
-
-
-def prune_outputs(keep_days, log=print):
-    """Keep the newest CSV of each kind per day for `keep_days` days; delete older and repeated ones. Returns files removed."""
-    if not keep_days or not config.OUT_DIR.exists():
-        return 0
-    cutoff = (date.today() - timedelta(days=keep_days)).isoformat()
-    groups = {}
-    for f in config.OUT_DIR.glob("*.csv"):
-        m = OUT_NAME.match(f.name)
-        if m:
-            groups.setdefault((m["kind"], m["day"]), []).append((int(m["run"] or 0), f.stat().st_mtime, f))
-    removed = 0
-    for (kind, day), files in groups.items():
-        files.sort(reverse=True)
-        for i, (_, _, f) in enumerate(files):
-            if day < cutoff or i > 0:
-                f.unlink(missing_ok=True)
-                removed += 1
-    if removed:
-        log(f"outputs: {removed} older CSV files removed (keeping {keep_days} days, newest per day)")
-    return removed
-
-
 def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, **_):
     """Pipeline step: rebuild the last 3 days (jobs run often), every day once a day (so merges and review decisions
-    reach the whole history), and save today's CSV."""
+    reach the whole history). No CSV is written; the Outputs page builds one on download (lens/exports.py)."""
     today = date.today().isoformat()
     done = conn.execute("SELECT value FROM state WHERE key='song_daily_full'").fetchone()
     if done and done[0] == today:
@@ -202,12 +162,7 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
         conn.execute("INSERT OR REPLACE INTO state (key, value) VALUES ('song_daily_full', ?)", (today,))
         conn.commit()
     last = conn.execute("SELECT max(day) FROM song_daily").fetchone()[0]
-    stats = {"status": "ok", "song_daily_rows": n, "outputs_removed": prune_outputs(cfg.get("outputs", {}).get("keep_days", 0), log)}
-    if last:
-        out = write_day_csv(conn, last, run_id)
-        log(f"wrote {last} song totals -> {out.name}")
-        stats["csv"] = out.name
-    return stats
+    return {"status": "ok", "song_daily_rows": n, "last_day": last}
 
 
 if __name__ == "__main__":

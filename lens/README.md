@@ -48,7 +48,7 @@ python3 -m lens.discover_spotify [--since 2026-01-01] [--until 2026-10-15]
 | `.env` | Secrets: `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, `YOUTUBE_API_KEY`, `STUDIO_PASSWORD` |
 | `seeds/sony_india_artists.txt` | Seed artist IDs |
 | `data/lens.db` | SQLite: release, track, artist, platform_item, snapshot, raw_capture, run_log |
-| `out/` | CSV written after each run |
+| `out/archive/` | CSV files written by runs before 2026-11-03, gzipped (runs no longer write CSVs; the Console builds them on download) |
 
 ## API health watcher
 

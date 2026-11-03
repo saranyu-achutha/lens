@@ -91,7 +91,7 @@ def folders():
     out = [("Database (with WAL)", db_bytes())]
     for name, p in (("Database backups", data / "backups"), ("Spotify play files", data / "spotify_plays"),
                     ("YouTube archive", data / "youtube_archive"), ("Spotify charts", data / "spotify_charts"),
-                    ("CSV outputs", config.OUT_DIR)):
+                    ("Archived CSVs", config.OUT_DIR), ("Raw reply archive", data / "archive")):
         if p.exists():
             out.append((name, dir_size(p)))
     _FOLDERS.update(t=time.time(), v=[{"name": n, "bytes": b} for n, b in out])

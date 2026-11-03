@@ -328,8 +328,6 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, since=None, un
 
     left = conn.execute("""SELECT count(*) FROM platform_item pi JOIN track t ON t.id=pi.track_id
                            WHERE pi.platform='spotify' AND t.isrc IS NULL""").fetchone()[0]
-    out = config.OUT_DIR / f"sony_india_spotify_{ts[:10]}_run{run_id or 0}.csv"
-    exported = export_csv(conn, out)
     log(f"new releases: {n_releases}, new tracks: {n_tracks}, ISRCs added: {n_isrc} ({left} tracks still without ISRC), "
         f"API calls: {sp.calls}")
     if n_isrc and no_pop >= n_isrc:
@@ -338,12 +336,11 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, since=None, un
         log("accepted label strings: " + "; ".join(f"{l} ({c})" for l, c in accepted_labels.most_common()))
     if rejected_labels:
         log("top rejected label strings: " + "; ".join(f"{l} ({c})" for l, c in rejected_labels.most_common(10)))
-    log(f"wrote {exported} rows -> {out.name}")
     return {"status": status, "stop_reason": stop_reason, "retry_at": retry_at,
             "since": since, "until": until, "candidates": len(cands), "already_stored": len(already),
             "releases": n_releases, "tracks": n_tracks, "isrcs_added": n_isrc, "tracks_without_isrc": left,
             "api_calls": sp.calls, "search_totals": totals, "accepted_labels": dict(accepted_labels.most_common()),
-            "top_rejected_labels": dict(rejected_labels.most_common(25)), "csv": out.name}
+            "top_rejected_labels": dict(rejected_labels.most_common(25))}
 
 
 def main():

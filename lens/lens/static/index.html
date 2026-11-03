@@ -413,13 +413,16 @@
 
   <!-- OUTPUTS -->
   <section class="page" id="page-outputs">
-    <div class="page-head"><div><h1>Outputs</h1><p>Everything the pipeline produced: CSV files per run and every raw API response</p></div></div>
-    <div class="tabs"><button class="tab active" data-tab="files">Files</button><button class="tab" data-tab="raw">Raw API responses</button></div>
+    <div class="page-head"><div><h1>Outputs</h1><p>The collected data, read straight from the database a page at a time. Download builds a CSV on the spot; nothing is stored as files.</p></div></div>
+    <div class="tabs"><button class="tab active" data-tab="files">Data</button><button class="tab" data-tab="raw">Raw API responses</button></div>
     <div id="out-files" class="grid sidebar-grid sg-340">
-      <div class="card flush"><h2>CSV files</h2><div id="out-list" class="file-list"></div></div>
+      <div class="card flush"><h2>Datasets</h2><div id="out-list" class="file-list"></div>
+        <h2 style="margin-top:14px">Archived CSVs</h2><p class="muted" style="font-size:12px;margin:0 18px 8px">Files written before 3 Nov 2026, kept compressed.</p>
+        <div id="out-arch" class="file-list" style="max-height:260px;overflow:auto"></div></div>
       <div class="card flush">
-        <div class="card-head" style="padding:16px 18px 0"><h2 id="out-title">Select a file</h2><span class="spacer"></span>
-          <input id="out-q" placeholder="Filter rows…" style="width:220px"><a class="btn" id="out-dl" style="display:none">↓ Download</a></div>
+        <div class="card-head" style="padding:16px 18px 0"><h2 id="out-title">Select a dataset</h2><span class="spacer"></span>
+          <select id="out-day" style="width:150px;display:none"></select>
+          <input id="out-q" placeholder="Filter rows…" style="width:220px"><a class="btn" id="out-dl" style="display:none">↓ Download CSV</a></div>
         <div class="table-wrap" style="max-height:620px"><table id="out-table"></table></div>
         <div class="pager"><span id="out-count"></span><span class="spacer"></span>
           <button class="small" id="out-prev">← Prev</button><button class="small" id="out-next">Next →</button></div>

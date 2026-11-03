@@ -6,7 +6,7 @@ Once a day (worker, after `cleanup.after_hour`; also `python3 -m lens.cleanup`):
      copy, gzipped to data/backups/lens_<day>.db.gz; dated backups older than `backup_keep_days` are removed.
   2. Raw API replies (raw_capture) older than `raw_keep_days`: written to data/archive/raw_capture/ as one
      jsonl.gz per day (checked line by line), then removed from the database.
-  3. CSV exports (out/) older than `outputs_plain_days`: gzipped into out/archive/ (the newest of each kind stays).
+  3. CSV files left in out/ (runs stopped writing them on 2026-11-03; downloads are built on request): gzipped into out/archive/.
   4. Loose uncompressed database copies in data/backups (one-off copies such as the pre-merge one): gzipped.
   5. Browser profiles left in /tmp by a crashed reader (older than 12 hours): removed.
   6. Space freed inside the database is returned to the disk (incremental vacuum; the first run switches the
@@ -32,11 +32,10 @@ BACKUPS = config.DB_FILE.parent / "backups"
 RAW_ARCHIVE = config.DB_FILE.parent / "archive" / "raw_capture"
 OUT_ARCHIVE = config.OUT_DIR / "archive"
 DATED_BACKUP = re.compile(r"^lens_(\d{4}-\d{2}-\d{2})\.db\.gz$")
-OUT_KIND = re.compile(r"^(?P<kind>.+?)_\d{4}-\d{2}-\d{2}")
 
 
 def _settings(cfg):
-    return {"enabled": True, "after_hour": 3, "raw_keep_days": 7, "outputs_plain_days": 2, "backup_keep_days": 14,
+    return {"enabled": True, "after_hour": 3, "raw_keep_days": 7, "backup_keep_days": 14,
             **(cfg.get("cleanup") or {})}
 
 
@@ -118,21 +117,14 @@ def archive_raw(conn, keep_days, log=print, should_stop=lambda: False):
     return rows, size
 
 
-def compress_outputs(plain_days, log=print):
-    """Gzip CSV exports older than plain_days into out/archive/, keeping the newest file of each kind. Returns bytes saved."""
+def compress_outputs(log=print):
+    """Gzip CSV files left in out/ into out/archive/ (nothing writes them any more). Returns bytes saved."""
     if not config.OUT_DIR.exists():
         return 0
     OUT_ARCHIVE.mkdir(parents=True, exist_ok=True)
-    cutoff = time.time() - plain_days * 86400
-    files = sorted(config.OUT_DIR.glob("*.csv"), key=lambda f: f.stat().st_mtime, reverse=True)
-    newest, saved, n = set(), 0, 0
-    for f in files:
-        m = OUT_KIND.match(f.name)
-        kind = m["kind"] if m else f.name
-        if kind not in newest:
-            newest.add(kind)
-            continue
-        if f.stat().st_mtime >= cutoff:
+    saved = n = 0
+    for f in config.OUT_DIR.glob("*.csv"):
+        if time.time() - f.stat().st_mtime < 3600:  # a file someone is still writing by hand
             continue
         before = f.stat().st_size
         z = OUT_ARCHIVE / (f.name + ".gz")
@@ -141,7 +133,7 @@ def compress_outputs(plain_days, log=print):
         saved += before - z.stat().st_size
         n += 1
     if n:
-        log(f"CSV exports: {n} older files gzipped into out/archive ({saved >> 20} MB saved)")
+        log(f"CSV files: {n} gzipped into out/archive ({saved >> 20} MB saved)")
     return saved
 
 
@@ -240,7 +232,7 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, **_):
         s["raw_keep_days"] = None
     if s["raw_keep_days"] is not None:
         stats["cleanup_raw_rows"], stats["cleanup_raw_bytes"] = archive_raw(conn, s["raw_keep_days"], log, should_stop)
-    stats["cleanup_outputs_saved"] = compress_outputs(s["outputs_plain_days"], log)
+    stats["cleanup_outputs_saved"] = compress_outputs(log)
     stats["cleanup_backups_saved"] = compress_loose_backups(log)
     stats["cleanup_temp_freed"] = clear_temp_profiles(log)
     stats["cleanup_db_shrunk"] = reclaim(conn, log, should_stop)
