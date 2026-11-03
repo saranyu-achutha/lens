@@ -373,7 +373,9 @@ def start_health_watcher(manager):
             try:
                 cfg = config.load()
                 s = config.read_secrets()
-                if s.get("SPOTIFY_CLIENT_ID") and s.get("SPOTIFY_CLIENT_SECRET"):
+                has_primary = s.get("SPOTIFY_CLIENT_ID") and s.get("SPOTIFY_CLIENT_SECRET")
+                has_fallback = s.get("SPOTIFY_CLIENT_ID_2") and s.get("SPOTIFY_CLIENT_SECRET_2")
+                if has_primary or has_fallback:
                     conn = db.connect(str(config.DB_FILE))
                     last = health.last_check(conn)
                     every = 6 * 3600 if last and last["ok"] else cfg["health"]["recheck_minutes"] * 60

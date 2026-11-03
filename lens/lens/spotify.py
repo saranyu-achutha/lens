@@ -31,9 +31,11 @@ class BudgetExhausted(Exception):
 
 
 class Spotify:
-    def __init__(self, client_id, client_secret, market="IN", on_raw=None, max_calls=None):
-        self.client_id = client_id
-        self.client_secret = client_secret
+    def __init__(self, client_id, client_secret, market="IN", on_raw=None, max_calls=None,
+                 fallback_credentials=None):
+        self._credentials = [(client_id, client_secret)] + list(fallback_credentials or [])
+        self._credential_index = 0
+        self.client_id, self.client_secret = self._credentials[0]
         self.market = market
         self.on_raw = on_raw  # callback(url, status, body) for raw capture
         self.page_limit = 50  # drops to 10 automatically if Spotify rejects larger pages
@@ -42,6 +44,25 @@ class Spotify:
         self.max_calls = max_calls  # per-run budget; None = unlimited
         self._token = None
         self._token_exp = 0
+
+    @classmethod
+    def from_secrets(cls, secrets, **kwargs):
+        """Build a client with the primary credentials and optional quota fallback."""
+        primary = (secrets.get("SPOTIFY_CLIENT_ID"), secrets.get("SPOTIFY_CLIENT_SECRET"))
+        fallback = (secrets.get("SPOTIFY_CLIENT_ID_2"), secrets.get("SPOTIFY_CLIENT_SECRET_2"))
+        credentials = [pair for pair in (primary, fallback) if all(pair)]
+        if not credentials:
+            credentials = [(None, None)]
+        return cls(*credentials[0], fallback_credentials=credentials[1:], **kwargs)
+
+    def _switch_account(self):
+        if self._credential_index + 1 >= len(self._credentials):
+            return False
+        self._credential_index += 1
+        self.client_id, self.client_secret = self._credentials[self._credential_index]
+        self._token = None
+        self._token_exp = 0
+        return True
 
     def _fetch_token(self):
         creds = base64.b64encode(f"{self.client_id}:{self.client_secret}".encode()).decode()
@@ -83,6 +104,9 @@ class Spotify:
                 if e.code == 429:
                     wait = int(e.headers.get("Retry-After") or 5)
                     if wait > MAX_RETRY_WAIT:  # daily quota block: give up now, resume later
+                        if self._switch_account():
+                            self._fetch_token()
+                            continue  # retry the same request on the next account
                         raise SpotifyError(429, url, body, retry_after=wait)
                     time.sleep(wait + 1)
                 elif e.code == 401 and attempt == 0:

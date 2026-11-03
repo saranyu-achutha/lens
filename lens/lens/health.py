@@ -10,11 +10,12 @@ PROBE = {"q": 'label:"Sony Music India" year:2026', "type": "album", "limit": 1,
 def check_spotify(conn, trigger="manual"):
     s = config.read_secrets()
     cid, secret = s.get("SPOTIFY_CLIENT_ID"), s.get("SPOTIFY_CLIENT_SECRET")
+    fallback = s.get("SPOTIFY_CLIENT_ID_2"), s.get("SPOTIFY_CLIENT_SECRET_2")
     retry_at = None
-    if not cid or not secret:
+    if not ((cid and secret) or all(fallback)):
         ok, status, msg = False, None, "Client ID and secret are both required."
     else:
-        sp = Spotify(cid, secret, market=config.load()["discovery"]["market"])
+        sp = Spotify.from_secrets(s, market=config.load()["discovery"]["market"])
         try:
             sp._fetch_token()
         except SpotifyError as e:

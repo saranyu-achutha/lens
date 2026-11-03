@@ -21,8 +21,8 @@ PAGES_PER_GROUP = 2  # 20 most recent singles and 20 most recent albums per arti
 
 def run(conn, cfg, secrets, since, until, ts, log, check, run_id, budget=700):
     from .songs import attach_spotify
-    cid, secret = secrets.get("SPOTIFY_CLIENT_ID"), secrets.get("SPOTIFY_CLIENT_SECRET")
-    if not cid or not secret:
+    if not ((secrets.get("SPOTIFY_CLIENT_ID") and secrets.get("SPOTIFY_CLIENT_SECRET")) or
+            (secrets.get("SPOTIFY_CLIENT_ID_2") and secrets.get("SPOTIFY_CLIENT_SECRET_2"))):
         return {}
     songs = conn.execute(
         """SELECT t.id, t.title,
@@ -56,7 +56,7 @@ def run(conn, cfg, secrets, since, until, ts, log, check, run_id, budget=700):
             conn.execute("INSERT INTO raw_capture (run_id, source, url, status, captured_at, body)"
                          " VALUES (?,'spotify',?,?,?,?)", (run_id, url, status, db.now_iso(), body))
 
-    sp = Spotify(cid, secret, market=cfg["discovery"]["market"], on_raw=on_raw, max_calls=budget)
+    sp = Spotify.from_secrets(secrets, market=cfg["discovery"]["market"], on_raw=on_raw, max_calls=budget)
     cutoff = (date.fromisoformat(since) - timedelta(days=120)).isoformat()
     song_rows = {s["id"]: s for s in songs}
     vids = {}

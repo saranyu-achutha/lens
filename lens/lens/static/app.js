@@ -1429,7 +1429,11 @@ async function loadSources() {
   $("#sp-id").value = ""; $("#sp-id").placeholder = s.SPOTIFY_CLIENT_ID.set ? `current: ${s.SPOTIFY_CLIENT_ID.hint}` : "paste client ID";
   $("#sp-id-hint").textContent = s.SPOTIFY_CLIENT_ID.set ? "Leave blank to keep the current ID." : "";
   $("#sp-secret-hint").textContent = s.SPOTIFY_CLIENT_SECRET.set ? "A secret is stored." : "No secret stored yet.";
-  secretPill($("#sp-pill"), s.SPOTIFY_CLIENT_ID.set && s.SPOTIFY_CLIENT_SECRET.set, s.SPOTIFY_CLIENT_ID.set && s.SPOTIFY_CLIENT_SECRET.set ? "Configured" : "Needs credentials");
+  $("#sp-id-2").value = ""; $("#sp-id-2").placeholder = s.SPOTIFY_CLIENT_ID_2.set ? `current: ${s.SPOTIFY_CLIENT_ID_2.hint}` : "paste backup client ID";
+  $("#sp-id-2-hint").textContent = s.SPOTIFY_CLIENT_ID_2.set ? "Leave blank to keep the current backup ID." : "";
+  $("#sp-secret-2-hint").textContent = s.SPOTIFY_CLIENT_SECRET_2.set ? "A backup secret is stored." : "No backup secret stored.";
+  const spotifyConfigured = (s.SPOTIFY_CLIENT_ID.set && s.SPOTIFY_CLIENT_SECRET.set) || (s.SPOTIFY_CLIENT_ID_2.set && s.SPOTIFY_CLIENT_SECRET_2.set);
+  secretPill($("#sp-pill"), spotifyConfigured, spotifyConfigured ? "Configured" : "Needs credentials");
   const nk = s.YOUTUBE_API_KEY.count || 0;
   $("#yt-hint").textContent = nk ? `${nk} key${nk > 1 ? "s" : ""} stored, used in order: when one runs out of quota the next takes over. Keys pasted here are added to the list.` : "Not set";
   const ys = await api("/api/youtube/status");
@@ -1448,8 +1452,9 @@ async function loadSources() {
 }
 $("#sp-save").onclick = async () => {
   try {
-    await api("/api/secrets", { SPOTIFY_CLIENT_ID: $("#sp-id").value, SPOTIFY_CLIENT_SECRET: $("#sp-secret").value });
-    $("#sp-secret").value = ""; toast("Spotify credentials saved"); loadSources();
+    await api("/api/secrets", { SPOTIFY_CLIENT_ID: $("#sp-id").value, SPOTIFY_CLIENT_SECRET: $("#sp-secret").value,
+      SPOTIFY_CLIENT_ID_2: $("#sp-id-2").value, SPOTIFY_CLIENT_SECRET_2: $("#sp-secret-2").value });
+    $("#sp-secret").value = ""; $("#sp-secret-2").value = ""; toast("Spotify credentials saved"); loadSources();
   } catch (e) { toast(e.message, true); }
 };
 $("#sp-test").onclick = async () => {

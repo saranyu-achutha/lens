@@ -350,8 +350,8 @@ def rescore_pending(conn, since, ts, log):
 def spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until="9999"):
     """One Spotify search per song that has no Spotify link yet (rechecks misses every few days)."""
     scfg = cfg["songs"]
-    cid, secret = secrets.get("SPOTIFY_CLIENT_ID"), secrets.get("SPOTIFY_CLIENT_SECRET")
-    if not cid or not secret:
+    if not ((secrets.get("SPOTIFY_CLIENT_ID") and secrets.get("SPOTIFY_CLIENT_SECRET")) or
+            (secrets.get("SPOTIFY_CLIENT_ID_2") and secrets.get("SPOTIFY_CLIENT_SECRET_2"))):
         log("Spotify credentials not set; skipping metadata lookup")
         return {}
     recheck_before = (datetime.now(timezone.utc) - timedelta(days=scfg["spotify_recheck_days"])).isoformat()
@@ -397,7 +397,7 @@ def spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until="999
             conn.execute("INSERT INTO raw_capture (run_id, source, url, status, captured_at, body)"
                          " VALUES (?,'spotify',?,?,?,?)", (run_id, url, status, db.now_iso(), body))
 
-    sp = Spotify(cid, secret, market=cfg["discovery"]["market"], on_raw=on_raw)
+    sp = Spotify.from_secrets(secrets, market=cfg["discovery"]["market"], on_raw=on_raw)
     rejected = {(r[0], r[1]) for r in conn.execute(
         "SELECT p.platform_id, m.track_id FROM match_rejection m JOIN platform_item p ON p.id=m.platform_item_id "
         "WHERE p.platform='spotify'")}

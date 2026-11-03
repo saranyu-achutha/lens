@@ -227,8 +227,8 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, since=None, un
     since = since or dcfg["since"]
     until = until or dcfg["until"] or date.today().isoformat()
     label_re = re.compile(dcfg["label_regex"], re.I)
-    cid, secret = secrets.get("SPOTIFY_CLIENT_ID"), secrets.get("SPOTIFY_CLIENT_SECRET")
-    if not cid or not secret:
+    if not ((secrets.get("SPOTIFY_CLIENT_ID") and secrets.get("SPOTIFY_CLIENT_SECRET")) or
+            (secrets.get("SPOTIFY_CLIENT_ID_2") and secrets.get("SPOTIFY_CLIENT_SECRET_2"))):
         raise SpotifyError(0, "config", "Spotify client ID / secret not set (Sources page or .env)")
 
     def check():
@@ -240,7 +240,8 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, since=None, un
             conn.execute("INSERT INTO raw_capture (run_id, source, url, status, captured_at, body)"
                          " VALUES (?,'spotify',?,?,?,?)", (run_id, url, status, db.now_iso(), body))
 
-    sp = Spotify(cid, secret, market=dcfg["market"], on_raw=on_raw, max_calls=dcfg["max_calls_per_run"] or None)
+    sp = Spotify.from_secrets(secrets, market=dcfg["market"], on_raw=on_raw,
+                              max_calls=dcfg["max_calls_per_run"] or None)
     ts = db.now_iso()
     status, stop_reason, retry_at = "ok", None, None
     totals, cands, already, ids = {}, {}, [], []

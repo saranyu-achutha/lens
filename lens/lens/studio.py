@@ -55,7 +55,7 @@ def secret_status():
     s = config.read_secrets()
     def mask(v):
         return (v[:4] + "…" + v[-4:]) if v and len(v) > 10 else ("set" if v else "")
-    out = {k: {"set": bool(s.get(k)), "hint": mask(s.get(k, "")) if k != "SPOTIFY_CLIENT_SECRET"
+    out = {k: {"set": bool(s.get(k)), "hint": mask(s.get(k, "")) if not k.endswith("CLIENT_SECRET")
                else ("set" if s.get(k) else "")} for k in config.SECRET_KEYS}
     from .youtube import parse_keys
     out["YOUTUBE_API_KEY"]["count"] = len(parse_keys(s.get("YOUTUBE_API_KEY")))
@@ -833,7 +833,7 @@ def api_seeds(conn, _):
 
 def spotify_client():
     s = config.read_secrets()
-    return Spotify(s.get("SPOTIFY_CLIENT_ID"), s.get("SPOTIFY_CLIENT_SECRET"), market=config.load()["discovery"]["market"])
+    return Spotify.from_secrets(s, market=config.load()["discovery"]["market"])
 
 
 def api_artist_search(conn, qs):
