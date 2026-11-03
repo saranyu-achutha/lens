@@ -14,6 +14,9 @@ description that starts "Provided to YouTube by <label>". For each song of the p
      listing a channel's newest uploads costs 1 unit per 50 tracks against 100 units for one search. Only channels whose
      artist has songs still missing are listed; the first time back to the period start, then the newest page a day.
      Uploads are matched with the same rules as a search result (title score >= 0.9, versions and language, artist).
+     Each listed channel is read in full again every 7 days (an Art Track can appear well after the first listing).
+     Artists with 2+ missing songs and no known Topic channel get one channel search ("<artist> - Topic", 100 units,
+     up to 100 a day, most missing songs first), kept only when the channel name is exactly that artist; retried after 30 days.
 """
 import html
 import json
@@ -36,6 +39,10 @@ class Cancelled(Exception):
 BACKOFF_DAYS = (7, 14, 30)  # wait after the 1st, 2nd, 3rd search without a result
 GIVE_UP_DAYS = 60
 GENERIC_TOPICS = ("release - topic", "various artists - topic")  # catch-all channels, too big to list
+GENERIC_ARTISTS = ("traditional", "various artists", "unknown", "chorus")  # credits that are not an artist's channel
+ARTIST_SEARCHES_PER_DAY = 100  # channel searches for artists without a known Topic channel (100 units each)
+ARTIST_RETRY_DAYS = 30
+FULL_RESCAN_DAYS = 7
 
 
 def _tries(value):
@@ -251,8 +258,9 @@ def scan_channels(conn, yt, cfg, since, until, today, ts, labels, log, should_st
     songs = []
     for r in rows:
         core, _, quals = match.parse_spotify_title(r["title"])
+        names = _artists(conn, r["id"])
         songs.append({"id": r["id"], "core": core, "quals": quals, "lang": _song_lang(conn, r["id"]),
-                      "artists": [match.fold(a) for a in _artists(conn, r["id"])]})
+                      "names": names, "artists": [match.fold(a) for a in names]})
     if not songs:
         return {}
     found = pages = 0
@@ -279,7 +287,41 @@ def scan_channels(conn, yt, cfg, since, until, today, ts, labels, log, should_st
                     found += 1
             conn.execute("INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)", (f"ytm_album:{pid}", today))
             conn.commit()
-    # 2. Artists' Topic channels, only those with songs still missing; full back to the period start once, then a page a day
+    # 1b. Topic channels of artists we have none for: one channel search per artist (most missing songs first), accepted
+    #     only when the channel is exactly "<artist> - Topic". At most ARTIST_SEARCHES_PER_DAY a day; an artist not found
+    #     is tried again after ARTIST_RETRY_DAYS.
+    searched_today = conn.execute("SELECT count(*) FROM state WHERE key LIKE 'ytm_artist_search:%' AND value=?", (today,)).fetchone()[0]
+    budget = cfg["songs"].get("ytmusic_artist_searches_per_day", ARTIST_SEARCHES_PER_DAY) - searched_today
+    if budget > 0:
+        known = {match.fold(v[:-len(" - Topic")]) for (v,) in conn.execute("SELECT value FROM state WHERE key LIKE 'ytm_topic:%'")}
+        known = {k for k in known if len(k) >= 4}
+        want, shown = {}, {}
+        for so in songs:
+            for name, a in list(zip(so["names"], so["artists"]))[:3]:
+                if len(a) < 4 or a in GENERIC_ARTISTS or any(k in a or a in k for k in known):
+                    continue
+                want[a] = want.get(a, 0) + 1
+                shown.setdefault(a, name)
+        retry = (date.fromisoformat(today) - timedelta(days=ARTIST_RETRY_DAYS)).isoformat()
+        tried = dict(conn.execute("SELECT substr(key, 19), value FROM state WHERE key LIKE 'ytm_artist_search:%'").fetchall())
+        queue = [a for a, n in sorted(want.items(), key=lambda x: -x[1]) if n >= 2 and tried.get(a, "") <= retry][:budget]
+        new_channels = 0
+        for a in queue:
+            if should_stop():
+                raise Cancelled()
+            res = yt.get("search", part="snippet", q=f"{shown[a]} - Topic", type="channel", maxResults=5)
+            conn.execute("INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)", (f"ytm_artist_search:{a}", today))
+            for it in res.get("items", []):
+                title = (it.get("snippet") or {}).get("channelTitle") or (it.get("snippet") or {}).get("title") or ""
+                if title.endswith(" - Topic") and match.fold(title[:-len(" - Topic")]) == a and title.lower() not in GENERIC_TOPICS:
+                    conn.execute("INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)", (f"ytm_topic:{it['id']['channelId']}", title))
+                    new_channels += 1
+                    break
+            conn.commit()
+        if queue:
+            log(f"YouTube Music: {new_channels} new Topic channels found by {len(queue)} artist searches ({len(queue) * 100:,} quota units)")
+    # 2. Artists' Topic channels, only those with songs still missing: in full back to the period start every
+    #    FULL_RESCAN_DAYS (an Art Track can appear long after the channel was last listed), the newest page on other days
     for key, ch in conn.execute("SELECT key, value FROM state WHERE key LIKE 'ytm_topic:%'").fetchall():
         if should_stop():
             raise Cancelled()
@@ -291,6 +333,8 @@ def scan_channels(conn, yt, cfg, since, until, today, ts, labels, log, should_st
         last = conn.execute("SELECT value FROM state WHERE key=?", (f"ytm_topic_scan:{cid}",)).fetchone()
         if last and last[0] == today:
             continue
+        full_at = conn.execute("SELECT value FROM state WHERE key=?", (f"ytm_topic_full:{cid}",)).fetchone()
+        full = not full_at or (date.fromisoformat(today) - date.fromisoformat(full_at[0])).days >= FULL_RESCAN_DAYS
         token = None
         while True:
             try:
@@ -312,9 +356,11 @@ def scan_channels(conn, yt, cfg, since, until, today, ts, labels, log, should_st
                     linked.add(hit[1]["id"])
                     found += 1
             token = res.get("nextPageToken")
-            if not token or old or last:  # after the first full scan, the newest page is enough
+            if not token or old or not full:  # between full scans, the newest page is enough
                 break
         conn.execute("INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)", (f"ytm_topic_scan:{cid}", today))
+        if full:
+            conn.execute("INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)", (f"ytm_topic_full:{cid}", today))
         conn.commit()
     if pages:
         log(f"YouTube Music: {found} audio tracks found by listing {pages} Topic-channel / album pages ({pages} quota units)")

@@ -294,6 +294,8 @@ def _due_work(cfg, tried, browser=True, api=True):
             c4.close()
         if can_search and todo:
             return "ytmusic", "songs due a YouTube Music search, and the Topic-channel scan"
+        if hours_since("ytmusic") >= 6:  # no searches due: still list Topic channels and read plays (cheap lists)
+            return "ytmusic", "Topic-channel scan and artist channel search for songs still without a YouTube Music track"
     # 6. Nothing else due: refresh YouTube readings (a sync reads new uploads and videos in their first week, so it is
     #    cheap) so new uploads and views keep coming in between the 6-hourly pipelines; at most hourly.
     if ago("youtube_sync") > 3600 and hours_since("youtube_sync") >= 1:
