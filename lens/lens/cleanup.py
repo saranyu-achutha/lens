@@ -199,7 +199,10 @@ def reclaim(conn, log=print, should_stop=lambda: False):
             conn.execute("PRAGMA incremental_vacuum(25000)").fetchall()  # about 100 MB a step
             conn.commit()
             free = conn.execute("PRAGMA freelist_count").fetchone()[0]
-    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchall()
+    for _ in range(20):  # the rewrite sits in the WAL until no other job is mid-read; wait for a gap (up to 10 minutes)
+        if conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0] == 0:
+            break
+        time.sleep(30)
     shrunk = before - config.DB_FILE.stat().st_size
     if shrunk > 0:
         log(f"database: {shrunk >> 20} MB returned to the disk ({config.DB_FILE.stat().st_size >> 20} MB now)")
