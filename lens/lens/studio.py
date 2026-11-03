@@ -1025,6 +1025,9 @@ def api_matching(conn, qs):
     limit, offset = min(int(qs.get("limit", 50)), 200), int(qs.get("offset", 0))
     like = f"%{qs.get('q', '')}%"
     since = config.load()["discovery"]["since"]
+    until = config.window(config.load())[1]
+    # Spotify links of the songs the Console shows: in the period, and older releases only with "All songs" on
+    sp_window = "t.first_published >= ? AND substr(t.first_published,1,10) <= ?" + focus(qs).replace("release_status", "t.release_status")
     if state == "unmatched_tracks":
         base = TRACKS_SQL + " WHERE yt_videos = 0 AND song_date >= ? AND (title LIKE ? OR artists LIKE ? OR release_title LIKE ?)"
         args = tracks_args() + [since, like, like, like]
@@ -1039,10 +1042,10 @@ def api_matching(conn, qs):
                          (SELECT url FROM platform_item v WHERE v.track_id=t.id AND v.platform='youtube'
                           ORDER BY v.asset_type IN ('audio','lyric') DESC LIMIT 1) video_url
                   FROM platform_item sp JOIN track t ON t.id=sp.track_id
-                  WHERE sp.platform='spotify' AND sp.review_state IN ({states}) AND t.first_published >= ?
+                  WHERE sp.platform='spotify' AND sp.review_state IN ({states}) AND {window}
                     AND (sp.title LIKE ? OR t.yt_title LIKE ?)""".format(
-            states="'pending'" if state == "spotify_pending" else "'auto','approved'")
-        args = [since, like, like]
+            states="'pending'" if state == "spotify_pending" else "'auto','approved'", window=sp_window)
+        args = [since, until, like, like]
         total = conn.execute(f"SELECT count(*) FROM ({base})", args).fetchone()[0]
         order = "sp.match_score DESC" if state == "spotify_pending" else "sp.match_score ASC"  # weakest first
         rows = q(conn, base + f" ORDER BY {order} LIMIT ? OFFSET ?", args + [limit, offset])
@@ -1079,10 +1082,11 @@ def api_matching(conn, qs):
                            (SELECT count(*) FROM platform_item WHERE platform='youtube' AND track_id IS NULL
                               AND asset_type IN ('video','lyric','audio','other') AND published_at >= ?) unmatched_videos,
                            (SELECT count(*) FROM platform_item WHERE platform='youtube' AND review_state='song') grouped,
-                           (SELECT count(*) FROM platform_item WHERE platform='spotify' AND review_state='pending') spotify_pending,
                            (SELECT count(*) FROM platform_item sp JOIN track t ON t.id=sp.track_id WHERE sp.platform='spotify'
-                              AND sp.review_state IN ('auto','approved') AND t.first_published >= ?) spotify_linked
-                    FROM ({TRACKS_SQL}) WHERE song_date >= ?""", [since, since] + tracks_args() + [since])[0]
+                              AND sp.review_state='pending' AND {sp_window}) spotify_pending,
+                           (SELECT count(*) FROM platform_item sp JOIN track t ON t.id=sp.track_id WHERE sp.platform='spotify'
+                              AND sp.review_state IN ('auto','approved') AND {sp_window}) spotify_linked
+                    FROM ({TRACKS_SQL}) WHERE song_date >= ?""", [since, since, until, since, until] + tracks_args() + [since])[0]
     s["unmatched_tracks"] = (s["tracks"] or 0) - (s["matched"] or 0)
     return {"total": total, "rows": rows, "summary": s}
 

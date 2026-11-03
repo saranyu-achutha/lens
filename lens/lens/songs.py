@@ -213,6 +213,10 @@ def refresh_song_dates_and_status(conn):
                     WHERE release_id IS NOT NULL AND first_published IS NOT NULL
                       AND EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=track.id AND p.platform='spotify'
                                   AND p.review_state IN ('auto','approved'))""")
+    # "Awaiting review" with no Spotify link left to review (its candidate was taken by another song or removed by a
+    # merge): look the song up again.
+    conn.execute("""UPDATE track SET release_status='unchecked' WHERE release_status='pending'
+                      AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=track.id AND p.platform='spotify')""")
     conn.commit()
 
 
@@ -229,14 +233,17 @@ def attach_spotify(conn, tid, t, decision, detail, since, ts):
     A 'pending' hit is only parked (with the candidate) for review; the song is not changed until approved."""
     from .discover_spotify import upsert_release
     if decision != "auto":
-        conn.execute(
+        cur = conn.execute(
             """INSERT INTO platform_item (platform, platform_id, track_id, asset_type, title, url, match_method,
                    match_score, match_detail, review_state, published_at, duration_ms, first_seen_at)
                VALUES ('spotify', ?, ?, 'audio', ?, ?, 'search', ?, ?, 'pending', ?, ?, ?)
                ON CONFLICT(platform, platform_id) DO NOTHING""",
             (t["id"], tid, t["name"], (t.get("external_urls") or {}).get("spotify"), detail["total"],
              json.dumps(dict(detail, candidate=t)), t["album"].get("release_date"), t.get("duration_ms"), ts))
-        conn.execute("UPDATE track SET release_status='pending', spotify_checked_at=? WHERE id=?", (ts, tid))
+        # The candidate already belongs to another song: nothing was parked, so there is nothing to review here;
+        # the song has no Spotify track of its own for now (rechecked like any miss).
+        status = "pending" if cur.rowcount else "not_on_spotify"
+        conn.execute("UPDATE track SET release_status=?, spotify_checked_at=? WHERE id=?", (status, ts, tid))
         return tid
     album = t["album"]
     known = conn.execute("SELECT id FROM release WHERE spotify_album_id=?", (album["id"],)).fetchone()
