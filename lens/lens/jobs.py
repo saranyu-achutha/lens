@@ -5,7 +5,7 @@ import time
 import traceback
 from datetime import datetime, timedelta
 
-from . import alerts, config, db, discover_spotify, health, instagram_audio, jiosaavn, shorts_use, song_daily, songs, spotify_plays, sync_youtube, sysstats, youtube_music
+from . import alerts, cleanup, config, db, discover_spotify, health, instagram_audio, jiosaavn, shorts_use, song_daily, songs, spotify_plays, sync_youtube, sysstats, youtube_music
 from .spotify import SpotifyError
 from .youtube import YouTubeError
 
@@ -19,6 +19,7 @@ JOBS = {
     "spotify_plays": "Spotify play counts (public track pages, light headless browser)",
     "shorts": "YouTube Shorts made with each song's official audio (public sound pages)",
     "instagram": "Instagram Reels made with each song's official audio (public audio pages, light headless browser)",
+    "cleanup": "Daily cleanup: backup if missing, old raw replies and CSVs compressed into archives, disk space given back",
 }
 STEPS = {
     "pipeline": [("youtube", sync_youtube.run), ("songs", songs.run), ("ytmusic", youtube_music.run), ("jiosaavn", jiosaavn.run), ("daily", song_daily.run)],
@@ -30,6 +31,7 @@ STEPS = {
     "spotify_discovery": [("spotify", discover_spotify.run)],
     "shorts": [("shorts", shorts_use.run), ("daily", song_daily.run)],
     "instagram": [("instagram", instagram_audio.run), ("daily", song_daily.run)],
+    "cleanup": [("cleanup", cleanup.run)],
 }
 SEVERITY = ["ok", "partial", "quota_exceeded", "cancelled", "failed"]
 CANCELLED = (discover_spotify.Cancelled, sync_youtube.Cancelled, songs.Cancelled, youtube_music.Cancelled, jiosaavn.Cancelled, shorts_use.Cancelled, instagram_audio.Cancelled)
@@ -236,6 +238,16 @@ def _due_work(cfg, tried, browser=True, api=True):
             pass
     if not api:
         return None
+    # 1c. Daily cleanup, once a day after the backup hour (it returns disk space; nothing is lost).
+    cl = cfg.get("cleanup") or {}
+    if cl.get("enabled", True) and datetime.now().hour >= cl.get("after_hour", 3) and ago("cleanup") > 3600:
+        c0 = db.connect(str(config.DB_FILE))
+        try:
+            due = not cleanup.done_today(c0)
+        finally:
+            c0.close()
+        if due:
+            return "cleanup", "daily cleanup not run yet today"
     # 2. JioSaavn: songs never searched (or due a retry) and tracks without today's plays.
     if ago("jiosaavn") > 600:
         recheck = (datetime.now().date() - timedelta(days=7)).isoformat()

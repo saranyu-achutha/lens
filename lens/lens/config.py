@@ -142,6 +142,10 @@ DEFAULTS = {
     # CSV outputs (out/): every run writes new files. keep_days > 0 keeps the newest file of each kind per day for that
     # many days and deletes the rest (all of it can be rebuilt from the database); 0 keeps everything.
     "outputs": {"keep_days": 0},
+    # Daily cleanup (lens/cleanup.py), after after_hour (server time): today's backup if missing, raw API replies older
+    # than raw_keep_days moved into data/archive (jsonl.gz), CSV exports older than outputs_plain_days gzipped into
+    # out/archive, the database's free space returned to the disk. Nothing is lost.
+    "cleanup": {"enabled": True, "after_hour": 3, "raw_keep_days": 7, "outputs_plain_days": 2, "backup_keep_days": 14},
     "worker": {
         "enabled": True,
         "pause_seconds": 20,  # short breather between jobs so the Console stays responsive

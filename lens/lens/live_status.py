@@ -109,6 +109,12 @@ def compute(conn, manager, browser, quota):
     ch = alerts.charts_status(conn)
     cards.append({"key": "charts", "icon": "spotify", "name": "Spotify India chart", "what": "daily Top 200 (needs a session token)",
                   "extra": [("Newest daily chart", ch["daily_latest"] or "none"), ("Behind", "yes, paste a token" if ch["behind"] else "no")]})
+    cl_runs, cl_last = _runs_today(conn, ("cleanup",), today)
+    mb = lambda k: f"{cl_runs.get(k, 0) / 2**20:,.0f} MB"
+    cards.append({"key": "cleanup", "icon": "disk", "name": "Daily cleanup", "what": "backup, old raw replies and CSVs compressed into archives (nothing deleted)",
+                  "extra": [("Disk given back today", mb("cleanup_disk_freed")), ("Raw replies archived", f"{int(cl_runs.get('cleanup_raw_rows', 0)):,} rows"),
+                            ("CSV exports compressed", mb("cleanup_outputs_saved")), ("Database shrunk by", mb("cleanup_db_shrunk"))],
+                  "last": cl_last})
     # Lanes: running now and what the work loop would start next
     nxt_api = jobs._due_work(cfg, {}, browser=False)
     nxt_browser = jobs._due_work(cfg, {}, api=False)
