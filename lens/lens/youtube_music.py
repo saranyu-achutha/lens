@@ -19,10 +19,15 @@ description that starts "Provided to YouTube by <label>". For each song of the p
      up to 100 a day, most missing songs first), kept only when the channel name is exactly that artist; retried after 30 days.
      A Topic channel without an uploads list (about 40% of them) is searched instead (channelId, from the period start,
      100 units), once a week, up to 100 a day.
+  4. web search for the songs still missing (DuckDuckGo, then Bing, polite pacing; up to 150 a run, retried after 3, 7,
+     14, 30 days): each video found is checked with videos.list and kept only on a "- Topic" channel with a matching
+     title and one of the song's credited artists in the track's credits (any providing label: distributors differ).
 """
 import html
 import json
 import re
+import time
+import urllib.parse
 from datetime import date, timedelta
 
 from . import config, db, match
@@ -222,10 +227,91 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
         if not e.quota_exceeded:
             raise
         log("YouTube Music: quota reached during the Topic-channel scan; it continues in the next run")
+    web = {}
+    if cfg["songs"].get("ytmusic_web_search", True):
+        web = web_links(conn, yt, since, until, today, ts, log, should_stop,
+                        cfg["songs"].get("ytmusic_web_searches_per_run", 150), cfg["songs"].get("web_search_pace_seconds", 5))
     total = conn.execute("SELECT count(DISTINCT track_id) FROM platform_item WHERE platform='ytmusic'").fetchone()[0]
-    return {"status": status, "stop_reason": stop_reason, "ytmusic_found": found + scanned.get("found", 0), "ytmusic_missing": missing,
+    return {"status": status, "stop_reason": stop_reason, "ytmusic_found": found + scanned.get("found", 0) + web.get("found", 0), "ytmusic_missing": missing,
+            "ytmusic_web_found": web.get("found", 0), "ytmusic_web_searches": web.get("searches", 0),
             "ytmusic_read": read, "ytmusic_songs": total, "ytmusic_quota_units": yt.units,
             "ytmusic_topic_found": scanned.get("found", 0), "ytmusic_topic_pages": scanned.get("pages", 0)}
+
+
+WEB_VIDEO = re.compile(r"(?:music\.youtube\.com|youtube\.com)/watch\?v=([\w-]{11})")
+WEB_BACKOFF_DAYS = (3, 7, 14, 30)  # wait after the 1st, 2nd ... web search without a result
+WEB_GIVE_UP_DAYS = 60
+
+
+def _credits(desc):
+    """Names in an Art Track's credits line ("Title · Artist · Artist") and its album line, folded."""
+    lines = [l.strip() for l in (desc or "").split("\n") if l.strip()]
+    out = set()
+    for i, l in enumerate(lines[:6]):
+        if " · " in l:
+            out.update(match.fold(x) for x in l.split(" · ")[1:])
+            if i + 1 < len(lines):
+                out.add(match.fold(lines[i + 1]))  # the album
+            break
+    return {x for x in out if len(x) >= 4}
+
+
+def web_links(conn, yt, since, until, today, ts, log, should_stop, budget, pace):
+    """Songs still without a track: search the web (DuckDuckGo, then Bing) for "<song> <singer> youtube music", then
+    check each video found with the API (1 unit per 50): kept only when it is on a "- Topic" channel, the title matches
+    (>= 0.9, same version and language) and one of the song's credited artists (or its film) is in the track's credits.
+    Labels deliver to YouTube Music through distributors, so the providing label is not required."""
+    from . import spotify_links
+    rows = conn.execute("""SELECT t.id, coalesce(t.yt_title, t.title) title, coalesce(t.release_status,'') = 'catalogue' old,
+                                  (SELECT value FROM state WHERE key='ytm_web:' || t.id) st FROM track t
+                           WHERE t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?
+                             AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='ytmusic')
+                           ORDER BY old, t.first_published DESC""", (since, until)).fetchall()
+    d = date.fromisoformat(today)
+    todo = []
+    for r in rows:
+        t = _tries(r["st"])
+        if t is None or ((d - date.fromisoformat(t[0][:10])).days < WEB_GIVE_UP_DAYS
+                         and (d - date.fromisoformat(t[1][:10])).days >= WEB_BACKOFF_DAYS[min(t[2], len(WEB_BACKOFF_DAYS)) - 1]):
+            todo.append(r)
+        if len(todo) >= budget:
+            break
+    found = searches = 0
+    for r in todo:
+        if should_stop():
+            raise Cancelled()
+        names = _artists(conn, r["id"])
+        names += [v for (v,) in conn.execute("SELECT value FROM song_meta WHERE track_id=? AND field IN ('lyricist','film','movie','album')", (r["id"],))]
+        folded = {match.fold(n) for n in names if len(match.fold(n)) >= 4}
+        q = f"{r['title']} {names[0] if names else ''} youtube music".strip()
+        ids = []
+        for _, url in spotify_links.SEARCH_ENGINES:
+            ids = list(dict.fromkeys(WEB_VIDEO.findall(spotify_links._text(url.format(q=urllib.parse.quote(q))))))
+            time.sleep(pace)
+            if ids:
+                break
+        searches += 1
+        t = _tries(r["st"])
+        conn.execute("INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)",
+                     (f"ytm_web:{r['id']}", f"{t[0] if t else today}|{today}|{(t[2] if t else 0) + 1}"))
+        core, _, quals = match.parse_spotify_title(r["title"])
+        song = {"id": r["id"], "core": core, "quals": quals, "lang": _song_lang(conn, r["id"]), "artists": list(folded)}
+        best = None
+        for v in (yt.videos(ids[:8]) if ids else []):
+            sn = v.get("snippet") or {}
+            if not (sn.get("channelTitle") or "").endswith(" - Topic"):
+                continue
+            hit = _match_upload(sn, [song])
+            cred = _credits(sn.get("description")) | {match.fold(sn["channelTitle"][:-len(" - Topic")])}
+            if hit and any(a in c or c in a for a in folded for c in cred) and (not best or hit[0] > best[0]):
+                best = (hit[0], v["id"], sn)
+        if best and not conn.execute("SELECT 1 FROM platform_item WHERE platform='ytmusic' AND platform_id=?", (best[1],)).fetchone():
+            _attach(conn, song, best[1], best[2], "web_search", best[0], ts)
+            found += 1
+        conn.commit()
+    if todo:
+        log(f"YouTube Music: {found} audio tracks found by {searches} web searches (checked with {yt.units} API units so far)")
+    return {"found": found, "searches": searches}
 
 
 def _match_upload(sn, songs):
