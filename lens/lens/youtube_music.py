@@ -17,6 +17,8 @@ description that starts "Provided to YouTube by <label>". For each song of the p
      Each listed channel is read in full again every 7 days (an Art Track can appear well after the first listing).
      Artists with 2+ missing songs and no known Topic channel get one channel search ("<artist> - Topic", 100 units,
      up to 100 a day, most missing songs first), kept only when the channel name is exactly that artist; retried after 30 days.
+     A Topic channel without an uploads list (about 40% of them) is searched instead (channelId, from the period start,
+     100 units), once a week, up to 100 a day.
 """
 import html
 import json
@@ -320,6 +322,9 @@ def scan_channels(conn, yt, cfg, since, until, today, ts, labels, log, should_st
             conn.commit()
         if queue:
             log(f"YouTube Music: {new_channels} new Topic channels found by {len(queue)} artist searches ({len(queue) * 100:,} quota units)")
+    channel_searches = cfg["songs"].get("ytmusic_channel_searches_per_day", ARTIST_SEARCHES_PER_DAY) - conn.execute(
+        "SELECT count(*) FROM state WHERE key LIKE 'ytm_topic_search:%' AND value=?", (today,)).fetchone()[0]
+    searched_channels = 0
     # 2. Artists' Topic channels, only those with songs still missing: in full back to the period start every
     #    FULL_RESCAN_DAYS (an Art Track can appear long after the channel was last listed), the newest page on other days
     for key, ch in conn.execute("SELECT key, value FROM state WHERE key LIKE 'ytm_topic:%'").fetchall():
@@ -342,7 +347,23 @@ def scan_channels(conn, yt, cfg, since, until, today, ts, labels, log, should_st
             except YouTubeError as e:
                 if e.status != 404:
                     raise
-                break  # the Topic channel is gone; tried again tomorrow
+                # Many Topic channels have no uploads list: search the channel instead (100 units), once a week
+                done_at = conn.execute("SELECT value FROM state WHERE key=?", (f"ytm_topic_search:{cid}",)).fetchone()
+                if channel_searches <= 0 or (done_at and (date.fromisoformat(today) - date.fromisoformat(done_at[0])).days < FULL_RESCAN_DAYS):
+                    break
+                channel_searches -= 1
+                conn.execute("INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)", (f"ytm_topic_search:{cid}", today))
+                res = yt.get("search", part="snippet", channelId=cid, type="video", order="date",
+                             publishedAfter=f"{since[:10]}T00:00:00Z", maxResults=50)
+                searched_channels += 1
+                for it in res.get("items", []):
+                    vid = (it.get("id") or {}).get("videoId")
+                    hit = vid and _match_upload(it["snippet"], [s for s in mine if s["id"] not in linked])
+                    if hit:
+                        _attach(conn, hit[1], vid, it["snippet"], "topic_channel", hit[0], ts)
+                        linked.add(hit[1]["id"])
+                        found += 1
+                break
             pages += 1
             old = False
             for it in res.get("items", []):
@@ -362,6 +383,7 @@ def scan_channels(conn, yt, cfg, since, until, today, ts, labels, log, should_st
         if full:
             conn.execute("INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)", (f"ytm_topic_full:{cid}", today))
         conn.commit()
-    if pages:
-        log(f"YouTube Music: {found} audio tracks found by listing {pages} Topic-channel / album pages ({pages} quota units)")
-    return {"found": found, "pages": pages}
+    if pages or searched_channels:
+        log(f"YouTube Music: {found} audio tracks found by listing {pages} Topic-channel / album pages ({pages} quota units)"
+            + (f" and searching {searched_channels} Topic channels without an uploads list ({searched_channels * 100:,} units)" if searched_channels else ""))
+    return {"found": found, "pages": pages, "channel_searches": searched_channels}
