@@ -208,6 +208,13 @@ def drop_older_recordings(conn, log=print):
     return len(rows)
 
 
+# Tracks of the period's songs without today's play count (args: since, today, fresh-from, today). A track whose count
+# JioSaavn hides (too few plays) is done for the day once seen hidden.
+UNREAD = """p.platform='jiosaavn' AND t.first_published >= ?
+            AND NOT EXISTS (SELECT 1 FROM snapshot s WHERE s.platform_item_id=p.id AND s.metric='plays' AND s.capture_date=? AND s.captured_at >= ?)
+            AND coalesce((SELECT value FROM state WHERE key='js_hidden:' || p.id), '') != ?"""
+
+
 def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, **_):
     since, until = config.window(cfg)
     drop_older_recordings(conn, log)
@@ -241,12 +248,10 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
     # Daily play counts, 50 tracks per request.
     # Read again during the day too (no quota): today's value is replaced with the newest reading.
     fresh = (datetime.now().astimezone() - timedelta(hours=cfg["songs"].get("jiosaavn_refresh_hours", 3))).isoformat(timespec="seconds")
-    items = conn.execute("""SELECT p.id, p.platform_id FROM platform_item p JOIN track t ON t.id=p.track_id
-                            WHERE p.platform='jiosaavn' AND t.first_published >= ?
-                              AND NOT EXISTS (SELECT 1 FROM snapshot s WHERE s.platform_item_id=p.id AND s.metric='plays'
-                                              AND s.capture_date=? AND s.captured_at >= ?)""", (since, today, fresh)).fetchall()
+    items = conn.execute(f"""SELECT p.id, p.platform_id FROM platform_item p JOIN track t ON t.id=p.track_id
+                             WHERE {UNREAD}""", (since, today, fresh, today)).fetchall()
     by_pid = {r[1]: r[0] for r in items}
-    pids, read = list(by_pid), 0
+    pids, read, hidden = list(by_pid), 0, 0
     for i in range(0, len(pids), 50):
         if should_stop():
             raise Cancelled()
@@ -254,7 +259,11 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
         songs = d.get("songs") or [v for v in d.values() if isinstance(v, dict) and v.get("id")]
         for x in songs:
             iid, pc = by_pid.get(x.get("id")), x.get("play_count")
-            if iid is None or pc in (None, ""):
+            if iid is None:
+                continue
+            if pc in (None, ""):  # JioSaavn hides the count of songs with few plays: nothing to read today
+                conn.execute("INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)", (f"js_hidden:{iid}", today))
+                hidden += 1
                 continue
             # song.getDetails has release_date / year at the top level (search results keep them under more_info)
             rel = x.get("release_date") or (x.get("more_info") or {}).get("release_date") or (str(x.get("year")) if x.get("year") else None)
@@ -268,6 +277,6 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
             read += 1
         conn.commit()
     if pids:
-        log(f"JioSaavn: play counts read for {read} of {len(pids)} tracks")
+        log(f"JioSaavn: play counts read for {read} of {len(pids)} tracks" + (f" ({hidden} hidden by JioSaavn: too few plays to show)" if hidden else ""))
     total = conn.execute("SELECT count(DISTINCT track_id) FROM platform_item WHERE platform='jiosaavn'").fetchone()[0]
-    return {"status": "ok", "jiosaavn_found": found, "jiosaavn_missing": missing, "jiosaavn_read": read, "jiosaavn_songs": total}
+    return {"status": "ok", "jiosaavn_found": found, "jiosaavn_missing": missing, "jiosaavn_read": read, "jiosaavn_hidden": hidden, "jiosaavn_songs": total}

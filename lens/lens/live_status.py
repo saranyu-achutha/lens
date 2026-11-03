@@ -87,8 +87,10 @@ def compute(conn, manager, browser, quota):
     js_runs, js_last = _runs_today(conn, ("jiosaavn",), today)
     js_unsearched = _n(conn, f"""SELECT count(*) FROM track t WHERE t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?
                                  AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='jiosaavn')""", (since, until))
-    cards.append({"key": "jiosaavn", "icon": "jiosaavn", "name": "JioSaavn", "what": "play counts (no quota)", "read": read_today("jiosaavn", "plays"), "total": js_total,
-                  "unit": "tracks", "backlog": {"label": "songs without a JioSaavn track", "count": js_unsearched}, "last": js_last})
+    js_hidden = _n(conn, "SELECT count(*) FROM state WHERE key LIKE 'js_hidden:%' AND value=?", (today,))
+    cards.append({"key": "jiosaavn", "icon": "jiosaavn", "name": "JioSaavn", "what": "play counts (no quota)", "read": read_today("jiosaavn", "plays") + js_hidden,
+                  "total": js_total, "unit": "tracks", "backlog": {"label": "songs without a JioSaavn track", "count": js_unsearched},
+                  "extra": [("Count hidden by JioSaavn today (too few plays)", js_hidden)], "last": js_last})
     # Deezer
     dz_due = _n(conn, f"""SELECT count(*) FROM track t LEFT JOIN release r ON r.id=t.release_id
                           WHERE (t.first_published >= :since OR r.release_date >= :since) AND {songs.DEEZER_DUE}""", {"since": since, "today": today})
@@ -100,7 +102,8 @@ def compute(conn, manager, browser, quota):
     sh_read = _n(conn, "SELECT count(*) FROM sound_use WHERE platform='youtube' AND day=?", (today,))
     sh_runs, sh_last = _runs_today(conn, ("shorts",), today)
     cards.append({"key": "shorts", "icon": "youtube", "name": "YouTube Shorts", "what": "Shorts made with the official sounds (public pages)",
-                  "read": sh_read, "total": sh_read + sh_due, "unit": "sounds", "extra": [("Pages not readable today", int(sh_runs.get("shorts_pages_failed", 0)))], "last": sh_last})
+                  "read": sh_read, "total": sh_read + sh_due, "unit": "sounds", "extra": [("Uploads without a sound page (rechecked weekly)", shorts_use.no_sound_count(conn, today)),
+                            ("Pages not readable today", int(sh_runs.get("shorts_pages_failed", 0)))], "last": sh_last})
     ig_due = len(instagram_audio.due(conn, today))
     ig_read = _n(conn, "SELECT count(*) FROM sound_use WHERE platform='instagram' AND day=?", (today,))
     ig_runs, ig_last = _runs_today(conn, ("instagram",), today)

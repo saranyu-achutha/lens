@@ -119,20 +119,25 @@ def parse(html):
             "count_text": count_text, "count": number(count_text) if count_text else None, "shorts": list(shorts.values())}
 
 
+NO_SOUND_RECHECK_DAYS = 7  # an upload YouTube shows no sound page for (often Shorts use switched off): tried again weekly
+
+
 def fetch(video_id):
+    """The sound page, False if YouTube has no sound page for this upload, None if it could not be fetched."""
     req = urllib.request.Request(PAGE.format(video_id), headers={"User-Agent": UA, "Accept-Language": "en-IN,en;q=0.8"})
     for attempt in range(3):
         try:
             with urllib.request.urlopen(req, timeout=30) as r:
                 body = r.read().decode("utf-8", "replace")
             time.sleep(PACE)
-            return parse(body)
+            p = parse(body)
+            return p if p else (False if "ytInitialData" in body else None)
         except urllib.error.HTTPError as e:
             if e.code in (403, 429):  # slow down instead of pushing
                 time.sleep(60 * (attempt + 1))
                 continue
             if e.code == 404:
-                return None
+                return False
             raise
         except (urllib.error.URLError, TimeoutError):
             time.sleep(5 * (attempt + 1))
@@ -150,7 +155,14 @@ def due(conn, cfg, today):
           AND p.platform='youtube' AND p.asset_type IN ({",".join("?" * len(OFFICIAL_TYPES))})
           AND p.review_state IN ('auto','approved','song') AND p.channel IN ({",".join("?" * len(channels))})
           AND NOT EXISTS (SELECT 1 FROM sound_use u WHERE u.platform_item_id=p.id AND u.day=?)
-        ORDER BY t.first_published DESC""", (since, until, *OFFICIAL_TYPES, *channels, today)).fetchall()
+          AND coalesce((SELECT value FROM state WHERE key='shorts_nosound:' || p.id), '') <= date(?, '-{NO_SOUND_RECHECK_DAYS} day')
+        ORDER BY t.first_published DESC""", (since, until, *OFFICIAL_TYPES, *channels, today, today)).fetchall()
+
+
+def no_sound_count(conn, today):
+    """Uploads that had no sound page in the last week (not due again until their weekly recheck)."""
+    return conn.execute(f"SELECT count(*) FROM state WHERE key LIKE 'shorts_nosound:%' AND value > date(?, '-{NO_SOUND_RECHECK_DAYS} day')",
+                        (today,)).fetchone()[0]
 
 
 def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, **_):
@@ -160,7 +172,7 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
     todo = due(conn, cfg, today)[:cfg["songs"].get("shorts_pages_per_run", 300)]
     if todo:
         log(f"Shorts: reading {len(todo)} official sound pages (about {len(todo) * (PACE + 1) / 60:.0f} min)")
-    read = counted = failed = not_label = 0
+    read = counted = failed = not_label = no_sound = 0
     for n, (iid, vid, tid) in enumerate(todo, 1):
         if should_stop():
             raise Cancelled()
@@ -169,6 +181,11 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
         except Exception as e:  # one page failing doesn't stop the rest
             log(f"  {vid}: {e}")
             p = None
+        if p is False:
+            conn.execute("INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)", (f"shorts_nosound:{iid}", today))
+            conn.commit()
+            no_sound += 1
+            continue
         if p is None:
             failed += 1
             continue
@@ -195,6 +212,6 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
             log(f"  {n}/{len(todo)} sounds read ({counted} used in Shorts)")
     if todo:
         log(f"Shorts: {read} sounds read, {counted} used in Shorts, {not_label} not owned by a label channel (not counted), "
-            f"{failed} pages not readable")
+            f"{no_sound} uploads without a sound page (rechecked in {NO_SOUND_RECHECK_DAYS} days), {failed} pages not readable")
     return {"status": "ok", "shorts_sounds_read": read, "shorts_sounds_used": counted, "shorts_not_label": not_label,
-            "shorts_pages_failed": failed}
+            "shorts_no_sound": no_sound, "shorts_pages_failed": failed}

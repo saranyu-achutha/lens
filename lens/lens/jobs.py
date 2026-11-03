@@ -213,18 +213,8 @@ def _due_work(cfg, tried, browser=True, api=True):
     now = time.time()
     ago = lambda job: now - tried.get(job, 0)
     in_window = "t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?"
-    # 1. Spotify play counts: once a day for tracks without today's count (needs a browser on this machine).
-    if browser and ago("spotify_plays") > 600:  # tracks still waiting: go again soon (each run ends when its browser is done)
-        try:
-            spotify_plays.find_chrome()
-            conn = db.connect(str(config.DB_FILE))
-            n = len(spotify_plays.due_ids(conn))
-            conn.close()
-            if n:
-                return "spotify_plays", f"{n} Spotify tracks without today's play count"
-        except SystemExit:
-            pass
-    # 1b. Instagram audio pages: linked audios without today's Reels count (same browser; at most every 3 hours).
+    # 1. Instagram audio pages: linked audios without today's Reels count, at most every 3 hours. Checked before the
+    #    Spotify plays so a long plays backlog can't keep it waiting all day (a run is under an hour).
     if browser and ago("instagram") > 3 * 3600:
         try:
             spotify_plays.find_chrome()
@@ -234,6 +224,17 @@ def _due_work(cfg, tried, browser=True, api=True):
             conn.close()
             if n:
                 return "instagram", f"{n} Instagram audios without today's Reels count"
+        except SystemExit:
+            pass
+    # 1b. Spotify play counts: once a day for tracks without today's count (needs a browser on this machine).
+    if browser and ago("spotify_plays") > 600:  # tracks still waiting: go again soon (each run ends when its browser is done)
+        try:
+            spotify_plays.find_chrome()
+            conn = db.connect(str(config.DB_FILE))
+            n = len(spotify_plays.due_ids(conn))
+            conn.close()
+            if n:
+                return "spotify_plays", f"{n} Spotify tracks without today's play count"
         except SystemExit:
             pass
     if not api:
@@ -255,8 +256,8 @@ def _due_work(cfg, tried, browser=True, api=True):
                           AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='jiosaavn')
                           AND coalesce((SELECT value FROM state WHERE key='js_lookup:' || t.id), '') < ?""", (since, until, recheck))
         fresh = (datetime.now().astimezone() - timedelta(hours=cfg["songs"].get("jiosaavn_refresh_hours", 3))).isoformat(timespec="seconds")
-        unread = _count("""SELECT count(*) FROM platform_item p WHERE p.platform='jiosaavn' AND p.track_id IS NOT NULL
-                           AND NOT EXISTS (SELECT 1 FROM snapshot s WHERE s.platform_item_id=p.id AND s.metric='plays' AND s.capture_date=? AND s.captured_at >= ?)""", (today, fresh))
+        unread = _count(f"SELECT count(*) FROM platform_item p JOIN track t ON t.id=p.track_id WHERE {jiosaavn.UNREAD}",
+                        (since, today, fresh, today))  # the same tracks the reader reads
         if todo or unread:
             return "jiosaavn", f"{todo} songs to search, {unread} tracks to read"
     # 3. Songs: Spotify / iTunes / MusicBrainz lookups still pending, Deezer not read today, or new releases still
