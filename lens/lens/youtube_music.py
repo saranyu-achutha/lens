@@ -263,7 +263,12 @@ def scan_channels(conn, yt, cfg, since, until, today, ts, labels, log, should_st
         for pid in set(re.findall(r"list=(OLAK5uy_[\w-]{20,})", desc or "")):
             if conn.execute("SELECT 1 FROM state WHERE key=?", (f"ytm_album:{pid}",)).fetchone():
                 continue
-            res = yt.get("playlistItems", part="snippet", playlistId=pid, maxResults=50)
+            try:
+                res = yt.get("playlistItems", part="snippet", playlistId=pid, maxResults=50)
+            except YouTubeError as e:
+                if e.status != 404:
+                    raise
+                res = {}  # the label removed the album playlist; remember it as listed
             pages += 1
             for it in res.get("items", []):
                 sn = it["snippet"]
@@ -288,7 +293,12 @@ def scan_channels(conn, yt, cfg, since, until, today, ts, labels, log, should_st
             continue
         token = None
         while True:
-            res = yt.uploads(cid, token)
+            try:
+                res = yt.uploads(cid, token)
+            except YouTubeError as e:
+                if e.status != 404:
+                    raise
+                break  # the Topic channel is gone; tried again tomorrow
             pages += 1
             old = False
             for it in res.get("items", []):
