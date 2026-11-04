@@ -388,6 +388,7 @@ def spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until="999
            WHERE t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?
              AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='spotify')
              AND (t.spotify_checked_at IS NULL OR t.spotify_checked_at < ?)
+             AND coalesce((SELECT value FROM state WHERE key='spotify_search_day:' || t.id), '') < ?
              {skip_old}
              -- search engines first: only songs the web search (spotify_links) has already tried use a Spotify search,
              -- except songs with an ISRC (an exact lookup); songs searched before stop after 60 days
@@ -397,7 +398,7 @@ def spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until="999
                   OR (EXISTS (SELECT 1 FROM state WHERE key='itunes_lookup:' || t.id) OR EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='apple'))
                      AND (t.isrc IS NOT NULL OR EXISTS (SELECT 1 FROM state WHERE key='mb_lookup:' || t.id) OR EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='musicbrainz')))
            ORDER BY t.isrc IS NOT NULL DESC, t.release_check IN ('new', 'conflict') DESC, t.first_published DESC LIMIT ?""",
-            (since, until, recheck_before, scfg["spotify_searches_per_run"])).fetchall()
+            (since, until, recheck_before, searched_day(), scfg["spotify_searches_per_run"])).fetchall()
     skipped = conn.execute("""SELECT count(*) FROM track t WHERE t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?
                               AND t.release_check='old' AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='spotify')""",
                            (since, until)).fetchone()[0]
@@ -426,6 +427,11 @@ def spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until="999
     try:
         for n, song in enumerate(todo, 1):
             check()
+            # one Spotify search per song per day, whichever account makes it: marked before the call, so a
+            # search that fails part-way still counts and the other account does not repeat it today
+            conn.execute("INSERT INTO state (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                         (f"spotify_search_day:{song['id']}", searched_day()))
+            conn.commit()
             quals = song["song_key"].split("|")[1].split(",") if song["song_key"] and "|" in song["song_key"] else []
             q = f'track:"{song["title"]}"' + "".join(f" {x}" for x in quals if "-" not in x)
             if song["isrc"]:
@@ -492,6 +498,11 @@ def spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until="999
             **({"status": "partial", "stop_reason": stop_reason} if stop_reason else {})}
 
 
+def searched_day():
+    """Today's date (UTC, the server's day) for the one-search-per-song-per-day rule across both Spotify accounts."""
+    return datetime.now(timezone.utc).date().isoformat()
+
+
 def second_account_budget(conn, cfg):
     """(daily limit, calls in the last 24 h, calls left) for Spotify account 2 (the shared per-account counter)."""
     limit = int(cfg["songs"].get("spotify_second_daily_limit", 600))
@@ -509,8 +520,9 @@ def second_account_due(conn, cfg, limit):
            WHERE t.source='youtube' AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='spotify')
              AND coalesce((SELECT value FROM state WHERE key='spotify_second_checked:' || t.id), '') < ?
              AND coalesce(t.spotify_checked_at, '') < ?
+             AND coalesce((SELECT value FROM state WHERE key='spotify_search_day:' || t.id), '') < ?
            ORDER BY t.spotify_checked_at IS NULL DESC, t.isrc IS NOT NULL DESC, t.first_published DESC LIMIT ?""",
-        (recheck_before, recheck_before, limit)).fetchall()
+        (recheck_before, recheck_before, searched_day(), limit)).fetchall()
 
 
 def second_account_blocked(conn):
