@@ -878,6 +878,7 @@ def export_rows(conn, since, until="9999"):
 
 
 def write_csv(rows, f):
-    w = csv.writer(f)
+    from .exports import IdFreeWriter
+    w = IdFreeWriter(f)  # downloads carry no IDs or links
     w.writerow(rows[0].keys() if rows else [])
     w.writerows(tuple(r.values()) if isinstance(r, dict) else tuple(r) for r in rows)

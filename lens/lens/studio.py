@@ -374,13 +374,14 @@ def api_daily(conn, qs):
 def daily_csv(conn, qs):
     d = daily_rows(conn, qs)
     buf = io.StringIO()
-    w = csv.writer(buf)
+    w = exports.IdFreeWriter(buf)  # downloads carry no IDs or links
     metrics = [k for k, _ in DAILY_COLS]
     if d["mode"] == "song":
         w.writerow(["day"] + [x for k in metrics for x in (k, k + "_change")] + ["yt_uploads_read"])
         for r in d["rows"]:
             w.writerow([r["day"]] + [x for k in metrics for x in (r[k], daily_change(r, k))] + [r["yt_uploads_read"]])
-        name = f"market_lens_song_{qs['song']}_daily.csv"
+        title = q(conn, "SELECT coalesce(yt_title, title) t FROM track WHERE id=?", (int(qs["song"]),))
+        name = f"market_lens_song_{exports.slug(title[0]['t'] if title else '')}_daily.csv"
     else:
         w.writerow(["song_id", "song", "label", "channel", "first_upload", "day"] + [x for k in metrics for x in (k, k + "_change")] + ["yt_uploads_read"])
         for r in d["rows"]:
@@ -472,7 +473,7 @@ def api_report(conn, qs):
 def report_csv(conn, qs):
     d = report_data(conn, qs)
     buf = io.StringIO()
-    w = csv.writer(buf)
+    w = exports.IdFreeWriter(buf)  # downloads carry no IDs or links
     head = ["song_id", "song", "label", "channel", "first_upload"]
     for m in d["metrics"]:
         head += [f"{m['label']} {d['from']}", f"{m['label']} {d['to']}", f"{m['label']} change"]
@@ -764,7 +765,7 @@ def api_item_history(conn, qs):
 def items_csv(conn, qs):
     plat, metrics, day, cmp, days, select, _, args, sort, order = _items_query(conn, qs)
     buf = io.StringIO()
-    w = csv.writer(buf)
+    w = exports.IdFreeWriter(buf)  # downloads carry no IDs or links
     head = ["item_id", "platform_id", "song_id", "song", "title", "url", "channel", "released", "first_seen", "days_tracked"]
     head += [x for m in metrics for x in (f"{m} {day}", f"{m} change vs {cmp}")]
     w.writerow(head)

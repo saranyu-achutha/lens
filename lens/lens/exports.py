@@ -12,6 +12,31 @@ from datetime import date
 from . import config
 
 ARCHIVE_RE = re.compile(r"[\w.-]+\.csv\.gz")
+# CSV downloads carry no internal or platform IDs (user rule, 2026-11-04): songs are named by title, with all their
+# other details. Left out: any column ending in _id, _ids or url (song_id, item_id, platform_id, video_id,
+# spotify_track_id, all_youtube_video_ids, youtube_url, url, ...). Industry codes (ISRC, UPC) stay.
+ID_COLUMN = re.compile(r"(^|_)(ids?|url)$", re.I)
+
+
+class IdFreeWriter:
+    """csv.writer that drops ID and link columns: the first row written is the header and decides which go."""
+    def __init__(self, f):
+        self._w, self._keep = csv.writer(f), None
+
+    def writerow(self, row):
+        row = list(row)
+        if self._keep is None:
+            self._keep = [i for i, h in enumerate(row) if not ID_COLUMN.search(str(h).strip())]
+        self._w.writerow([row[i] for i in self._keep if i < len(row)])
+
+    def writerows(self, rows):
+        for r in rows:
+            self.writerow(r)
+
+
+def slug(text):
+    """A file-name-safe version of a song title."""
+    return re.sub(r"[^\w]+", "_", text or "").strip("_")[:60] or "song"
 
 
 def _songs(conn, day):
@@ -104,7 +129,7 @@ def download(conn, qs):
     ds, day, header, rows = _open(conn, qs.get("ds"), qs.get("day"))
     keep = _match(qs.get("q"))
     buf = io.StringIO()
-    w = csv.writer(buf)
+    w = IdFreeWriter(buf)
     w.writerow(header)
     w.writerows(r for r in rows if not keep or keep(r))
     name = f"market_lens_{qs.get('ds')}_{day or date.today().isoformat()}.csv"
@@ -119,4 +144,8 @@ def archived(name):
     if not f.is_file():
         raise ValueError("file not found")
     with gzip.open(f, "rb") as fh:
-        return fh.read(), name[:-3]
+        text = fh.read().decode("utf-8-sig")
+    rows = csv.reader(io.StringIO(text))
+    buf = io.StringIO()
+    IdFreeWriter(buf).writerows(rows)
+    return buf.getvalue().encode("utf-8-sig"), name[:-3]
