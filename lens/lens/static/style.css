@@ -786,7 +786,6 @@ tr.label-row td, :root[data-theme="light"] tr.label-row td { background: transpa
 #dd-table tbody tr:nth-child(even) { background: color-mix(in srgb, var(--surface-2) 45%, transparent); }
 .spark { display: block; }
 .dd-songhead h2 { font-size: 20px; }
-#dd-range button.on, #dd-metric button.on { background: var(--accent-soft); border-color: var(--accent); }
 
 /* "Open on" platform buttons (song profile, daily history) */
 .open-on { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
