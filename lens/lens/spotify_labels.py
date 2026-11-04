@@ -61,6 +61,39 @@ BACKFILL_EVERY_DAYS = 7
 
 def ensure(conn):
     conn.executescript(SCHEMA)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(spotify_label_album)")}
+    if "tracks_json" not in cols:  # a track list fetched elsewhere (the laptop list), matched here without a call
+        conn.execute("ALTER TABLE spotify_label_album ADD COLUMN tracks_json TEXT")
+
+
+def cached_due(conn, since):
+    """Albums whose track list is already here (imported) but not matched yet."""
+    return conn.execute("SELECT count(*) FROM spotify_label_album WHERE fetched_at IS NULL AND tracks_json IS NOT NULL "
+                        "AND release_date >= ?", (since,)).fetchone()[0]
+
+
+def import_list(conn, path, log=print):
+    """Load a laptop list (spotify_list.py state file): its releases from the period start, with their track lists,
+    to be matched and linked by the next sweep without any Spotify call."""
+    ensure(conn)
+    since = config.window(config.load())[0]
+    data = json.load(open(path))
+    new = cached = 0
+    for a in data["albums"].values():
+        if (a.get("release_date") or "") < since:
+            continue
+        row = conn.execute("SELECT fetched_at FROM spotify_label_album WHERE album_id=?", (a["id"],)).fetchone()
+        if row and row[0]:
+            continue  # already read and matched here
+        tracks = json.dumps({"items": a["tracks"]}) if a.get("tracks") is not None else None
+        conn.execute("""INSERT INTO spotify_label_album (album_id, label, name, release_date, total_tracks, seen_at, tracks_json)
+                        VALUES (?,?,?,?,?,?,?) ON CONFLICT(album_id) DO UPDATE SET tracks_json=COALESCE(excluded.tracks_json, tracks_json)""",
+                     (a["id"], a["label"], a["name"], a.get("release_date"), a.get("total_tracks"), db.now_iso(), tracks))
+        new += row is None
+        cached += tracks is not None
+    conn.commit()
+    log(f"Imported {new} new releases ({cached} with their track list, matched by the next sweep without calls)")
+    return {"releases_new": new, "with_tracks": cached}
 
 
 def _state(conn, key, default=None):
@@ -168,12 +201,12 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
     since, until = config.window(cfg)
     ts = db.now_iso()
     accts = accounts(conn, cfg, secrets)
-    if not accts:
+    if not accts and not cached_due(conn, since):
         log("Spotify label sweep: no account has calls to spare now (or both are waiting out a block)")
         return {"status": "ok", "label_sweep_calls": 0}
     lanes = [_Lane(conn, cfg, secrets, a) for a in accts]
-    log("Spotify label sweep on " + " and ".join(f"{songs.ACCOUNT_NAME[l.acct]} (up to {l.budget} calls)" for l in lanes)
-        + ", one call a second each, in parallel")
+    log(("Spotify label sweep on " + " and ".join(f"{songs.ACCOUNT_NAME[l.acct]} (up to {l.budget} calls)" for l in lanes)
+         + ", one call a second each, in parallel") if lanes else "Spotify label sweep: imported track lists only (no account has calls to spare)")
 
     # The period's songs by label, with their videos, for the match rules.
     lab_of = config.channel_labels(cfg)
@@ -198,6 +231,8 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
 
     def parallel(work, items):
         """Spread items over the lanes (round robin); each lane runs work(lane, its items) in its own thread."""
+        if not lanes:
+            return []
         shares = [items[i::len(lanes)] for i in range(len(lanes))]
         with ThreadPoolExecutor(len(lanes)) as ex:
             return [f.result() for f in [ex.submit(work, lane, share) for lane, share in zip(lanes, shares)]]
@@ -238,7 +273,7 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
                 complete = complete and nxt is None
             res[lb] = (albums, complete and not lane.stop)
         return res
-    for res in parallel(new_pass, todo_new) if todo_new else []:
+    for res in parallel(new_pass, todo_new) if todo_new and lanes else []:
         for lb, (albums, complete) in res.items():
             remember(lb, albums)
             if complete:
@@ -258,10 +293,16 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
         return out
 
     def read_pending():
+        # track lists already here (imported from the laptop list): matched without a call
+        for r in conn.execute("SELECT album_id, label, name, release_date, tracks_json FROM spotify_label_album "
+                              "WHERE fetched_at IS NULL AND tracks_json IS NOT NULL AND release_date >= ?", (since,)).fetchall():
+            a = dict(r)
+            _read_album(conn, _isrc_lane(lanes), a, json.loads(a.pop("tracks_json")), by_label.get(a["label"], []), rejected,
+                        known_tracks, since, ts, st)
         pending = [dict(r) for r in conn.execute(
             "SELECT album_id, label, name, release_date FROM spotify_label_album WHERE fetched_at IS NULL AND release_date >= ? "
             "ORDER BY release_date DESC", (since,))]
-        if not pending or all(l.stop for l in lanes):
+        if not pending or not lanes or all(l.stop for l in lanes):
             return
         for got in parallel(fetch_tracks, pending):
             for a, res in got:
@@ -290,7 +331,7 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
     states = {lb: _backfill(conn, cfg, lb) for lb in labels}  # read here, before the threads start
     conn.commit()
     todo_back = [lb for lb in labels if not states[lb].get("complete")]
-    if todo_back and not all(l.stop for l in lanes):
+    if todo_back and lanes and not all(l.stop for l in lanes):
         for res in parallel(backfill, todo_back):
             for lb, (albums, b) in res.items():
                 remember(lb, albums)
@@ -305,6 +346,10 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
     conn.commit()
     if should_stop():
         raise songs.Cancelled()
+    if not lanes:  # imported lists only: nothing else to do without calls
+        log(f"Spotify label sweep: {st['label_sweep_albums']} imported releases matched, {st['label_sweep_tracks']} tracks, "
+            f"{st['label_sweep_linked']} linked, {st['label_sweep_review']} to Review, {st['label_sweep_no_song']} with no YouTube song")
+        return dict(st, status="ok")
     st["label_sweep_calls"] = sum(l.sp.calls for l in lanes)
     st["label_sweep_calls_by_account"] = {l.acct: l.sp.calls for l in lanes}
     stops = [f"{songs.ACCOUNT_NAME[l.acct]}: {l.stop}" for l in lanes if l.stop]
@@ -395,3 +440,11 @@ def _read_album(conn, lane, a, res, label_songs, rejected, known_tracks, since, 
     conn.commit()
     st["label_sweep_albums"] += 1
     st["label_sweep_tracks"] += n
+
+
+if __name__ == "__main__":  # python3 -m lens.spotify_labels import <laptop state file>
+    import sys
+    if len(sys.argv) == 3 and sys.argv[1] == "import":
+        import_list(db.connect(str(config.DB_FILE)), sys.argv[2])
+    else:
+        print("usage: python3 -m lens.spotify_labels import <spotify_list state file>")

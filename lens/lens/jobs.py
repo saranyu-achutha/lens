@@ -291,9 +291,11 @@ def _due_work(cfg, tried, browser=True, api=True, paused=None):
     c1 = db.connect(str(config.DB_FILE))
     try:
         sweep_done = spotify_labels.done_today(c1, cfg)
-        sweep_due = cfg["songs"].get("spotify_label_sweep_auto", True) and \
-            ago(spotify_labels.JOB) > 60 * float(cfg["songs"].get("spotify_label_sweep_every_minutes", 60)) and \
-            spotify_labels.due(c1, cfg) and spotify_labels.account(c1, cfg, secrets)
+        spotify_labels.ensure(c1)
+        imported = spotify_labels.cached_due(c1, since)  # track lists from the laptop list: matched without calls
+        sweep_due = cfg["songs"].get("spotify_label_sweep_auto", True) and ((imported and ago(spotify_labels.JOB) > 300) or (
+            ago(spotify_labels.JOB) > 60 * float(cfg["songs"].get("spotify_label_sweep_every_minutes", 60)) and
+            spotify_labels.due(c1, cfg) and spotify_labels.account(c1, cfg, secrets)))
     finally:
         c1.close()
     if sweep_due:
