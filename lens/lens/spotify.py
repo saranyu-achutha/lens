@@ -69,22 +69,27 @@ def _seed(ledger, db_file):
         return
     try:
         since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat(timespec="seconds")
-        primary = 0
-        for job, st in main.execute("SELECT job, stats FROM run_log WHERE started_at >= ?", (since,)):
+        counts = {}  # (account, hour) -> calls, each in the hour it was made so it frees up on time
+
+        def add(account, at, n):
+            hour = _hour(datetime.fromisoformat(at).astimezone(timezone.utc))
+            counts[(account, hour)] = counts.get((account, hour), 0) + n
+        for job, at, st in main.execute("SELECT job, started_at, stats FROM run_log WHERE started_at >= ?", (since,)):
             if job == "spotify_second_account":
                 continue
             x = json.loads(st or "{}")
-            primary += sum(int(x.get(k) or 0) for k in ("spotify_searches", "spotify_artist_calls", "api_calls")
-                           if isinstance(x.get(k), (int, float)))
-        second = main.execute("SELECT count(*) FROM state WHERE key LIKE 'spotify_second_call:%' AND value >= ?",
-                              (since,)).fetchone()[0]
-    except sqlite3.Error:
+            n = sum(int(x.get(k) or 0) for k in ("spotify_searches", "spotify_artist_calls", "api_calls")
+                    if isinstance(x.get(k), (int, float)))
+            if n:
+                add("primary", at, n)
+        for (at,) in main.execute("SELECT value FROM state WHERE key LIKE 'spotify_second_call:%' AND value >= ?", (since,)):
+            add("second", at, 1)
+    except (sqlite3.Error, ValueError):
         return
     finally:
         main.close()
-    for account, n in (("primary", primary), ("second", second)):
-        if n:
-            ledger.execute("INSERT OR REPLACE INTO call_hour VALUES (?, ?, ?)", (account, _hour(), n))
+    for (account, hour), n in counts.items():
+        ledger.execute("INSERT OR REPLACE INTO call_hour VALUES (?, ?, ?)", (account, hour, n))
 
 
 def calls_last_24h(account, ledger=None):
