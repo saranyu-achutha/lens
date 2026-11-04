@@ -99,6 +99,10 @@ DEFAULTS = {
         "spotify_searches_per_run": 150,
         "spotify_recheck_days": 3,  # songs not found on Spotify are searched again after this
         "spotify_catchup_until": "",  # a date: until then the Spotify search may try every unlinked song, not only web-search misses
+        # Account 2 (SPOTIFY_CLIENT_ID_2) re-discovers songs still without a Spotify link, of any age, on its own
+        # daily cap; the worker runs it automatically (hourly while songs are due). Nothing else uses account 2.
+        "spotify_second_auto": True,
+        "spotify_second_daily_limit": 50,
         # Artist-first lookup (artist releases -> tracks): works while search is quota-blocked.
         "spotify_artist_calls_per_run": 700,
         # Optional contact (URL or email) MusicBrainz asks for in the User-Agent; blank sends just "MarketLens/0.1".

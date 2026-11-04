@@ -13,7 +13,7 @@ JOBS = {
     "pipeline": "Pipeline: YouTube sync, songs (Spotify metadata, Deezer rank), YouTube Music, JioSaavn",
     "youtube_sync": "YouTube sync only (new videos, views/likes/comments)",
     "songs": "Songs only (group videos, Spotify lookup, Deezer rank)",
-    "spotify_second_account": "Spotify missing IDs (second account)",
+    "spotify_second_account": "Spotify re-discover: songs without a Spotify link, on account 2 (automatic, own daily cap)",
     "spotify_discovery": "Spotify label crawl (heavy on Spotify quota, manual only)",
     "ytmusic": "YouTube Music only (find songs' audio tracks, read their plays)",
     "jiosaavn": "JioSaavn only (find songs' tracks, read their plays)",
@@ -251,6 +251,18 @@ def _due_work(cfg, tried, browser=True, api=True):
             c0.close()
         if due:
             return "cleanup", "daily cleanup not run yet today"
+    # 1d. Spotify account 2: re-discover songs still without a Spotify link, on its own daily cap (hourly while due).
+    s2 = config.read_secrets()
+    if cfg["songs"].get("spotify_second_auto", True) and ago("spotify_second_account") > 3600 \
+            and s2.get("SPOTIFY_CLIENT_ID_2") and s2.get("SPOTIFY_CLIENT_SECRET_2"):
+        c1 = db.connect(str(config.DB_FILE))
+        try:
+            left = songs.second_account_budget(c1, cfg)[2]
+            n = len(songs.second_account_due(c1, cfg, 1)) if left and not songs.second_account_blocked(c1) else 0
+        finally:
+            c1.close()
+        if n:
+            return "spotify_second_account", f"songs without a Spotify link to re-discover on account 2 ({left} searches left today)"
     # 2. JioSaavn: songs never searched (or due a retry) and tracks without today's plays.
     if ago("jiosaavn") > 600:
         recheck = (datetime.now().date() - timedelta(days=7)).isoformat()
