@@ -151,7 +151,9 @@ function barChart(el, data, { height = 230, onClick, tip } = {}) {
   const iw = W - m.l - m.r, ih = H - m.t - m.b;
   const max = niceMax(Math.max(...data.map((d) => d.value)));
   const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, height: H, role: "img", "aria-label": "bar chart" }, el);
-  gradient(svg, "bar-grad", "var(--series-1)", 1, 0.55);
+  // ids are page-wide: each chart needs its own, or url(#id) can point at a hidden chart's gradient and the bars vanish
+  const gid = `bar-grad-${Math.random().toString(36).slice(2, 7)}`;
+  gradient(svg, gid, "var(--series-1)", 1, 0.55);
   const g = svgEl("g", { class: "grid" }, svg), ax = svgEl("g", { class: "axis" }, svg);
   for (let i = 0; i <= 4; i++) {
     const y = m.t + ih - (ih * i) / 4;
@@ -163,7 +165,7 @@ function barChart(el, data, { height = 230, onClick, tip } = {}) {
   const maxIdx = data.reduce((bi, d, i) => (d.value > data[bi].value ? i : bi), 0);
   data.forEach((d, i) => {
     const h = (d.value / max) * ih, x = m.l + step * i + (step - bw) / 2, y = m.t + ih - h;
-    const bar = svgEl("path", { d: barPath(x, y, bw, Math.max(h, 0.5)), fill: "url(#bar-grad)", class: "bar", style: `animation-delay:${Math.min(i * 12, 400)}ms` }, svg);
+    const bar = svgEl("path", { d: barPath(x, y, bw, Math.max(h, 0.5)), fill: `url(#${gid})`, class: "bar", style: `animation-delay:${Math.min(i * 12, 400)}ms` }, svg);
     if (i === maxIdx) svgEl("text", { x: x + bw / 2, y: y - 6, "text-anchor": "middle", fill: "var(--text-secondary)", "font-size": 11 }, svg).textContent = d.value >= 1e5 ? compact(d.value) : fmt(d.value);
     if (data.length <= 14 || i % Math.ceil(data.length / 12) === 0)
       svgEl("text", { x: x + bw / 2, y: H - 8, "text-anchor": "middle" }, ax).textContent = d.label;
@@ -173,7 +175,7 @@ function barChart(el, data, { height = 230, onClick, tip } = {}) {
       tt.innerHTML = tip ? tip(d) : `${esc(d.label)}: <b>${fmt(d.value)}</b>`;
       tt.style.left = `${((x + bw / 2) / W) * 100}%`; tt.style.top = `${(y / H) * el.clientHeight}px`; tt.style.display = "block";
     });
-    hit.addEventListener("mouseleave", () => { bar.setAttribute("fill", "url(#bar-grad)"); tt.style.display = "none"; });
+    hit.addEventListener("mouseleave", () => { bar.setAttribute("fill", `url(#${gid})`); tt.style.display = "none"; });
     if (onClick) hit.addEventListener("click", () => onClick(d));
   });
 }
@@ -195,8 +197,9 @@ function lineChart(el, points, { height = 200, yMax = null, label = "Popularity"
   const X = (p) => (points.length === 1 ? m.l + iw / 2 : m.l + ((Date.parse(p.x) - t0) / span) * iw);
   const Y = (p) => m.t + ih - (p.y / yMax) * ih;
   const linePath = points.map((p, i) => `${i ? "L" : "M"}${X(p)},${Y(p)}`).join("");
-  gradient(svg, "line-area", "var(--series-1)", 0.28, 0);
-  if (points.length > 1) svgEl("path", { d: `${linePath}L${X(points[points.length - 1])},${m.t + ih}L${X(points[0])},${m.t + ih}Z`, fill: "url(#line-area)", class: "area" }, svg);
+  const aid = `line-area-${Math.random().toString(36).slice(2, 7)}`;
+  gradient(svg, aid, "var(--series-1)", 0.28, 0);
+  if (points.length > 1) svgEl("path", { d: `${linePath}L${X(points[points.length - 1])},${m.t + ih}L${X(points[0])},${m.t + ih}Z`, fill: `url(#${aid})`, class: "area" }, svg);
   svgEl("path", { d: linePath, fill: "none", stroke: "var(--series-1)", "stroke-width": 2.5, "stroke-linejoin": "round", "stroke-linecap": "round", pathLength: 1, class: "line" }, svg);
   (marks || []).forEach((mk) => { const p = points.find((q) => q.x === mk.x); if (!p) return;
     svgEl("line", { x1: X(p), x2: X(p), y1: m.t, y2: m.t + ih, stroke: "var(--warning)", "stroke-dasharray": "4 4", "stroke-width": 1.2 }, svg);
