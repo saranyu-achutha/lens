@@ -32,15 +32,19 @@ class BudgetExhausted(Exception):
 
 class Spotify:
     def __init__(self, client_id, client_secret, market="IN", on_raw=None, max_calls=None,
-                 fallback_credentials=None, stop_on_rate_limit=False):
+                 fallback_credentials=None, stop_on_rate_limit=False, account_name="primary"):
         self._credentials = [(client_id, client_secret)] + list(fallback_credentials or [])
+        self._account_names = [account_name] + [f"fallback_{i}" for i in range(1, len(self._credentials))]
         self._credential_index = 0
+        self.account_name = self._account_names[0]
         self.client_id, self.client_secret = self._credentials[0]
         self.market = market
         self.on_raw = on_raw  # callback(url, status, body) for raw capture
         self.page_limit = 50  # drops to 10 automatically if Spotify rejects larger pages
         self.batch_ok = {"albums": True, "tracks": True}
         self.calls = 0
+        self.calls_by_account = {self.account_name: 0}
+        self.token_requests_by_account = {self.account_name: 0}
         self.max_calls = max_calls  # per-run budget; None = unlimited
         self.stop_on_rate_limit = stop_on_rate_limit
         self._token = None
@@ -48,13 +52,11 @@ class Spotify:
 
     @classmethod
     def from_secrets(cls, secrets, **kwargs):
-        """Build a client with the primary credentials and optional quota fallback."""
+        """Build a primary-only client; account two is reserved for the explicit catch-up action."""
         primary = (secrets.get("SPOTIFY_CLIENT_ID"), secrets.get("SPOTIFY_CLIENT_SECRET"))
-        fallback = (secrets.get("SPOTIFY_CLIENT_ID_2"), secrets.get("SPOTIFY_CLIENT_SECRET_2"))
-        credentials = [pair for pair in (primary, fallback) if all(pair)]
-        if not credentials:
-            credentials = [(None, None)]
-        return cls(*credentials[0], fallback_credentials=credentials[1:], **kwargs)
+        if not all(primary):
+            raise ValueError("Spotify primary account credentials are not configured")
+        return cls(*primary, account_name="primary", **kwargs)
 
     @classmethod
     def second_account_from_secrets(cls, secrets, **kwargs):
@@ -63,18 +65,22 @@ class Spotify:
         if not all(pair):
             raise ValueError("Spotify second account credentials are not configured")
         kwargs.setdefault("stop_on_rate_limit", True)
-        return cls(*pair, **kwargs)
+        return cls(*pair, account_name="second", **kwargs)
 
     def _switch_account(self):
         if self._credential_index + 1 >= len(self._credentials):
             return False
         self._credential_index += 1
         self.client_id, self.client_secret = self._credentials[self._credential_index]
+        self.account_name = self._account_names[self._credential_index]
+        self.calls_by_account.setdefault(self.account_name, 0)
+        self.token_requests_by_account.setdefault(self.account_name, 0)
         self._token = None
         self._token_exp = 0
         return True
 
     def _fetch_token(self):
+        self.token_requests_by_account[self.account_name] = self.token_requests_by_account.get(self.account_name, 0) + 1
         creds = base64.b64encode(f"{self.client_id}:{self.client_secret}".encode()).decode()
         req = urllib.request.Request(
             TOKEN_URL,
@@ -101,6 +107,7 @@ class Spotify:
                 raise BudgetExhausted()
             req = urllib.request.Request(url, headers={"Authorization": f"Bearer {self._token}"})
             self.calls += 1
+            self.calls_by_account[self.account_name] = self.calls_by_account.get(self.account_name, 0) + 1
             try:
                 with urllib.request.urlopen(req, timeout=30) as r:
                     body = r.read().decode()

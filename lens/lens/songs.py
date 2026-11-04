@@ -355,9 +355,8 @@ def spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until="999
     if second_account_only and not (secrets.get("SPOTIFY_CLIENT_ID_2") and secrets.get("SPOTIFY_CLIENT_SECRET_2")):
         log("Spotify second account credentials not set; skipping lookup")
         return {}
-    if not second_account_only and not ((secrets.get("SPOTIFY_CLIENT_ID") and secrets.get("SPOTIFY_CLIENT_SECRET")) or
-            (secrets.get("SPOTIFY_CLIENT_ID_2") and secrets.get("SPOTIFY_CLIENT_SECRET_2"))):
-        log("Spotify credentials not set; skipping metadata lookup")
+    if not second_account_only and not (secrets.get("SPOTIFY_CLIENT_ID") and secrets.get("SPOTIFY_CLIENT_SECRET")):
+        log("Spotify primary account credentials not set; skipping automatic lookup (account 2 is reserved for manual catch-up)")
         return {}
     recheck_before = (datetime.now(timezone.utc) - timedelta(days=scfg["spotify_recheck_days"])).isoformat()
     # Spend Spotify's small quota on new releases only: songs the release-year check (free sources) found to be
@@ -497,6 +496,8 @@ def spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until="999
         f"{missing} not found ({sp.calls} calls)")
     return {"spotify_searches": sp.calls, "spotify_matched": found, "spotify_pending": pending,
             "spotify_not_found": missing, "spotify_extra_versions": extra_versions,
+            "spotify_search_calls_by_account": dict(sp.calls_by_account),
+            "spotify_search_token_requests_by_account": dict(sp.token_requests_by_account),
             **({"status": "partial", "stop_reason": stop_reason} if stop_reason else {})}
 
 

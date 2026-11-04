@@ -227,9 +227,8 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, since=None, un
     since = since or dcfg["since"]
     until = until or dcfg["until"] or date.today().isoformat()
     label_re = re.compile(dcfg["label_regex"], re.I)
-    if not ((secrets.get("SPOTIFY_CLIENT_ID") and secrets.get("SPOTIFY_CLIENT_SECRET")) or
-            (secrets.get("SPOTIFY_CLIENT_ID_2") and secrets.get("SPOTIFY_CLIENT_SECRET_2"))):
-        raise SpotifyError(0, "config", "Spotify client ID / secret not set (Sources page or .env)")
+    if not (secrets.get("SPOTIFY_CLIENT_ID") and secrets.get("SPOTIFY_CLIENT_SECRET")):
+        raise SpotifyError(0, "config", "Spotify primary account credentials are required; account 2 is reserved for manual catch-up")
 
     def check():
         if should_stop():
@@ -340,7 +339,9 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, since=None, un
     return {"status": status, "stop_reason": stop_reason, "retry_at": retry_at,
             "since": since, "until": until, "candidates": len(cands), "already_stored": len(already),
             "releases": n_releases, "tracks": n_tracks, "isrcs_added": n_isrc, "tracks_without_isrc": left,
-            "api_calls": sp.calls, "search_totals": totals, "accepted_labels": dict(accepted_labels.most_common()),
+            "api_calls": sp.calls, "api_calls_by_account": dict(sp.calls_by_account),
+            "token_requests_by_account": dict(sp.token_requests_by_account),
+            "search_totals": totals, "accepted_labels": dict(accepted_labels.most_common()),
             "top_rejected_labels": dict(rejected_labels.most_common(25))}
 
 

@@ -1459,9 +1459,9 @@ async function loadSources() {
   $("#sp-id").value = ""; $("#sp-id").placeholder = s.SPOTIFY_CLIENT_ID.set ? `current: ${s.SPOTIFY_CLIENT_ID.hint}` : "paste client ID";
   $("#sp-id-hint").textContent = s.SPOTIFY_CLIENT_ID.set ? "Leave blank to keep the current ID." : "";
   $("#sp-secret-hint").textContent = s.SPOTIFY_CLIENT_SECRET.set ? "A secret is stored." : "No secret stored yet.";
-  $("#sp-id-2").value = ""; $("#sp-id-2").placeholder = s.SPOTIFY_CLIENT_ID_2.set ? `current: ${s.SPOTIFY_CLIENT_ID_2.hint}` : "paste backup client ID";
-  $("#sp-id-2-hint").textContent = s.SPOTIFY_CLIENT_ID_2.set ? "Leave blank to keep the current backup ID." : "";
-  $("#sp-secret-2-hint").textContent = s.SPOTIFY_CLIENT_SECRET_2.set ? "A backup secret is stored." : "No backup secret stored.";
+  $("#sp-id-2").value = ""; $("#sp-id-2").placeholder = s.SPOTIFY_CLIENT_ID_2.set ? `current: ${s.SPOTIFY_CLIENT_ID_2.hint}` : "paste account 2 client ID";
+  $("#sp-id-2-hint").textContent = s.SPOTIFY_CLIENT_ID_2.set ? "Leave blank to keep the current account 2 ID." : "";
+  $("#sp-secret-2-hint").textContent = s.SPOTIFY_CLIENT_SECRET_2.set ? "Account 2 secret is stored." : "No backup secret stored.";
   const spotifyConfigured = (s.SPOTIFY_CLIENT_ID.set && s.SPOTIFY_CLIENT_SECRET.set) || (s.SPOTIFY_CLIENT_ID_2.set && s.SPOTIFY_CLIENT_SECRET_2.set);
   secretPill($("#sp-pill"), spotifyConfigured, spotifyConfigured ? "Configured" : "Needs credentials");
   const nk = s.YOUTUBE_API_KEY.count || 0;

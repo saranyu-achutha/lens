@@ -10,10 +10,9 @@ PROBE = {"q": 'label:"Sony Music India" year:2026', "type": "album", "limit": 1,
 def check_spotify(conn, trigger="manual"):
     s = config.read_secrets()
     cid, secret = s.get("SPOTIFY_CLIENT_ID"), s.get("SPOTIFY_CLIENT_SECRET")
-    fallback = s.get("SPOTIFY_CLIENT_ID_2"), s.get("SPOTIFY_CLIENT_SECRET_2")
     retry_at = None
-    if not ((cid and secret) or all(fallback)):
-        ok, status, msg = False, None, "Client ID and secret are both required."
+    if not (cid and secret):
+        ok, status, msg = False, None, "Primary client ID and secret are required; account 2 is reserved for manual catch-up."
     else:
         sp = Spotify.from_secrets(s, market=config.load()["discovery"]["market"])
         try:
@@ -26,7 +25,7 @@ def check_spotify(conn, trigger="manual"):
                 # (Spotify's quota is per endpoint group: album/track lookups can be blocked separately.)
                 sp.get("/search", dict(PROBE, market=sp.market))
                 ok, status = True, 200
-                msg = "Connected. Search works (used for song metadata)."
+                msg = "Primary account connected. Search works (used for automatic song metadata)."
             except SpotifyError as e:
                 ok, status = False, e.status
                 if e.quota_exceeded:

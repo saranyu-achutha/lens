@@ -21,8 +21,8 @@ PAGES_PER_GROUP = 2  # 20 most recent singles and 20 most recent albums per arti
 
 def run(conn, cfg, secrets, since, until, ts, log, check, run_id, budget=700):
     from .songs import attach_spotify
-    if not ((secrets.get("SPOTIFY_CLIENT_ID") and secrets.get("SPOTIFY_CLIENT_SECRET")) or
-            (secrets.get("SPOTIFY_CLIENT_ID_2") and secrets.get("SPOTIFY_CLIENT_SECRET_2"))):
+    if not (secrets.get("SPOTIFY_CLIENT_ID") and secrets.get("SPOTIFY_CLIENT_SECRET")):
+        log("Spotify (artist-first): primary account credentials not set; account 2 is reserved for manual catch-up")
         return {}
     songs = conn.execute(
         """SELECT t.id, t.title,
@@ -151,4 +151,6 @@ def run(conn, cfg, secrets, since, until, ts, log, check, run_id, budget=700):
     matched, pending = counts["auto"], counts["pending"]
     log(f"Spotify (artist-first): {matched} matched, {pending} sent to review, {len(fetched_albums)} releases opened, "
         f"{sp.calls} calls" + (f"; stopped: {stop}" if stop else ""))
-    return {"spotify_artist_matched": matched, "spotify_artist_pending": pending, "spotify_artist_calls": sp.calls}
+    return {"spotify_artist_matched": matched, "spotify_artist_pending": pending, "spotify_artist_calls": sp.calls,
+            "spotify_artist_calls_by_account": dict(sp.calls_by_account),
+            "spotify_artist_token_requests_by_account": dict(sp.token_requests_by_account)}
