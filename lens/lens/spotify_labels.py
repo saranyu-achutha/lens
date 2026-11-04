@@ -12,8 +12,10 @@ link after the day's sweep. For each label in config (youtube.labels, switched o
 A confident match is linked like a search hit (and one /tracks/{id} call fetches its ISRC); an uncertain one goes to
 Review. Guards from the 2026-11-04 test: a track links automatically only if its own title (without "From ...",
 "feat.") shares a word with the song's title, and a song that would get several different tracks in one sweep sends
-them all to Review. Calls come from the same per-account budget as re-discovery (primary above its reserve first,
-then account 2), at most songs.spotify_label_sweep_per_run a run, one a second.
+them all to Review. Both accounts work at once (user rule, 2026-11-04), each in its own thread at one call a second,
+within the same per-account budget as re-discovery (the primary above its reserve), at most
+songs.spotify_label_sweep_per_run calls per account a run. The threads only make HTTP calls; every database write and
+all matching happen in the main thread. Every track read is kept in spotify_label_track (Outputs: Spotify label songs).
 """
 import json
 from datetime import date, datetime, timedelta, timezone
@@ -34,6 +36,23 @@ CREATE TABLE IF NOT EXISTS spotify_label_album (
     linked        INTEGER,    -- tracks linked automatically
     review        INTEGER     -- tracks sent to Review
 );
+-- Every track of the labels' releases from the period start (user request, 2026-11-04: "all songs from our
+-- shortlisted labels" on Spotify, to merge with YouTube later), with the song it matched, if any.
+CREATE TABLE IF NOT EXISTS spotify_label_track (
+    track_id      TEXT PRIMARY KEY,   -- Spotify track ID
+    label         TEXT,
+    title         TEXT,
+    artists       TEXT,
+    album_id      TEXT,
+    album         TEXT,
+    release_date  TEXT,
+    duration_ms   INTEGER,
+    song_id       INTEGER,            -- the YouTube song it matched (linked or sent to Review), else NULL
+    match         TEXT,               -- auto | pending | none | already (the song had its Spotify track already)
+    score         REAL,
+    seen_at       TEXT
+);
+CREATE INDEX IF NOT EXISTS spotify_label_track_label ON spotify_label_track(label, release_date);
 """
 JOB = "spotify_label_sweep"
 DEFAULT_QUERIES = {"Sony Music India": ["Sony Music Entertainment India", "Sony Music India"]}
@@ -103,18 +122,58 @@ def account(conn, cfg, secrets):
     return None
 
 
+def accounts(conn, cfg, secrets):
+    """Accounts with calls to spare now (not waiting out a block): the primary above its reserve, and account 2."""
+    out = []
+    for acct, ok in (("primary", secrets.get("SPOTIFY_CLIENT_ID") and secrets.get("SPOTIFY_CLIENT_SECRET")),
+                     ("second", secrets.get("SPOTIFY_CLIENT_ID_2") and secrets.get("SPOTIFY_CLIENT_SECRET_2"))):
+        if ok and not songs.rediscover_blocked(conn, acct) and songs.rediscover_budget(conn, cfg, acct)[2] > 0:
+            out.append(acct)
+    return out
+
+
+class _Lane:
+    """One account working in its own thread: only HTTP calls (one a second, its own budget); results go back to the
+    main thread, which does every database write and all matching."""
+    def __init__(self, conn, cfg, secrets, acct):
+        self.acct = acct
+        budget = min(int(cfg["songs"].get("spotify_label_sweep_per_run", 200)), songs.rediscover_budget(conn, cfg, acct)[2])
+        factory = Spotify.second_account_from_secrets if acct == "second" else Spotify.from_secrets
+        self.sp = factory(secrets, market=cfg["discovery"]["market"], max_calls=budget, stop_on_rate_limit=True)
+        self.budget, self.stop, self.retry_after = budget, None, None
+
+    def call(self, path, params):
+        """The reply, or None once this account has stopped (budget, daily limit, rate limit)."""
+        if self.stop:
+            return None
+        try:
+            return self.sp.get(path, dict(params, market=self.sp.market))
+        except DailyLimitReached as e:
+            self.stop = str(e)
+        except BudgetExhausted:
+            self.stop = f"run budget of {self.budget} calls used"
+        except SpotifyError as e:
+            if e.status == 429:
+                self.stop, self.retry_after = f"rate limited (retry after {e.retry_after or '?'} s)", e.retry_after or 3600
+            elif e.status in (400, 404):
+                return {}
+            else:
+                self.stop = f"HTTP {e.status}"
+        return None
+
+
 def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, **_):
+    from concurrent.futures import ThreadPoolExecutor
     ensure(conn)
     since, until = config.window(cfg)
     ts = db.now_iso()
-    acct = account(conn, cfg, secrets)
-    if not acct:
+    accts = accounts(conn, cfg, secrets)
+    if not accts:
         log("Spotify label sweep: no account has calls to spare now (or both are waiting out a block)")
         return {"status": "ok", "label_sweep_calls": 0}
-    budget = min(int(cfg["songs"].get("spotify_label_sweep_per_run", 200)), songs.rediscover_budget(conn, cfg, acct)[2])
-    factory = Spotify.second_account_from_secrets if acct == "second" else Spotify.from_secrets
-    sp = factory(secrets, market=cfg["discovery"]["market"], max_calls=budget, stop_on_rate_limit=True)
-    log(f"Spotify label sweep on the {songs.ACCOUNT_NAME[acct]}: up to {budget} calls")
+    lanes = [_Lane(conn, cfg, secrets, a) for a in accts]
+    log("Spotify label sweep on " + " and ".join(f"{songs.ACCOUNT_NAME[l.acct]} (up to {l.budget} calls)" for l in lanes)
+        + ", one call a second each, in parallel")
 
     # The period's songs by label, with their videos, for the match rules.
     lab_of = config.channel_labels(cfg)
@@ -135,11 +194,13 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
     known_tracks = {r[0] for r in conn.execute("SELECT platform_id FROM platform_item WHERE platform='spotify'")}
     st = {"label_sweep_calls": 0, "label_sweep_albums": 0, "label_sweep_tracks": 0, "label_sweep_linked": 0,
           "label_sweep_review": 0, "label_sweep_no_song": 0}
-    stop_reason = None
+    labels = queries(cfg)
 
-    def search(q, offset):
-        page = sp.get("/search", {"q": q, "type": "album", "market": sp.market, "limit": 10, "offset": offset})
-        return [a for a in page["albums"]["items"] if a]
+    def parallel(work, items):
+        """Spread items over the lanes (round robin); each lane runs work(lane, its items) in its own thread."""
+        shares = [items[i::len(lanes)] for i in range(len(lanes))]
+        with ThreadPoolExecutor(len(lanes)) as ex:
+            return [f.result() for f in [ex.submit(work, lane, share) for lane, share in zip(lanes, shares)]]
 
     def remember(lb, albums):
         for a in albums:
@@ -147,93 +208,139 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
                 conn.execute("""INSERT INTO spotify_label_album (album_id, label, name, release_date, total_tracks, seen_at)
                                 VALUES (?,?,?,?,?,?) ON CONFLICT(album_id) DO NOTHING""",
                              (a["id"], lb, a["name"], a.get("release_date"), a.get("total_tracks"), ts))
-        conn.commit()
 
-    try:
-        # 1. today's new releases, every label
-        for lb, phrases in queries(cfg).items():
+    def pages(lane, q, offset=0, until_short=True, max_pages=100):
+        """Album search pages from offset on; returns (albums, next offset or None when the query is used up)."""
+        out = []
+        for _ in range(max_pages):
             if should_stop():
-                raise songs.Cancelled()
-            s = _state(conn, f"spotify_label_new:{lb}", {})
-            if s.get("day") == today():
-                continue
-            for phrase in phrases:
-                offset = 0
-                while offset < 1000:
-                    try:
-                        items = search(f'label:"{phrase}" tag:new', offset)
-                    except SpotifyError as e:
-                        if e.status in (400, 404):  # the filter is not accepted: the backfill covers this label
-                            items = []
-                        else:
-                            raise
-                    remember(lb, items)
-                    if len(items) < 10:
-                        break
-                    offset += 10
-            _set(conn, f"spotify_label_new:{lb}", {"day": today()})
-            conn.commit()
-        # 2. albums not read yet: their tracks, matched and linked
-        pending = conn.execute("SELECT album_id, label, name, release_date FROM spotify_label_album WHERE fetched_at IS NULL "
-                               "AND release_date >= ? ORDER BY release_date DESC", (since,)).fetchall()
-        for a in pending:
+                break
+            page = lane.call("/search", {"q": q, "type": "album", "limit": 10, "offset": offset})
+            if page is None:
+                return out, offset  # stopped: continue from here next run
+            items = [a for a in (page.get("albums") or {}).get("items", []) if a]
+            out += items
+            offset += 10
+            if len(items) < 10 or offset >= 1000:
+                return out, None
+        return out, offset
+
+    # 1. today's new releases (tag:new), labels shared between the accounts
+    todo_new = [lb for lb in labels if _state(conn, f"spotify_label_new:{lb}", {}).get("day") != today()]
+
+    def new_pass(lane, lbs):
+        res = {}
+        for lb in lbs:
+            albums, complete = [], True
+            for phrase in labels[lb]:
+                got, nxt = pages(lane, f'label:"{phrase}" tag:new')
+                albums += got
+                complete = complete and nxt is None
+            res[lb] = (albums, complete and not lane.stop)
+        return res
+    for res in parallel(new_pass, todo_new) if todo_new else []:
+        for lb, (albums, complete) in res.items():
+            remember(lb, albums)
+            if complete:
+                _set(conn, f"spotify_label_new:{lb}", {"day": today()})
+    conn.commit()
+
+    # 2. albums not read yet: their track lists, fetched by both accounts; matching and linking here
+    def fetch_tracks(lane, albums):
+        out = []
+        for a in albums:
             if should_stop():
-                raise songs.Cancelled()
-            _read_album(conn, sp, dict(a), by_label.get(a["label"], []), rejected, known_tracks, since, ts, st, log)
-        # 3. backfill pages with what is left of the budget, label by label
-        for lb, phrases in queries(cfg).items():
-            b = _backfill(conn, cfg, lb)
-            while not b["complete"]:
-                if should_stop():
-                    raise songs.Cancelled()
-                items = search(f'label:"{phrases[b["phrase"]]}" year:{b["year"]}', b["offset"])
-                remember(lb, items)
-                for a in items:
-                    row = conn.execute("SELECT fetched_at FROM spotify_label_album WHERE album_id=?", (a["id"],)).fetchone()
-                    if row and not row[0]:
-                        _read_album(conn, sp, {"album_id": a["id"], "label": lb, "name": a["name"], "release_date": a.get("release_date")},
-                                    by_label.get(lb, []), rejected, known_tracks, since, ts, st, log)
-                b["offset"] += 10
-                if len(items) < 10 or b["offset"] >= 1000:  # this query is used up: next year, then next phrase
+                break
+            res = lane.call(f"/albums/{a['album_id']}/tracks", {"limit": 50})
+            if res is None:
+                break
+            out.append((a, res))
+        return out
+
+    def read_pending():
+        pending = [dict(r) for r in conn.execute(
+            "SELECT album_id, label, name, release_date FROM spotify_label_album WHERE fetched_at IS NULL AND release_date >= ? "
+            "ORDER BY release_date DESC", (since,))]
+        if not pending or all(l.stop for l in lanes):
+            return
+        for got in parallel(fetch_tracks, pending):
+            for a, res in got:
+                _read_album(conn, _isrc_lane(lanes), a, res, by_label.get(a["label"], []), rejected, known_tracks, since, ts, st)
+    read_pending()
+
+    # 3. backfill (label:"..." year:y), page by page across runs; new albums found are read straight away
+    def backfill(lane, lbs):
+        res = {}
+        for lb in lbs:
+            b, albums = dict(states[lb]), []  # a copy: the threads never touch the database
+            while not b["complete"] and not lane.stop and not should_stop():
+                got, nxt = pages(lane, f'label:"{labels[lb][b["phrase"]]}" year:{b["year"]}', b["offset"], max_pages=5)
+                albums += got
+                if nxt is None:
                     b["offset"] = 0
                     if b["year"] < int(until[:4]):
                         b["year"] += 1
                     else:
                         b["year"], b["phrase"] = int(since[:4]), b["phrase"] + 1
-                        b["complete"] = b["phrase"] >= len(phrases)
-                _set(conn, f"spotify_label_backfill:{lb}", b)
-                conn.commit()
-    except DailyLimitReached as e:
-        stop_reason = str(e)
-    except BudgetExhausted:
-        stop_reason = f"run budget of {budget} calls used; the next run continues"
-    except SpotifyError as e:
-        if e.status != 429:
-            raise
-        stop_reason = f"Spotify {songs.ACCOUNT_NAME[acct]} rate limited; retry after {e.retry_after or 'the provider window'} s"
-        until_ts = datetime.now(timezone.utc) + timedelta(seconds=e.retry_after or 3600)
-        _set_raw(conn, f"spotify_{acct}_blocked_until", until_ts.isoformat())
+                        b["complete"] = b["phrase"] >= len(labels[lb])
+                else:
+                    b["offset"] = nxt
+            res[lb] = (albums, b)
+        return res
+    states = {lb: _backfill(conn, cfg, lb) for lb in labels}  # read here, before the threads start
     conn.commit()
-    st["label_sweep_calls"] = sp.calls
-    st["label_sweep_account"] = acct
+    todo_back = [lb for lb in labels if not states[lb].get("complete")]
+    if todo_back and not all(l.stop for l in lanes):
+        for res in parallel(backfill, todo_back):
+            for lb, (albums, b) in res.items():
+                remember(lb, albums)
+                _set(conn, f"spotify_label_backfill:{lb}", b)
+        conn.commit()
+        read_pending()  # the albums the backfill found
+
+    for lane in lanes:
+        if lane.retry_after:
+            until_ts = datetime.now(timezone.utc) + timedelta(seconds=lane.retry_after)
+            _set_raw(conn, f"spotify_{lane.acct}_blocked_until", until_ts.isoformat())
+    conn.commit()
+    if should_stop():
+        raise songs.Cancelled()
+    st["label_sweep_calls"] = sum(l.sp.calls for l in lanes)
+    st["label_sweep_calls_by_account"] = {l.acct: l.sp.calls for l in lanes}
+    stops = [f"{songs.ACCOUNT_NAME[l.acct]}: {l.stop}" for l in lanes if l.stop]
     log(f"Spotify label sweep: {st['label_sweep_albums']} albums read, {st['label_sweep_tracks']} tracks, "
         f"{st['label_sweep_linked']} linked, {st['label_sweep_review']} to Review, {st['label_sweep_no_song']} with no YouTube song "
-        f"({sp.calls} calls)" + (f"; {stop_reason}" if stop_reason else ""))
-    return dict(st, status="ok", **({"stop_reason": stop_reason} if stop_reason else {}))
+        f"({st['label_sweep_calls']} calls: " + ", ".join(f"{k} {v}" for k, v in st["label_sweep_calls_by_account"].items()) + ")"
+        + (f"; stopped: {'; '.join(stops)}" if stops else ""))
+    return dict(st, status="ok", **({"stop_reason": "; ".join(stops)} if stops else {}))
+
+
+def _isrc_lane(lanes):
+    """A lane that can still make a call, for the ISRC lookups (main thread, after the threads have finished)."""
+    return next((l for l in lanes if not l.stop), None)
 
 
 def _set_raw(conn, key, value):
     conn.execute("INSERT INTO state (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
 
 
-def _read_album(conn, sp, a, label_songs, rejected, known_tracks, since, ts, st, log):
-    """One album's tracks: score each against the label's songs, link the confident ones, park the rest for Review."""
-    res = sp.get(f"/albums/{a['album_id']}/tracks", {"limit": 50, "market": sp.market})
+def _read_album(conn, lane, a, res, label_songs, rejected, known_tracks, since, ts, st):
+    """One album's track list (fetched by a lane): every track is stored, scored against the label's songs, the
+    confident matches linked (with one call for the ISRC, while a lane can still call), the rest parked for Review."""
     album = {"id": a["album_id"], "name": a["name"], "release_date": a["release_date"]}
     hits = {}  # song id -> [(total, detail, track)]
     n = linked = review = 0
+    lb = a.get("label")
+    keep = lambda t, song_id=None, how="none", score=None: conn.execute(
+        """INSERT INTO spotify_label_track (track_id, label, title, artists, album_id, album, release_date, duration_ms,
+                                            song_id, match, score, seen_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+           ON CONFLICT(track_id) DO UPDATE SET song_id=COALESCE(excluded.song_id, song_id),
+               match=CASE WHEN excluded.match='none' THEN match ELSE excluded.match END, score=COALESCE(excluded.score, score)""",
+        (t["id"], lb, t["name"], ", ".join(r["name"] for r in t.get("artists") or []), a["album_id"], a["name"],
+         a["release_date"], t.get("duration_ms"), song_id, how, score, ts))
     for t in res.get("items") or []:
         n += 1
+        keep(t)
         if t["id"] in known_tracks:
             continue
         track = {"title": t["name"], "artists": [r["name"] for r in t["artists"]], "release_title": a["name"],
@@ -268,9 +375,11 @@ def _read_album(conn, sp, a, label_songs, rejected, known_tracks, since, ts, st,
         for total, detail, t in sorted(found, key=lambda h: -h[0]):
             decision = detail.pop("decision")
             if song["linked"]:
+                keep(t, sid, "already", total)
                 continue  # the song already has its Spotify track; nothing to add from the sweep
+            keep(t, sid, decision, total)
             if decision == "auto":
-                full = sp.get(f"/tracks/{t['id']}", {"market": sp.market})  # its ISRC (album tracks leave it out)
+                full = (lane.call(f"/tracks/{t['id']}", {}) if lane else None) or {}  # its ISRC (album tracks leave it out)
                 t = dict(t, external_ids=full.get("external_ids") or {}, explicit=full.get("explicit"))
                 songs.attach_spotify(conn, sid, t, "auto", detail, since, ts)
                 song["linked"] = True

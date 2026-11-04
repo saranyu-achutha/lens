@@ -52,6 +52,23 @@ def _sql(sql, params=lambda day: ()):
     return fn
 
 
+def _label_tracks(conn, day):
+    from .spotify_labels import ensure
+    ensure(conn)
+    cur = conn.execute("""SELECT x.track_id AS spotify_song_id, x.title, x.artists, x.label, x.album, x.release_date,
+                                 round(x.duration_ms / 1000.0) AS duration_s,
+                                 coalesce(t.yt_title, t.title) AS youtube_song,
+                                 CASE WHEN p.review_state IN ('auto','approved') THEN 'linked'
+                                      WHEN p.review_state = 'pending' THEN 'in review'
+                                      WHEN x.match = 'already' THEN 'song has another Spotify track'
+                                      ELSE 'no YouTube song yet' END AS status
+                          FROM spotify_label_track x
+                          LEFT JOIN platform_item p ON p.platform='spotify' AND p.platform_id=x.track_id
+                          LEFT JOIN track t ON t.id = coalesce(p.track_id, x.song_id)
+                          ORDER BY x.label, x.release_date DESC, x.title""")
+    return [d[0] for d in cur.description], (tuple(r) for r in cur)
+
+
 def _archived(conn, day):
     from .songs import ARCHIVE_SCHEMA
     conn.executescript(ARCHIVE_SCHEMA)
@@ -85,6 +102,9 @@ def _datasets():
                                           ORDER BY m.track_id, m.field, m.position""", _window)},
         "youtube_videos": {"name": "YouTube videos", "what": "every stored upload with its match and latest views, likes and comments", "rows": _sql(YT_EXPORT_SQL)},
         "spotify_label_crawl": {"name": "Spotify label crawl", "what": "tracks from the manual Spotify label crawl", "rows": _sql(EXPORT_SQL)},
+        "spotify_label_songs": {"name": "Spotify label songs", "keep_ids": True,
+                                "what": "every Spotify track of the shortlisted labels released from the period start, with its Spotify ID "
+                                        "and the YouTube song it matched (filled by the label sweep, growing daily)", "rows": _label_tracks},
         "archived_songs": {"name": "Archived songs", "what": "songs first uploaded before the period start: kept for reference, not crawled",
                            "rows": _archived},
     }
@@ -139,7 +159,8 @@ def download(conn, qs):
     ds, day, header, rows = _open(conn, qs.get("ds"), qs.get("day"))
     keep = _match(qs.get("q"))
     buf = io.StringIO()
-    w = IdFreeWriter(buf)
+    # downloads carry no IDs, except the one list asked for with them (Spotify label songs, for merging later)
+    w = csv.writer(buf) if ds.get("keep_ids") else IdFreeWriter(buf)
     w.writerow(header)
     w.writerows(r for r in rows if not keep or keep(r))
     name = f"market_lens_{qs.get('ds')}_{day or date.today().isoformat()}.csv"
