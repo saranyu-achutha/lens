@@ -329,6 +329,22 @@ def hours_since(job):
     return (datetime.now().astimezone() - datetime.fromisoformat(row[0])).total_seconds() / 3600
 
 
+def _last_starts():
+    """{job: epoch seconds} of each job's latest start in the run log, any status."""
+    conn = db.connect(str(config.DB_FILE))
+    try:
+        rows = conn.execute("SELECT job, max(started_at) FROM run_log GROUP BY job").fetchall()
+    finally:
+        conn.close()
+    out = {}
+    for job, at in rows:
+        try:
+            out[job] = datetime.fromisoformat(at).timestamp()
+        except (TypeError, ValueError):
+            pass
+    return out
+
+
 def start_worker(manager, browser_manager=None):
     """Between scheduled runs, keep the machine working on whatever is due (config worker.enabled).
     With a browser_manager there are two lanes: the browser job (Spotify pages, CPU) beside the API jobs (network),
@@ -348,7 +364,7 @@ def start_worker(manager, browser_manager=None):
                 pass
 
     def loop():
-        tried = {}
+        tried = _last_starts()  # from the run log, so a restart does not re-run a job early (Instagram meets login walls)
         sampled = None
         checked = 0.0
         time.sleep(90)  # let the scheduler claim a due pipeline first
