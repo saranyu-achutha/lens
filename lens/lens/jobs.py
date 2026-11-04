@@ -251,9 +251,11 @@ def _due_work(cfg, tried, browser=True, api=True):
             c0.close()
         if due:
             return "cleanup", "daily cleanup not run yet today"
-    # 1d. Spotify account 2: re-discover songs still without a Spotify link, on its own daily cap (hourly while due).
+    # 1d. Spotify account 2: re-discover songs still without a Spotify link, on its own daily cap. Short runs
+    #    (songs.spotify_second_per_run) every songs.spotify_second_every_minutes, so the other API jobs keep their turns.
     s2 = config.read_secrets()
-    if cfg["songs"].get("spotify_second_auto", True) and ago("spotify_second_account") > 3600 \
+    every = 60 * float(cfg["songs"].get("spotify_second_every_minutes", 60))
+    if cfg["songs"].get("spotify_second_auto", True) and ago("spotify_second_account") > every \
             and s2.get("SPOTIFY_CLIENT_ID_2") and s2.get("SPOTIFY_CLIENT_SECRET_2"):
         c1 = db.connect(str(config.DB_FILE))
         try:

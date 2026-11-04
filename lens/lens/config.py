@@ -108,6 +108,7 @@ DEFAULTS = {
         "spotify_second_auto": True,
         "spotify_second_daily_limit": 650,
         "spotify_second_per_run": 100,
+        "spotify_second_every_minutes": 60,  # how often the worker may start an account-2 run
         # Artist-first lookup (artist releases -> tracks): works while search is quota-blocked.
         "spotify_artist_calls_per_run": 700,
         # Optional contact (URL or email) MusicBrainz asks for in the User-Agent; blank sends just "MarketLens/0.1".
