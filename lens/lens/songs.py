@@ -348,9 +348,12 @@ def rescore_pending(conn, since, ts, log):
         log(f"Spotify review queue re-scored with current rules: {changed} resolved without new calls")
 
 
-def spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until="9999", second_account_only=False):
-    """One Spotify search per song that has no Spotify link yet (rechecks misses every few days)."""
+def spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until="9999", rediscover=None):
+    """One Spotify search per song that has no Spotify link yet (rechecks misses every few days).
+    rediscover='primary' / 'second': instead, work through the shared backlog of songs without a link (any age) on that
+    account, within its own budget (see rediscover_due)."""
     scfg = cfg["songs"]
+    second_account_only = rediscover == "second"
     if second_account_only and not (secrets.get("SPOTIFY_CLIENT_ID_2") and secrets.get("SPOTIFY_CLIENT_SECRET_2")):
         log("Spotify second account credentials not set; skipping lookup")
         return {}
@@ -371,16 +374,20 @@ def spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until="999
     skip_old = "" if catchup else "AND coalesce(t.release_check, 'unknown') != 'old'"
     if catchup:
         log(f"Spotify: catch-up until {scfg['spotify_catchup_until']}: searching unlinked songs without waiting for web search")
-    if second_account_only:
-        # Re-discovery on account 2: songs still missing a Spotify ID, regardless of release age or web-search
-        # eligibility. Its own daily budget, recheck marker and rate-limit stop keep it from creating bursts.
-        limit, used_today, remaining = second_account_budget(conn, cfg)
+    if rediscover:
+        # Re-discovery: songs still missing a Spotify ID, regardless of release age or web-search eligibility, from
+        # one queue shared by both accounts (the one-search-per-day mark keeps them apart). Each account has its own
+        # budget, recheck marker and rate-limit stop; the primary keeps a reserve for new releases.
+        name = ACCOUNT_NAME[rediscover]
+        limit, used_today, remaining = rediscover_budget(conn, cfg, rediscover)
         if remaining == 0:
-            log(f"Spotify account 2: daily limit of {limit} calls used in the last 24 h; the next run continues when calls free up")
+            log(f"Spotify {name}: no calls to spare for re-discovery ({used_today}/{limit} in the last 24 h"
+                f"{', reserve ' + str(rediscover_setting(cfg, rediscover, 'reserve', 0)) + ' kept for new releases' if rediscover == 'primary' else ''}); "
+                f"the next run continues when calls free up")
             return {"spotify_searches": 0, "spotify_daily_limit": limit}
-        per_run = min(remaining, int(scfg.get("spotify_second_per_run", 100)))
-        todo = second_account_due(conn, cfg, per_run)
-        log(f"Spotify account 2: {used_today}/{limit} calls in the last 24 h; this run up to {per_run}, "
+        per_run = min(remaining, int(rediscover_setting(cfg, rediscover, "per_run", 100)))
+        todo = rediscover_due(conn, cfg, per_run, rediscover)
+        log(f"Spotify {name} re-discovery: {used_today}/{limit} calls in the last 24 h; this run up to {per_run}, "
             f"one call every {spotify.min_interval(cfg):g} s")
     else:
         todo = conn.execute(
@@ -415,8 +422,8 @@ def spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until="999
 
     client_factory = Spotify.second_account_from_secrets if second_account_only else Spotify.from_secrets
     sp_options = {"market": cfg["discovery"]["market"], "on_raw": on_raw}
-    if second_account_only:
-        sp_options["max_calls"] = len(todo)
+    if rediscover:
+        sp_options.update(max_calls=len(todo), stop_on_rate_limit=True)
     sp = client_factory(secrets, **sp_options)
     rejected = {(r[0], r[1]) for r in conn.execute(
         "SELECT p.platform_id, m.track_id FROM match_rejection m JOIN platform_item p ON p.id=m.platform_item_id "
@@ -465,9 +472,9 @@ def spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until="999
                 conn.execute("UPDATE track SET release_status='not_on_spotify', spotify_checked_at=? WHERE id=?",
                              (ts, song["id"]))
                 missing += 1
-            if second_account_only:
+            if rediscover:
                 conn.execute("INSERT INTO state (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                             (f"spotify_second_checked:{song['id']}", ts))
+                             (f"spotify_{rediscover}_checked:{song['id']}", ts))
             conn.commit()
             if n % 25 == 0:
                 log(f"  {n}/{len(todo)} looked up")
@@ -477,13 +484,14 @@ def spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until="999
     except BudgetExhausted:
         pass
     except SpotifyError as e:
-        if second_account_only and e.status == 429:
-            stop_reason = f"Spotify account 2 rate limited; stopped this run. Retry after {e.retry_after or 'the provider window'} seconds"
+        if rediscover and e.status == 429:
+            stop_reason = (f"Spotify {ACCOUNT_NAME[rediscover]} rate limited; stopped this run. "
+                           f"Retry after {e.retry_after or 'the provider window'} seconds")
             log(stop_reason)
-            # the worker waits this long before trying account 2 again (an hour when Spotify gives no time)
+            # the worker waits this long before re-discovering on this account again (an hour when Spotify gives no time)
             until_ts = datetime.now(timezone.utc) + timedelta(seconds=e.retry_after or 3600)
-            conn.execute("INSERT INTO state (key, value) VALUES ('spotify_second_blocked_until', ?) "
-                         "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (until_ts.isoformat(),))
+            conn.execute("INSERT INTO state (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                         (f"spotify_{rediscover}_blocked_until", until_ts.isoformat()))
         elif not e.quota_exceeded:
             raise
         else:
@@ -503,43 +511,61 @@ def searched_day():
     return datetime.now(timezone.utc).date().isoformat()
 
 
-def second_account_budget(conn, cfg):
-    """(daily limit, calls in the last 24 h, calls left) for Spotify account 2 (the shared per-account counter)."""
-    limit = int(cfg["songs"].get("spotify_second_daily_limit", 600))
-    used = calls_last_24h("second")
-    return limit, used, max(0, limit - used)
+ACCOUNT_NAME = {"primary": "primary account", "second": "account 2"}
+REDISCOVER_JOB = {"primary": "spotify_primary_rediscover", "second": "spotify_second_account"}
 
 
-def second_account_due(conn, cfg, limit):
-    """Songs account 2 should search next: no Spotify link, not tried on account 2 within the recheck days, and
-    not searched by the primary account within them either (that would repeat the same answer). Songs never
-    searched on Spotify come first, then songs with an ISRC (an exact lookup), newest first."""
+def rediscover_setting(cfg, account, key, default):
+    """Re-discovery settings: songs.spotify_second_<key> for account 2, songs.spotify_primary_rediscover_<key> for the primary."""
+    prefix = "spotify_second_" if account == "second" else "spotify_primary_rediscover_"
+    return cfg["songs"].get(prefix + key, default)
+
+
+def rediscover_budget(conn, cfg, account):
+    """(daily limit, calls in the last 24 h, calls this account may spend on re-discovery now). The primary keeps
+    songs.spotify_primary_rediscover_reserve calls of its limit for new releases (the regular song lookup)."""
+    limit = spotify.daily_limit(account, cfg)
+    used = calls_last_24h(account)
+    reserve = int(rediscover_setting(cfg, account, "reserve", 0)) if account == "primary" else 0
+    return limit, used, max(0, limit - reserve - used)
+
+
+def rediscover_due(conn, cfg, limit, account):
+    """The next songs to re-discover, from one queue shared by both accounts: no Spotify link, not searched by any
+    account today (the shared mark keeps the two apart), not tried by this account within the recheck days, and
+    not found by any search within them (that would repeat the same answer). Songs never searched on Spotify come
+    first, then songs with an ISRC (an exact lookup), newest first."""
     recheck_before = (datetime.now(timezone.utc) - timedelta(days=cfg["songs"]["spotify_recheck_days"])).isoformat()
     return conn.execute(
         """SELECT t.id, t.title, t.song_key, t.isrc FROM track t
            WHERE t.source='youtube' AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='spotify')
-             AND coalesce((SELECT value FROM state WHERE key='spotify_second_checked:' || t.id), '') < ?
+             AND coalesce((SELECT value FROM state WHERE key=? || t.id), '') < ?
              AND coalesce(t.spotify_checked_at, '') < ?
              AND coalesce((SELECT value FROM state WHERE key='spotify_search_day:' || t.id), '') < ?
            ORDER BY t.spotify_checked_at IS NULL DESC, t.isrc IS NOT NULL DESC, t.first_published DESC LIMIT ?""",
-        (recheck_before, recheck_before, searched_day(), limit)).fetchall()
+        (f"spotify_{account}_checked:", recheck_before, recheck_before, searched_day(), limit)).fetchall()
 
 
-def second_account_blocked(conn):
-    """True while account 2 is waiting out a Spotify rate limit."""
-    row = conn.execute("SELECT value FROM state WHERE key='spotify_second_blocked_until'").fetchone()
+def rediscover_blocked(conn, account):
+    """True while this account is waiting out a Spotify rate limit met during re-discovery."""
+    row = conn.execute("SELECT value FROM state WHERE key=?", (f"spotify_{account}_blocked_until",)).fetchone()
     return bool(row and row[0] > datetime.now(timezone.utc).isoformat())
 
 
-def run_spotify_second_account(conn, cfg, secrets, log, should_stop, run_id, since=None, until=None):
-    """Re-discover songs still missing Spotify IDs with account two (worker, hourly while due; or the dashboard button)."""
-    since, until = config.window(cfg)
-    ts = db.now_iso()
-    def check():
-        if should_stop():
-            raise Cancelled()
-    return spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until,
-                          second_account_only=True)
+def _run_rediscover(account):
+    def run(conn, cfg, secrets, log, should_stop, run_id, since=None, until=None):
+        since, until = config.window(cfg)
+        ts = db.now_iso()
+        def check():
+            if should_stop():
+                raise Cancelled()
+        return spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until, rediscover=account)
+    run.__doc__ = f"Re-discover songs still missing Spotify IDs on the {ACCOUNT_NAME[account]} (worker, while due)."
+    return run
+
+
+run_spotify_second_account = _run_rediscover("second")
+run_spotify_primary_rediscover = _run_rediscover("primary")
 
 
 def musicbrainz_lookup(conn, cfg, since, until, ts, log, check, run_id):

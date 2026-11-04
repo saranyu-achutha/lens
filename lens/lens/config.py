@@ -109,6 +109,11 @@ DEFAULTS = {
         "spotify_second_daily_limit": 600,
         "spotify_second_per_run": 100,
         "spotify_second_every_minutes": 60,  # how often the worker may start an account-2 run
+        # The primary joins the same re-discovery queue with its spare calls, keeping `reserve` for new releases.
+        "spotify_primary_rediscover_auto": True,
+        "spotify_primary_rediscover_per_run": 100,
+        "spotify_primary_rediscover_every_minutes": 60,
+        "spotify_primary_rediscover_reserve": 150,
         # Artist-first lookup (artist releases -> tracks): works while search is quota-blocked.
         "spotify_artist_calls_per_run": 700,
         # Optional contact (URL or email) MusicBrainz asks for in the User-Agent; blank sends just "MarketLens/0.1".

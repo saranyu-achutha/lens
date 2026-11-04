@@ -14,6 +14,7 @@ JOBS = {
     "youtube_sync": "YouTube sync only (new videos, views/likes/comments)",
     "songs": "Songs only (group videos, Spotify lookup, Deezer rank)",
     "spotify_second_account": "Spotify re-discover: songs without a Spotify link, on account 2 (automatic, own daily cap)",
+    "spotify_primary_rediscover": "Spotify re-discover: songs without a Spotify link, on the primary account's spare calls (automatic)",
     "spotify_discovery": "Spotify label crawl (heavy on Spotify quota, manual only)",
     "ytmusic": "YouTube Music only (find songs' audio tracks, read their plays)",
     "jiosaavn": "JioSaavn only (find songs' tracks, read their plays)",
@@ -30,6 +31,7 @@ STEPS = {
     "youtube_sync": [("youtube", sync_youtube.run), ("daily", song_daily.run)],
     "songs": [("songs", songs.run), ("daily", song_daily.run)],
     "spotify_second_account": [("spotify_second_account", songs.run_spotify_second_account)],
+    "spotify_primary_rediscover": [("spotify_primary_rediscover", songs.run_spotify_primary_rediscover)],
     "spotify_discovery": [("spotify", discover_spotify.run)],
     "shorts": [("shorts", shorts_use.run), ("daily", song_daily.run)],
     "instagram": [("instagram", instagram_audio.run), ("daily", song_daily.run)],
@@ -251,20 +253,25 @@ def _due_work(cfg, tried, browser=True, api=True):
             c0.close()
         if due:
             return "cleanup", "daily cleanup not run yet today"
-    # 1d. Spotify account 2: re-discover songs still without a Spotify link, on its own daily cap. Short runs
-    #    (songs.spotify_second_per_run) every songs.spotify_second_every_minutes, so the other API jobs keep their turns.
-    s2 = config.read_secrets()
-    every = 60 * float(cfg["songs"].get("spotify_second_every_minutes", 60))
-    if cfg["songs"].get("spotify_second_auto", True) and ago("spotify_second_account") > every \
-            and s2.get("SPOTIFY_CLIENT_ID_2") and s2.get("SPOTIFY_CLIENT_SECRET_2"):
+    # 1d. Spotify re-discovery: both accounts work through one queue of songs still without a Spotify link (the
+    #     one-search-per-song-per-day mark keeps them apart). Short runs (per_run) at most every every_minutes per
+    #     account, so the other API jobs keep their turns; the primary only spends calls above its reserve.
+    secrets = config.read_secrets()
+    creds = {"second": secrets.get("SPOTIFY_CLIENT_ID_2") and secrets.get("SPOTIFY_CLIENT_SECRET_2"),
+             "primary": secrets.get("SPOTIFY_CLIENT_ID") and secrets.get("SPOTIFY_CLIENT_SECRET")}
+    for account in ("second", "primary"):
+        job = songs.REDISCOVER_JOB[account]
+        every = 60 * float(songs.rediscover_setting(cfg, account, "every_minutes", 60))
+        if not (songs.rediscover_setting(cfg, account, "auto", True) and creds[account] and ago(job) > every):
+            continue
         c1 = db.connect(str(config.DB_FILE))
         try:
-            left = songs.second_account_budget(c1, cfg)[2]
-            n = len(songs.second_account_due(c1, cfg, 1)) if left and not songs.second_account_blocked(c1) else 0
+            left = songs.rediscover_budget(c1, cfg, account)[2]
+            n = len(songs.rediscover_due(c1, cfg, 1, account)) if left and not songs.rediscover_blocked(c1, account) else 0
         finally:
             c1.close()
         if n:
-            return "spotify_second_account", f"songs without a Spotify link to re-discover on account 2 ({left} searches left today)"
+            return job, f"songs without a Spotify link to re-discover on the {songs.ACCOUNT_NAME[account]} ({left} calls to spare)"
     # 2. JioSaavn: songs never searched (or due a retry) and tracks without today's plays.
     if ago("jiosaavn") > 600:
         recheck = (datetime.now().date() - timedelta(days=7)).isoformat()
