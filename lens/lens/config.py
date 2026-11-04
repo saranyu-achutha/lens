@@ -101,12 +101,12 @@ DEFAULTS = {
         "spotify_catchup_until": "",  # a date: until then the Spotify search may try every unlinked song, not only web-search misses
         # Calls per Spotify account in any 24 hours (rolling; counted in data/spotify_calls.db). The primary's limit
         # is shared by every job that uses it (search, artist-first, label crawl); health probes are counted only.
-        "spotify_primary_daily_limit": 650,
-        "spotify_min_interval_s": 0.5,  # at least this long between two calls of the same account, in every job (2 a second)
+        "spotify_primary_daily_limit": 600,
+        "spotify_min_interval_s": 1,  # at least this long between two calls of the same account, in every job (benchmark 4 Nov: 300 calls at 1 a second, no 429)
         # Account 2 (SPOTIFY_CLIENT_ID_2) re-discovers songs still without a Spotify link, of any age; the worker
         # runs it hourly while songs are due, at most spotify_second_per_run searches a run. Nothing else uses it.
         "spotify_second_auto": True,
-        "spotify_second_daily_limit": 650,
+        "spotify_second_daily_limit": 600,
         "spotify_second_per_run": 100,
         "spotify_second_every_minutes": 60,  # how often the worker may start an account-2 run
         # Artist-first lookup (artist releases -> tracks): works while search is quota-blocked.
