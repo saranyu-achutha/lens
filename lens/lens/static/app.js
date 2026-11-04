@@ -427,6 +427,15 @@ async function loadDev() {
   $("#dev-quota").innerHTML = `<div class="bar-row"><span class="bar-track"><span class="bar-fill" style="width:${Math.min(100, (100 * y.units_today) / y.units_limit)}%"></span></span><span class="bar-val">${Math.round((100 * y.units_today) / y.units_limit)}%</span></div>` +
     kv([["Units used today", `${fmt(y.units_today)} of ${fmt(y.units_limit)}`], ["Keys (one per project)", `${y.keys.length} · ${free} available`],
       ["Searches left today", `about ${fmt(Math.max(0, Math.floor((y.units_limit - y.units_today) / 100)))}`], ["Quota resets", esc(new Date(y.resets).toLocaleString())]]);
+  const sq = d.spotify_quota, lim = sq.calls_before_last_block;
+  const spPct = lim ? Math.min(100, (100 * sq.calls_24h) / lim) : null;
+  $("#dev-spquota").innerHTML = (lim ? `<div class="bar-row"><span class="bar-track"><span class="bar-fill" style="width:${spPct}%;background:${sq.blocked || spPct > 85 ? "var(--critical)" : "var(--accent)"}"></span></span><span class="bar-val">${Math.round(spPct)}%</span></div>` : "") +
+    kv([["State", sq.blocked ? `<span class="pill bad"><span class="dot"></span>blocked</span> <span class="muted">until ${esc(new Date(sq.retry_at).toLocaleString())}</span>`
+                             : sq.ok ? `<span class="pill ok"><span class="dot"></span>working</span> <span class="muted">checked ${ago(sq.checked_at)}</span>` : '<span class="pill"><span class="dot"></span>not checked yet</span>'],
+        ["Calls today (UTC)", fmt(sq.calls_today)], ["Calls, last 24 h", lim ? `${fmt(sq.calls_24h)} of about ${fmt(lim)}` : fmt(sq.calls_24h)],
+        ["Daily limit (measured)", lim ? `about ${fmt(lim)} calls <span class="muted">(made in the 24 h before the last block)</span>` : '<span class="muted">not blocked in the last 7 days</span>'],
+        ["Blocks, last 7 days", sq.blocks_7d.length ? sq.blocks_7d.map((b) => `${esc(new Date(b.at).toLocaleString())} <span class="muted">→ ${b.until ? esc(new Date(b.until).toLocaleTimeString()) : "?"}</span>`).join("<br>") : "none"]]) +
+    `<p class="muted" style="font-size:12px;margin:8px 0 0">Spotify publishes no quota number; it blocks for some hours when the day's share is used. Play counts use the public pages and no quota.</p>`;
   const st = d.storage, used = st.disk_total - st.disk_free;
   $("#dev-storage").innerHTML = `<div class="bar-row"><span class="bar-track"><span class="bar-fill" style="width:${(100 * used) / st.disk_total}%;background:${used / st.disk_total > 0.85 ? "var(--critical)" : "var(--accent)"}"></span></span><span class="bar-val">${Math.round((100 * used) / st.disk_total)}%</span></div>` +
     kv([["Disk free", `${gb(st.disk_free)} of ${gb(st.disk_total)}`], ["Database", gb(st.db_bytes)], ["Readings stored", `${fmt(st.snapshot_rows)} since ${esc(st.first_day || "–")}`],

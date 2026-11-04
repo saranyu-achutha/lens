@@ -1858,6 +1858,40 @@ def song_ids(conn, qs, today):
     return {"songs": songs, "days": days, "platforms": rows}
 
 
+def spotify_quota(conn):
+    """Developer dashboard: Spotify publishes no quota number (it answers 429 "blocked for N h" when the day's share is
+    used), so this shows the API state, calls made today and in the last 24 h, the calls made in the 24 h before the
+    last block (the best measure of the real daily limit) and the blocks of the last 7 days."""
+    def calls(frm, to="9999"):
+        n = 0
+        for (st,) in conn.execute("SELECT stats FROM run_log WHERE started_at >= ? AND started_at < ?", (frm, to)):
+            x = json.loads(st or "{}")
+            n += sum(int(x.get(k) or 0) for k in ("spotify_searches", "spotify_artist_calls", "api_calls") if isinstance(x.get(k), (int, float)))
+        return n
+    now = datetime.now(timezone.utc)
+    last = conn.execute("SELECT checked_at, ok, status, message, retry_at FROM api_check WHERE source='spotify' ORDER BY id DESC LIMIT 1").fetchone()
+    week = (now - timedelta(days=7)).isoformat(timespec="seconds")
+    blocks = [dict(r) for r in conn.execute("""SELECT checked_at, retry_at, message FROM api_check WHERE source='spotify' AND ok=0 AND status=429
+                                              AND checked_at >= ? ORDER BY id DESC""", (week,))]
+    # one block can be seen by several checks: keep the first sighting of each retry time
+    seen, uniq = set(), []
+    for b in reversed(blocks):
+        k = (b["retry_at"] or "")[:13]
+        if k not in seen:
+            seen.add(k)
+            uniq.append(b)
+    uniq.reverse()
+    before = None
+    if uniq:
+        at = datetime.fromisoformat(uniq[0]["checked_at"])
+        before = calls((at - timedelta(hours=24)).isoformat(timespec="seconds"), uniq[0]["checked_at"])
+    blocked = bool(last and not last["ok"] and last["retry_at"] and last["retry_at"] > now.isoformat())
+    return {"ok": bool(last and last["ok"]) and not blocked, "blocked": blocked, "checked_at": last and last["checked_at"],
+            "message": last and last["message"], "retry_at": last and last["retry_at"] if blocked else None,
+            "calls_today": calls(now.date().isoformat()), "calls_24h": calls((now - timedelta(hours=24)).isoformat(timespec="seconds")),
+            "calls_before_last_block": before, "blocks_7d": [{"at": b["checked_at"], "until": b["retry_at"]} for b in uniq]}
+
+
 def api_dev(conn, qs):
     import shutil
     from . import spotify_plays
@@ -1962,6 +1996,7 @@ def api_dev(conn, qs):
             "youtube": {"units_today": units, "units_limit": DAILY_UNITS * max(len(keys), 1), "keys": key_status(keys),
                         "resets": datetime.fromtimestamp(next_reset(), timezone.utc).isoformat(timespec="minutes")},
             "spotify": {"ok": sp and sp["ok"], "checked_at": sp and sp["checked_at"], "retry_at": sp and sp.get("retry_at")},
+            "spotify_quota": spotify_quota(conn),
             "storage": {"db_bytes": size, "disk_free": du.free, "disk_total": du.total, "snapshot_rows": one("SELECT max(rowid) FROM snapshot"),
                         "song_daily_rows": one("SELECT count(*) FROM song_daily"), "first_day": one("SELECT min(capture_date) FROM snapshot"),
                         "backup": {"name": backups[-1].name, "at": datetime.fromtimestamp(backups[-1].stat().st_mtime).isoformat(timespec="minutes")} if backups else None},
