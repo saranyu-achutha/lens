@@ -114,6 +114,11 @@ DEFAULTS = {
         "spotify_primary_rediscover_per_run": 100,
         "spotify_primary_rediscover_every_minutes": 60,
         "spotify_primary_rediscover_reserve": 150,
+        # Spotify IDs, step 1 (before any per-song search): the labels' releases on Spotify, linked to the songs.
+        "spotify_label_sweep_auto": True,
+        "spotify_label_sweep_per_run": 200,           # calls a run (from the same per-account budget as re-discovery)
+        "spotify_label_sweep_every_minutes": 60,
+        "spotify_label_queries": {"Sony Music India": ["Sony Music Entertainment India", "Sony Music India"]},
         # Artist-first lookup (artist releases -> tracks): works while search is quota-blocked.
         "spotify_artist_calls_per_run": 700,
         # Optional contact (URL or email) MusicBrainz asks for in the User-Agent; blank sends just "MarketLens/0.1".

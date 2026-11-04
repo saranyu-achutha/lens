@@ -891,7 +891,11 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
     stats.update(description_links.run(conn, cfg, ts, log, check))  # the labels' own links first: official and free
     stats.update(spotify_playlists.run(conn, cfg, since, until, ts, log, check))
     stats.update(spotify_links.run(conn, cfg, secrets, since, until, ts, log, check))
-    stats.update(spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until))
+    from . import spotify_labels
+    if spotify_labels.done_today(conn, cfg):  # Spotify IDs: the label sweep first, then one search per song left
+        stats.update(spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until))
+    else:
+        log("Spotify search: waiting for today's label sweep (new releases by label) to finish first")
     from . import spotify_artists
     stats.update(spotify_artists.run(conn, cfg, secrets, since, until, ts, log, check, run_id,
                                      budget=cfg["songs"].get("spotify_artist_calls_per_run", 700)))

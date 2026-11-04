@@ -5,7 +5,7 @@ import time
 import traceback
 from datetime import datetime, timedelta
 
-from . import alerts, cleanup, config, db, pause, discover_spotify, health, instagram_audio, jiosaavn, shorts_use, song_daily, songs, spotify_plays, sync_youtube, sysstats, youtube_music
+from . import alerts, cleanup, config, db, pause, spotify_labels, discover_spotify, health, instagram_audio, jiosaavn, shorts_use, song_daily, songs, spotify_plays, sync_youtube, sysstats, youtube_music
 from .spotify import SpotifyError
 from .youtube import YouTubeError
 
@@ -15,6 +15,7 @@ JOBS = {
     "songs": "Songs only (group videos, Spotify lookup, Deezer rank)",
     "spotify_second_account": "Spotify re-discover: songs without a Spotify link, on account 2 (automatic, own daily cap)",
     "spotify_primary_rediscover": "Spotify re-discover: songs without a Spotify link, on the primary account's spare calls (automatic)",
+    "spotify_label_sweep": "Spotify label sweep: the labels' new releases on Spotify, linked to the YouTube songs (first step of Spotify ID finding)",
     "spotify_discovery": "Spotify label crawl (heavy on Spotify quota, manual only)",
     "ytmusic": "YouTube Music only (find songs' audio tracks, read their plays)",
     "jiosaavn": "JioSaavn only (find songs' tracks, read their plays)",
@@ -32,6 +33,7 @@ STEPS = {
     "songs": [("songs", songs.run), ("daily", song_daily.run)],
     "spotify_second_account": [("spotify_second_account", songs.run_spotify_second_account)],
     "spotify_primary_rediscover": [("spotify_primary_rediscover", songs.run_spotify_primary_rediscover)],
+    "spotify_label_sweep": [("spotify_label_sweep", spotify_labels.run)],
     "spotify_discovery": [("spotify", discover_spotify.run)],
     "shorts": [("shorts", shorts_use.run), ("daily", song_daily.run)],
     "instagram": [("instagram", instagram_audio.run), ("daily", song_daily.run)],
@@ -284,7 +286,19 @@ def _due_work(cfg, tried, browser=True, api=True, paused=None):
     secrets = config.read_secrets()
     creds = {"second": secrets.get("SPOTIFY_CLIENT_ID_2") and secrets.get("SPOTIFY_CLIENT_SECRET_2"),
              "primary": secrets.get("SPOTIFY_CLIENT_ID") and secrets.get("SPOTIFY_CLIENT_SECRET")}
-    for account in ("second", "primary"):
+    # Spotify IDs, step 1: the label sweep (new releases by label, linked to the songs). Re-discovery (step 2, one search
+    # per song still without a link) waits until today's sweep is done.
+    c1 = db.connect(str(config.DB_FILE))
+    try:
+        sweep_done = spotify_labels.done_today(c1, cfg)
+        sweep_due = cfg["songs"].get("spotify_label_sweep_auto", True) and \
+            ago(spotify_labels.JOB) > 60 * float(cfg["songs"].get("spotify_label_sweep_every_minutes", 60)) and \
+            spotify_labels.due(c1, cfg) and spotify_labels.account(c1, cfg, secrets)
+    finally:
+        c1.close()
+    if sweep_due:
+        return spotify_labels.JOB, "the labels' new Spotify releases to read and link" + ("" if sweep_done else " (today's pass not done yet)")
+    for account in (("second", "primary") if sweep_done else ()):
         job = songs.REDISCOVER_JOB[account]
         every = 60 * float(songs.rediscover_setting(cfg, account, "every_minutes", 60))
         if not (songs.rediscover_setting(cfg, account, "auto", True) and creds[account] and ago(job) > every):
