@@ -41,6 +41,7 @@ class DailyLimitReached(BudgetExhausted, RuntimeError):
 # ---- Calls per account, rolling 24 h (songs.spotify_primary_daily_limit / spotify_second_daily_limit).
 # Kept in its own small database so counting never waits on, or locks, the main database a job is writing to.
 _LEDGER_LOCK = threading.Lock()
+_NEXT_SLOT = {}  # account -> earliest time its next call may go out (songs.spotify_min_interval_s apart, all jobs)
 
 
 def _ledger():
@@ -110,6 +111,11 @@ def _count_call(ledger, account):
     ledger.execute("DELETE FROM call_hour WHERE hour < ?", (_hour(datetime.now(timezone.utc) - timedelta(days=30)),))
 
 
+def min_interval(cfg=None):
+    from . import config
+    return float((cfg or config.load())["songs"].get("spotify_min_interval_s", 1))
+
+
 def daily_limit(account, cfg=None):
     from . import config
     songs = (cfg or config.load())["songs"]
@@ -146,12 +152,19 @@ class Spotify:
             if self._ledger is None:
                 self._ledger = _ledger()
                 self._limit = daily_limit(self.account_name)
+                self._interval = min_interval()
             if self.enforce_daily:
                 limit, used = self._limit, calls_last_24h(self.account_name, self._ledger)
                 if used >= limit:
                     raise DailyLimitReached(f"Spotify {self.account_name} account: daily limit of {limit} calls "
                                             f"used in the last 24 h; the next run continues when calls free up")
             _count_call(self._ledger, self.account_name)
+            # take the next free slot for this account; several jobs in this process share one pace
+            now = time.monotonic()
+            slot = max(now, _NEXT_SLOT.get(self.account_name, 0))
+            _NEXT_SLOT[self.account_name] = slot + self._interval
+        if slot > now:
+            time.sleep(slot - now)
 
     @classmethod
     def from_secrets(cls, secrets, **kwargs):

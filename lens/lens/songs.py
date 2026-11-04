@@ -18,6 +18,7 @@ from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 
 from . import config, db, match
+from . import spotify
 from .spotify import BudgetExhausted, DailyLimitReached, Spotify, SpotifyError, calls_last_24h
 
 SONG_TYPES = ("video", "lyric", "audio", "other")
@@ -27,7 +28,6 @@ EXTRA_TYPES = ("short", "teaser")
 ASSET_TYPES = SONG_TYPES + EXTRA_TYPES
 LINKED = ("auto", "approved", "song")
 CATALOGUE_DAYS = 30
-SPOTIFY_SECOND_MIN_INTERVAL = 1
 
 
 class Cancelled(Exception):
@@ -381,7 +381,7 @@ def spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until="999
         per_run = min(remaining, int(scfg.get("spotify_second_per_run", 100)))
         todo = second_account_due(conn, cfg, per_run)
         log(f"Spotify account 2: {used_today}/{limit} calls in the last 24 h; this run up to {per_run}, "
-            f"spaced at least {SPOTIFY_SECOND_MIN_INTERVAL} seconds apart")
+            f"one call every {spotify.min_interval(cfg):g} s")
     else:
         todo = conn.execute(
         f"""SELECT t.id, t.title, t.song_key, t.isrc FROM track t
@@ -426,8 +426,6 @@ def spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until="999
     try:
         for n, song in enumerate(todo, 1):
             check()
-            if second_account_only and n > 1:
-                time.sleep(SPOTIFY_SECOND_MIN_INTERVAL)
             quals = song["song_key"].split("|")[1].split(",") if song["song_key"] and "|" in song["song_key"] else []
             q = f'track:"{song["title"]}"' + "".join(f" {x}" for x in quals if "-" not in x)
             if song["isrc"]:
