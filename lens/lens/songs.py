@@ -531,19 +531,21 @@ def rediscover_budget(conn, cfg, account):
 
 
 def rediscover_due(conn, cfg, limit, account):
-    """The next songs to re-discover, from one queue shared by both accounts: no Spotify link, not searched by any
+    """The next songs of the period to re-discover, from one queue shared by both accounts: no Spotify link, not searched by any
     account today (the shared mark keeps the two apart), not tried by this account within the recheck days, and
     not found by any search within them (that would repeat the same answer). Songs never searched on Spotify come
     first, then songs with an ISRC (an exact lookup), newest first."""
     recheck_before = (datetime.now(timezone.utc) - timedelta(days=cfg["songs"]["spotify_recheck_days"])).isoformat()
+    since, until = config.window(cfg)  # the period's songs only: older ones are archived and cost no calls
     return conn.execute(
         """SELECT t.id, t.title, t.song_key, t.isrc FROM track t
-           WHERE t.source='youtube' AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='spotify')
+           WHERE t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?
+             AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='spotify')
              AND coalesce((SELECT value FROM state WHERE key=? || t.id), '') < ?
              AND coalesce(t.spotify_checked_at, '') < ?
              AND coalesce((SELECT value FROM state WHERE key='spotify_search_day:' || t.id), '') < ?
            ORDER BY t.spotify_checked_at IS NULL DESC, t.isrc IS NOT NULL DESC, t.first_published DESC LIMIT ?""",
-        (f"spotify_{account}_checked:", recheck_before, recheck_before, searched_day(), limit)).fetchall()
+        (since, until, f"spotify_{account}_checked:", recheck_before, recheck_before, searched_day(), limit)).fetchall()
 
 
 def rediscover_blocked(conn, account):
@@ -764,7 +766,7 @@ def deezer_readings(conn, cfg, since, ts, log, check, run_id):
     today = ts[:10]
     rows = conn.execute(
         f"""SELECT t.id, t.isrc FROM track t LEFT JOIN release r ON r.id=t.release_id
-           WHERE (t.first_published >= :since OR r.release_date >= :since) AND {DEEZER_DUE}""",
+           WHERE t.source='youtube' AND t.first_published >= :since AND {DEEZER_DUE}""",
         {"since": since, "today": today}).fetchall()
     ok = miss = 0
     for r in rows:
@@ -808,6 +810,63 @@ def deezer_readings(conn, cfg, since, ts, log, check, run_id):
     return {"deezer_read": ok, "deezer_missing": miss}
 
 
+# Songs first uploaded before the period (config discovery.since) are out of scope (user rule, 2026-11-04): no crawl
+# calls are spent on them and the dashboards leave them out. Their rows and past readings stay where they are; this
+# table lists them for reference (refreshed each songs run, no API calls).
+ARCHIVE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS song_archive (
+    track_id        INTEGER PRIMARY KEY,
+    title           TEXT,
+    first_upload    TEXT,
+    label           TEXT,
+    channel         TEXT,
+    isrc            TEXT,
+    youtube_videos  INTEGER,
+    spotify_tracks  INTEGER,
+    last_day        TEXT,      -- newest song_daily day
+    last_yt_views   INTEGER,   -- YouTube views on that day
+    reason          TEXT,
+    archived_at     TEXT
+);
+"""
+
+
+def archive_old_songs(conn, cfg, log=print):
+    """List the songs first uploaded before the period in song_archive (and drop any that moved into it)."""
+    since = config.window(cfg)[0]
+    conn.executescript(ARCHIVE_SCHEMA)
+    labels = config.channel_labels(cfg)
+    rows = conn.execute("""
+        SELECT t.id, coalesce(t.yt_title, t.title) title, substr(t.first_published, 1, 10) first_upload, t.isrc,
+               (SELECT channel FROM platform_item p WHERE p.track_id=t.id AND p.platform='youtube' ORDER BY published_at LIMIT 1) channel,
+               (SELECT count(*) FROM platform_item p WHERE p.track_id=t.id AND p.platform='youtube'
+                  AND p.review_state IN ('auto','approved','song')) yt,
+               (SELECT count(*) FROM platform_item p WHERE p.track_id=t.id AND p.platform='spotify'
+                  AND p.review_state IN ('auto','approved')) sp,
+               (SELECT max(day) FROM song_daily d WHERE d.song_id=t.id) last_day
+        FROM track t WHERE t.source='youtube' AND t.first_published < ?""", (since,)).fetchall()
+    now = db.now_iso()
+    for r in rows:
+        views = conn.execute("SELECT yt_views FROM song_daily WHERE song_id=? AND day=?", (r["id"], r["last_day"])).fetchone() \
+            if r["last_day"] else None
+        conn.execute("""INSERT INTO song_archive (track_id, title, first_upload, label, channel, isrc, youtube_videos, spotify_tracks,
+                                                  last_day, last_yt_views, reason, archived_at)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                        ON CONFLICT(track_id) DO UPDATE SET title=excluded.title, first_upload=excluded.first_upload, label=excluded.label,
+                          channel=excluded.channel, isrc=excluded.isrc, youtube_videos=excluded.youtube_videos,
+                          spotify_tracks=excluded.spotify_tracks, last_day=excluded.last_day, last_yt_views=excluded.last_yt_views,
+                          reason=excluded.reason""",
+                     (r["id"], r["title"], r["first_upload"], labels.get(r["channel"], config.FIRST_LABEL) if r["channel"] else "",
+                      r["channel"], r["isrc"], r["yt"], r["sp"], r["last_day"], views[0] if views else None,
+                      f"first YouTube upload before {since}", now))
+    gone = conn.execute("""DELETE FROM song_archive WHERE track_id NOT IN
+                           (SELECT id FROM track WHERE source='youtube' AND first_published < ?)""", (since,)).rowcount
+    conn.commit()
+    log(f"Archive: {len(rows):,} songs first uploaded before {since} (no crawl calls spent on them)"
+        + (f"; {gone} moved back into the period" if gone else ""))
+    return {"songs_archived": len(rows)}
+
+
 def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, **_):
     from . import merge, metadata
     since, until = config.window(cfg)
@@ -820,6 +879,7 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
     n_songs, n_new = group_videos(conn, since, ts, log, until)
     rescore_pending(conn, since, ts, log)
     stats = {"songs": n_songs, "new_songs": n_new}
+    stats.update(archive_old_songs(conn, cfg, log))
     # Free sources first (iTunes, MusicBrainz), then the release-year check, then Spotify for new songs only.
     stats.update(itunes_lookup(conn, cfg, since, until, ts, log, check, run_id))
     stats.update(musicbrainz_lookup(conn, cfg, since, until, ts, log, check, run_id))

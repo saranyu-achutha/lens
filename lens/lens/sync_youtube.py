@@ -89,10 +89,13 @@ def take_readings(conn, yt, ycfg, channels, pool_start, ts, log, check, flush_ra
         """SELECT pi.platform_id FROM platform_item pi
            WHERE pi.platform='youtube' AND pi.published_at >= ?  -- only uploads from the period start on, linked or not
              AND pi.channel IN (SELECT value FROM json_each(?))
+             -- a new upload of a song first released before the period: read once (for grouping), then no more
+             AND (pi.snippet_at IS NULL OR pi.track_id IS NULL
+                  OR (SELECT t.first_published FROM track t WHERE t.id=pi.track_id) >= ?)
              AND (pi.snippet_at IS NULL
                   OR NOT EXISTS (SELECT 1 FROM reading r WHERE r.platform_item_id=pi.id AND r.metric='views'
                                  AND r.captured_at >= CASE WHEN pi.published_at >= ? THEN ? ELSE ? END))""",
-        (pool_start, json.dumps(titles), fresh_from, six_h_ago, today))]
+        (pool_start, json.dumps(titles), pool_start, fresh_from, six_h_ago, today))]
     if not due:
         return 0
     log(f"reading view counts for {len(due)} videos")

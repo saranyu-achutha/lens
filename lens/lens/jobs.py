@@ -313,7 +313,7 @@ def _due_work(cfg, tried, browser=True, api=True, paused=None):
     if ago("songs") > 1800 and hours_since("songs") >= 0.5:
         pending = _count(f"""SELECT count(*) FROM track t WHERE {in_window} AND (t.release_status IS NULL OR t.release_status='unchecked')""", (since, until))
         dz = _count(f"""SELECT count(*) FROM track t LEFT JOIN release r ON r.id=t.release_id
-                        WHERE (t.first_published >= :since OR r.release_date >= :since) AND {songs.DEEZER_DUE}""", {"since": since, "today": today})
+                        WHERE t.source='youtube' AND t.first_published >= :since AND {songs.DEEZER_DUE}""", {"since": since, "today": today})
         from . import spotify_links
         c2 = db.connect(str(config.DB_FILE))
         unlinked = len(spotify_links.due(c2, since, until, today, limit=1))

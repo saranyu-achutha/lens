@@ -52,6 +52,14 @@ def _sql(sql, params=lambda day: ()):
     return fn
 
 
+def _archived(conn, day):
+    from .songs import ARCHIVE_SCHEMA
+    conn.executescript(ARCHIVE_SCHEMA)
+    cur = conn.execute("""SELECT title AS song, first_upload, label, channel, isrc, youtube_videos, spotify_tracks, last_day,
+                                 last_yt_views, reason, archived_at FROM song_archive ORDER BY first_upload DESC, title""")
+    return [d[0] for d in cur.description], (tuple(r) for r in cur)
+
+
 def _window(day):
     return config.window(config.load())
 
@@ -77,6 +85,8 @@ def _datasets():
                                           ORDER BY m.track_id, m.field, m.position""", _window)},
         "youtube_videos": {"name": "YouTube videos", "what": "every stored upload with its match and latest views, likes and comments", "rows": _sql(YT_EXPORT_SQL)},
         "spotify_label_crawl": {"name": "Spotify label crawl", "what": "tracks from the manual Spotify label crawl", "rows": _sql(EXPORT_SQL)},
+        "archived_songs": {"name": "Archived songs", "what": "songs first uploaded before the period start: kept for reference, not crawled",
+                           "rows": _archived},
     }
 
 

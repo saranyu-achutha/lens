@@ -107,9 +107,12 @@ def unlink(conn, item_id):
 
 
 def due(conn, today):
+    """Linked audios of the period's songs without today's Reels count (older songs are archived and not read)."""
+    since, until = config.window(config.load())
     return conn.execute("""SELECT p.id, p.platform_id, p.track_id, coalesce(t.yt_title, t.title) FROM platform_item p JOIN track t ON t.id=p.track_id
                            WHERE p.platform='instagram' AND p.review_state IN ('auto','approved')
-                             AND NOT EXISTS (SELECT 1 FROM sound_use u WHERE u.platform_item_id=p.id AND u.day=?)""", (today,)).fetchall()
+                             AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?
+                             AND NOT EXISTS (SELECT 1 FROM sound_use u WHERE u.platform_item_id=p.id AND u.day=?)""", (since, until, today)).fetchall()
 
 
 def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, **_):
