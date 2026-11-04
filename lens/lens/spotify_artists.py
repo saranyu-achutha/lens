@@ -14,7 +14,7 @@ from datetime import date, timedelta
 
 from . import db, match
 from .metadata import name_key
-from .spotify import BudgetExhausted, Spotify, SpotifyError
+from .spotify import BudgetExhausted, DailyLimitReached, Spotify, SpotifyError
 
 PAGES_PER_GROUP = 2  # 20 most recent singles and 20 most recent albums per artist
 
@@ -131,8 +131,8 @@ def run(conn, cfg, secrets, since, until, ts, log, check, run_id, budget=700):
             done_artists.append(aid)
             if n % 25 == 0:
                 log(f"  {n}/{len(by_artist)} artists checked ({len(best)} songs with a candidate, {sp.calls} calls)")
-    except BudgetExhausted:
-        stop = f"call budget of {budget} reached"
+    except BudgetExhausted as e:
+        stop = str(e) if isinstance(e, DailyLimitReached) else f"call budget of {budget} reached"
     except SpotifyError as e:
         if not e.quota_exceeded:
             raise

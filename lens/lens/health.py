@@ -14,7 +14,7 @@ def check_spotify(conn, trigger="manual"):
     if not (cid and secret):
         ok, status, msg = False, None, "Primary client ID and secret are required; account 2 is reserved for manual catch-up."
     else:
-        sp = Spotify.from_secrets(s, market=config.load()["discovery"]["market"])
+        sp = Spotify.from_secrets(s, market=config.load()["discovery"]["market"], enforce_daily=False)  # counted, never refused
         try:
             sp._fetch_token()
         except SpotifyError as e:

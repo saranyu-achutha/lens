@@ -27,6 +27,7 @@ import threading
 
 from . import ai, alerts, collection, config, crawl_stats, db, exports, health, insights, jobs, merge, metadata, review, song_daily, songs, spotify_charts, sysstats
 from .discover_spotify import EXPORT_SQL
+from . import spotify
 from .spotify import Spotify, SpotifyError
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -1893,7 +1894,9 @@ def spotify_quota(conn):
     return {"ok": bool(last and last["ok"]) and not blocked, "blocked": blocked, "checked_at": last and last["checked_at"],
             "message": last and last["message"], "retry_at": last and last["retry_at"] if blocked else None,
             "calls_today": calls(now.date().isoformat()), "calls_24h": calls((now - timedelta(hours=24)).isoformat(timespec="seconds")),
-            "calls_before_last_block": before, "blocks_7d": [{"at": b["checked_at"], "until": b["retry_at"]} for b in uniq]}
+            "calls_before_last_block": before, "blocks_7d": [{"at": b["checked_at"], "until": b["retry_at"]} for b in uniq],
+            # our own limit per account, rolling 24 h (counted on every call, in data/spotify_calls.db)
+            "accounts": {a: {"used": spotify.calls_last_24h(a), "limit": spotify.daily_limit(a)} for a in ("primary", "second")}}
 
 
 def api_dev(conn, qs):

@@ -25,24 +25,39 @@ cd "$REPO"
 [[ -f "$APP/lens/studio.py" ]] || die "$APP/lens/studio.py not found: run this script from the repository root"
 systemctl cat "$SERVICE" >/dev/null 2>&1 || die "systemd service '$SERVICE' not found; create it first (or use deploy_local.sh)"
 
-PASS=$(grep -E '^STUDIO_PASSWORD=' "$APP/.env" 2>/dev/null | head -1 | cut -d= -f2- || true)
+# /api/job needs the developer login (the client login gets 403, which would read as "idle")
+env_val() { grep -E "^$1=" "$APP/.env" 2>/dev/null | head -1 | cut -d= -f2- || true; }
+USER_=$(env_val DEVELOPER_USERNAME); PASS=$(env_val DEVELOPER_PASSWORD)
+[[ -n "$USER_" && -n "$PASS" ]] || { USER_=deploy; PASS=$(env_val STUDIO_PASSWORD); }
 
-job_running() {  # 1 = a pipeline run is in progress, 0 = idle, ? = Console not answering
-    curl -s -m 5 -u "deploy:$PASS" "http://127.0.0.1:$PORT/api/job" 2>/dev/null |
+job_running() {  # 1 = a job is running in either lane (API jobs or the browser crawls), 0 = idle, ? = Console not answering
+    curl -s -m 5 -u "$USER_:$PASS" "http://127.0.0.1:$PORT/api/job" 2>/dev/null |
         python3 -c 'import json,sys
-try: print(1 if json.load(sys.stdin).get("running") else 0)
+try:
+    d = json.load(sys.stdin)
+    if "error" in d: raise ValueError(d["error"])
+    print(1 if d.get("running") or (d.get("browser") or {}).get("running") else 0)
 except Exception: print("?")'
+}
+
+wait_idle() {  # crawl data matters: never restart in the middle of a job in either lane
+    for ((i = 0; i < WAIT_MINUTES * 2; i++)); do
+        local st; st=$(job_running)
+        if [[ "$st" == "?" ]]; then  # idle only if the Console is really down; if it answers, the job state is unknown
+            [[ "$(curl -s -o /dev/null -m 3 -w '%{http_code}' "http://127.0.0.1:$PORT/" || true)" == "000" ]] && return 0
+            die "the Console is up but its job state cannot be read (check DEVELOPER_USERNAME / DEVELOPER_PASSWORD in .env); nothing was restarted"
+        fi
+        [[ "$st" == "0" ]] && return 0
+        [[ $i -eq 0 ]] && echo "A job is running (API or browser lane); waiting up to $WAIT_MINUTES min (use --force to skip)..."
+        sleep 30
+    done
+    [[ "$(job_running)" != "1" ]]
 }
 
 # 1. Wait for a running pipeline (a restart would interrupt it)
 if [[ $FORCE -eq 0 ]]; then
-    say "Checking for a running pipeline"
-    for ((i = 0; i < WAIT_MINUTES * 2; i++)); do
-        [[ "$(job_running)" != "1" ]] && break
-        [[ $i -eq 0 ]] && echo "A run is in progress; waiting up to $WAIT_MINUTES min (use --force to skip)..."
-        sleep 30
-    done
-    [[ "$(job_running)" == "1" ]] && die "a run is still in progress after $WAIT_MINUTES min; try later or use --force"
+    say "Checking for running jobs (both lanes)"
+    wait_idle || die "a job is still running after $WAIT_MINUTES min; try later or use --force"
     echo "Idle (or Console not running): OK"
 fi
 
@@ -98,7 +113,11 @@ if [[ -f "$APP/data/lens.db" ]]; then
     echo "Saved data/backups/lens_predeploy_$TS.db.gz"
 fi
 
-# 6. Restart and check it comes back
+# 6. Restart and check it comes back. A job may have started while the backup ran: check both lanes again
+#    right before the restart (the new code is in place; only the restart waits).
+if [[ $FORCE -eq 0 ]]; then
+    wait_idle || die "a job started during the update and is still running after $WAIT_MINUTES min; the code is updated but the service was not restarted (run: sudo systemctl restart $SERVICE when idle)"
+fi
 say "Restarting $SERVICE"
 sudo systemctl restart "$SERVICE"
 code=000

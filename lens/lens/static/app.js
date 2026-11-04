@@ -435,6 +435,8 @@ async function loadDev() {
   $("#dev-spquota").innerHTML = (lim ? `<div class="bar-row"><span class="bar-track"><span class="bar-fill" style="width:${spPct}%;background:${sq.blocked || spPct > 85 ? "var(--critical)" : "var(--accent)"}"></span></span><span class="bar-val">${Math.round(spPct)}%</span></div>` : "") +
     kv([["State", sq.blocked ? `<span class="pill bad"><span class="dot"></span>blocked</span> <span class="muted">until ${esc(new Date(sq.retry_at).toLocaleString())}</span>`
                              : sq.ok ? `<span class="pill ok"><span class="dot"></span>working</span> <span class="muted">checked ${ago(sq.checked_at)}</span>` : '<span class="pill"><span class="dot"></span>not checked yet</span>'],
+        ...Object.entries(sq.accounts || {}).map(([a, u]) => [a === "second" ? "Account 2, last 24 h" : "Primary, last 24 h",
+          `${fmt(u.used)} of ${fmt(u.limit)} <span class="muted">(our limit)</span>`]),
         ["Calls today (UTC)", fmt(sq.calls_today)], ["Calls, last 24 h", lim ? `${fmt(sq.calls_24h)} of about ${fmt(lim)}` : fmt(sq.calls_24h)],
         ["Daily limit (measured)", lim ? `about ${fmt(lim)} calls <span class="muted">(made in the 24 h before the last block)</span>` : '<span class="muted">not blocked in the last 7 days</span>'],
         ["Blocks, last 7 days", sq.blocks_7d.length ? sq.blocks_7d.map((b) => `${esc(new Date(b.at).toLocaleString())} <span class="muted">→ ${b.until ? esc(new Date(b.until).toLocaleTimeString()) : "?"}</span>`).join("<br>") : "none"]]) +

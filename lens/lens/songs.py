@@ -18,7 +18,7 @@ from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 
 from . import config, db, match
-from .spotify import BudgetExhausted, Spotify, SpotifyError
+from .spotify import BudgetExhausted, DailyLimitReached, Spotify, SpotifyError, calls_last_24h
 
 SONG_TYPES = ("video", "lyric", "audio", "other")
 # Shorts and teasers belong to a song too, but their captions are often not the song's name, so they
@@ -376,11 +376,12 @@ def spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until="999
         # eligibility. Its own daily budget, recheck marker and rate-limit stop keep it from creating bursts.
         limit, used_today, remaining = second_account_budget(conn, cfg)
         if remaining == 0:
-            log(f"Spotify account 2 daily safety limit reached ({limit} searches); try again tomorrow")
+            log(f"Spotify account 2: daily limit of {limit} calls used in the last 24 h; the next run continues when calls free up")
             return {"spotify_searches": 0, "spotify_daily_limit": limit}
-        todo = second_account_due(conn, cfg, remaining)
-        log(f"Spotify account 2: {used_today}/{limit} searches used today; "
-            f"up to {remaining} more, spaced at least {SPOTIFY_SECOND_MIN_INTERVAL} seconds apart")
+        per_run = min(remaining, int(scfg.get("spotify_second_per_run", 100)))
+        todo = second_account_due(conn, cfg, per_run)
+        log(f"Spotify account 2: {used_today}/{limit} calls in the last 24 h; this run up to {per_run}, "
+            f"spaced at least {SPOTIFY_SECOND_MIN_INTERVAL} seconds apart")
     else:
         todo = conn.execute(
         f"""SELECT t.id, t.title, t.song_key, t.isrc FROM track t
@@ -414,7 +415,7 @@ def spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until="999
     client_factory = Spotify.second_account_from_secrets if second_account_only else Spotify.from_secrets
     sp_options = {"market": cfg["discovery"]["market"], "on_raw": on_raw}
     if second_account_only:
-        sp_options["max_calls"] = second_account_budget(conn, cfg)[2]
+        sp_options["max_calls"] = len(todo)
     sp = client_factory(secrets, **sp_options)
     rejected = {(r[0], r[1]) for r in conn.execute(
         "SELECT p.platform_id, m.track_id FROM match_rejection m JOIN platform_item p ON p.id=m.platform_item_id "
@@ -425,12 +426,8 @@ def spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until="999
     try:
         for n, song in enumerate(todo, 1):
             check()
-            if second_account_only:
-                if n > 1:
-                    time.sleep(SPOTIFY_SECOND_MIN_INTERVAL)
-                call_key = f"spotify_second_call:{run_id}:{n}"
-                conn.execute("INSERT OR IGNORE INTO state (key, value) VALUES (?, ?)", (call_key, db.now_iso()))
-                conn.commit()
+            if second_account_only and n > 1:
+                time.sleep(SPOTIFY_SECOND_MIN_INTERVAL)
             quals = song["song_key"].split("|")[1].split(",") if song["song_key"] and "|" in song["song_key"] else []
             q = f'track:"{song["title"]}"' + "".join(f" {x}" for x in quals if "-" not in x)
             if song["isrc"]:
@@ -470,6 +467,9 @@ def spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until="999
             conn.commit()
             if n % 25 == 0:
                 log(f"  {n}/{len(todo)} looked up")
+    except DailyLimitReached as e:
+        stop_reason = str(e)
+        log(stop_reason)
     except BudgetExhausted:
         pass
     except SpotifyError as e:
@@ -495,11 +495,9 @@ def spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until="999
 
 
 def second_account_budget(conn, cfg):
-    """(daily limit, searches used today UTC, searches left) for Spotify account 2."""
-    limit = int(cfg["songs"].get("spotify_second_daily_limit", 50))
-    today_utc = datetime.now(timezone.utc).date().isoformat() + "T00:00:00"
-    used = conn.execute("SELECT count(*) FROM state WHERE key LIKE 'spotify_second_call:%' AND value >= ?",
-                        (today_utc,)).fetchone()[0]
+    """(daily limit, calls in the last 24 h, calls left) for Spotify account 2 (the shared per-account counter)."""
+    limit = int(cfg["songs"].get("spotify_second_daily_limit", 600))
+    used = calls_last_24h("second")
     return limit, used, max(0, limit - used)
 
 

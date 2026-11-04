@@ -14,7 +14,7 @@ from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 
 from . import config, db
-from .spotify import BudgetExhausted, Spotify, SpotifyError
+from .spotify import BudgetExhausted, DailyLimitReached, Spotify, SpotifyError
 
 
 class Cancelled(Exception):
@@ -313,8 +313,9 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, since=None, un
                 conn.commit()
             if n % 100 == 0:
                 log(f"  ISRCs {n}/{len(todo)}")
-    except BudgetExhausted:
-        status, stop_reason = "partial", f"call budget of {dcfg['max_calls_per_run']} reached; the next run continues"
+    except BudgetExhausted as e:
+        status, stop_reason = "partial", (str(e) if isinstance(e, DailyLimitReached) else
+                                          f"call budget of {dcfg['max_calls_per_run']} reached; the next run continues")
     except SpotifyError as e:
         if not e.quota_exceeded:
             raise
