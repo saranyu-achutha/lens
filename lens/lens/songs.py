@@ -27,6 +27,8 @@ EXTRA_TYPES = ("short", "teaser")
 ASSET_TYPES = SONG_TYPES + EXTRA_TYPES
 LINKED = ("auto", "approved", "song")
 CATALOGUE_DAYS = 30
+SPOTIFY_SECOND_DAILY_LIMIT = 50
+SPOTIFY_SECOND_MIN_INTERVAL = 1
 
 
 class Cancelled(Exception):
@@ -347,10 +349,13 @@ def rescore_pending(conn, since, ts, log):
         log(f"Spotify review queue re-scored with current rules: {changed} resolved without new calls")
 
 
-def spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until="9999"):
+def spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until="9999", second_account_only=False):
     """One Spotify search per song that has no Spotify link yet (rechecks misses every few days)."""
     scfg = cfg["songs"]
-    if not ((secrets.get("SPOTIFY_CLIENT_ID") and secrets.get("SPOTIFY_CLIENT_SECRET")) or
+    if second_account_only and not (secrets.get("SPOTIFY_CLIENT_ID_2") and secrets.get("SPOTIFY_CLIENT_SECRET_2")):
+        log("Spotify second account credentials not set; skipping lookup")
+        return {}
+    if not second_account_only and not ((secrets.get("SPOTIFY_CLIENT_ID") and secrets.get("SPOTIFY_CLIENT_SECRET")) or
             (secrets.get("SPOTIFY_CLIENT_ID_2") and secrets.get("SPOTIFY_CLIENT_SECRET_2"))):
         log("Spotify credentials not set; skipping metadata lookup")
         return {}
@@ -368,7 +373,26 @@ def spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until="999
     skip_old = "" if catchup else "AND coalesce(t.release_check, 'unknown') != 'old'"
     if catchup:
         log(f"Spotify: catch-up until {scfg['spotify_catchup_until']}: searching unlinked songs without waiting for web search")
-    todo = conn.execute(
+    if second_account_only:
+        # Manual catch-up: retry missing IDs on the second account, regardless of release age or web-search
+        # eligibility. A separate daily budget and recheck marker keep repeated clicks from creating bursts.
+        today_utc = datetime.now(timezone.utc).date().isoformat() + "T00:00:00"
+        used_today = conn.execute("SELECT count(*) FROM state WHERE key LIKE 'spotify_second_call:%' AND value >= ?",
+                                  (today_utc,)).fetchone()[0]
+        remaining = max(0, SPOTIFY_SECOND_DAILY_LIMIT - used_today)
+        if remaining == 0:
+            log(f"Spotify account 2 daily safety limit reached ({SPOTIFY_SECOND_DAILY_LIMIT} searches); try again tomorrow")
+            return {"spotify_searches": 0, "spotify_daily_limit": SPOTIFY_SECOND_DAILY_LIMIT}
+        todo = conn.execute(
+            """SELECT t.id, t.title, t.song_key, t.isrc FROM track t
+               WHERE t.source='youtube' AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='spotify')
+                 AND coalesce((SELECT value FROM state WHERE key='spotify_second_checked:' || t.id), '') < ?
+               ORDER BY t.isrc IS NOT NULL DESC, t.first_published DESC LIMIT ?""",
+            (recheck_before, remaining)).fetchall()
+        log(f"Spotify account 2: {used_today}/{SPOTIFY_SECOND_DAILY_LIMIT} searches used today; "
+            f"up to {remaining} more, spaced at least {SPOTIFY_SECOND_MIN_INTERVAL} seconds apart")
+    else:
+        todo = conn.execute(
         f"""SELECT t.id, t.title, t.song_key, t.isrc FROM track t
            WHERE t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?
              AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='spotify')
@@ -382,7 +406,7 @@ def spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until="999
                   OR (EXISTS (SELECT 1 FROM state WHERE key='itunes_lookup:' || t.id) OR EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='apple'))
                      AND (t.isrc IS NOT NULL OR EXISTS (SELECT 1 FROM state WHERE key='mb_lookup:' || t.id) OR EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='musicbrainz')))
            ORDER BY t.isrc IS NOT NULL DESC, t.release_check IN ('new', 'conflict') DESC, t.first_published DESC LIMIT ?""",
-        (since, until, recheck_before, scfg["spotify_searches_per_run"])).fetchall()
+            (since, until, recheck_before, scfg["spotify_searches_per_run"])).fetchall()
     skipped = conn.execute("""SELECT count(*) FROM track t WHERE t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?
                               AND t.release_check='old' AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='spotify')""",
                            (since, until)).fetchone()[0]
@@ -397,15 +421,28 @@ def spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until="999
             conn.execute("INSERT INTO raw_capture (run_id, source, url, status, captured_at, body)"
                          " VALUES (?,'spotify',?,?,?,?)", (run_id, url, status, db.now_iso(), body))
 
-    sp = Spotify.from_secrets(secrets, market=cfg["discovery"]["market"], on_raw=on_raw)
+    client_factory = Spotify.second_account_from_secrets if second_account_only else Spotify.from_secrets
+    sp_options = {"market": cfg["discovery"]["market"], "on_raw": on_raw}
+    if second_account_only:
+        used_today = conn.execute("SELECT count(*) FROM state WHERE key LIKE 'spotify_second_call:%' AND value >= ?",
+                                  (datetime.now(timezone.utc).date().isoformat() + "T00:00:00",)).fetchone()[0]
+        sp_options["max_calls"] = max(0, SPOTIFY_SECOND_DAILY_LIMIT - used_today)
+    sp = client_factory(secrets, **sp_options)
     rejected = {(r[0], r[1]) for r in conn.execute(
         "SELECT p.platform_id, m.track_id FROM match_rejection m JOIN platform_item p ON p.id=m.platform_item_id "
         "WHERE p.platform='spotify'")}
     found = pending = missing = extra_versions = 0
+    stop_reason = None
     log(f"Spotify: looking up {len(todo)} songs (one search call each)")
     try:
         for n, song in enumerate(todo, 1):
             check()
+            if second_account_only:
+                if n > 1:
+                    time.sleep(SPOTIFY_SECOND_MIN_INTERVAL)
+                call_key = f"spotify_second_call:{run_id}:{n}"
+                conn.execute("INSERT OR IGNORE INTO state (key, value) VALUES (?, ?)", (call_key, db.now_iso()))
+                conn.commit()
             quals = song["song_key"].split("|")[1].split(",") if song["song_key"] and "|" in song["song_key"] else []
             q = f'track:"{song["title"]}"' + "".join(f" {x}" for x in quals if "-" not in x)
             if song["isrc"]:
@@ -439,20 +476,39 @@ def spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until="999
                 conn.execute("UPDATE track SET release_status='not_on_spotify', spotify_checked_at=? WHERE id=?",
                              (ts, song["id"]))
                 missing += 1
+            if second_account_only:
+                conn.execute("INSERT INTO state (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                             (f"spotify_second_checked:{song['id']}", ts))
             conn.commit()
             if n % 25 == 0:
                 log(f"  {n}/{len(todo)} looked up")
     except BudgetExhausted:
         pass
     except SpotifyError as e:
-        if not e.quota_exceeded:
+        if second_account_only and e.status == 429:
+            stop_reason = f"Spotify account 2 rate limited; stopped this run. Retry after {e.retry_after or 'the provider window'} seconds"
+            log(stop_reason)
+        elif not e.quota_exceeded:
             raise
-        log(f"⚠ Spotify search quota exceeded; remaining songs are looked up next run")
+        else:
+            log(f"⚠ Spotify search quota exceeded; remaining songs are looked up next run")
     conn.commit()
     log(f"Spotify: {found} matched (+{extra_versions} more versions of them), {pending} sent to review, "
         f"{missing} not found ({sp.calls} calls)")
     return {"spotify_searches": sp.calls, "spotify_matched": found, "spotify_pending": pending,
-            "spotify_not_found": missing, "spotify_extra_versions": extra_versions}
+            "spotify_not_found": missing, "spotify_extra_versions": extra_versions,
+            **({"status": "partial", "stop_reason": stop_reason} if stop_reason else {})}
+
+
+def run_spotify_second_account(conn, cfg, secrets, log, should_stop, run_id, since=None, until=None):
+    """Dashboard catch-up action: search songs still missing Spotify IDs with account two."""
+    since, until = config.window(cfg)
+    ts = db.now_iso()
+    def check():
+        if should_stop():
+            raise Cancelled()
+    return spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until,
+                          second_account_only=True)
 
 
 def musicbrainz_lookup(conn, cfg, since, until, ts, log, check, run_id):

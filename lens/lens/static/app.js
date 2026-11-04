@@ -474,6 +474,13 @@ async function loadDev() {
     : `<tbody><tr><td class="empty">No failed runs in the last 24 hours.</td></tr></tbody>`;
 }
 $("#dev-refresh").onclick = () => loadDev();
+$("#dev-spotify-second").onclick = async () => {
+  try {
+    await api("/api/run", { job: "spotify_second_account" });
+    toast("Second account Spotify lookup started");
+    loadDev();
+  } catch (e) { toast(e.message, true); }
+};
 
 /* ---------- Crawl stats (developer): runs, items, cost and failures by day, week, month or year ---------- */
 const CR = { period: "day", source: "", kind: "" };

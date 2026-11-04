@@ -32,7 +32,7 @@ class BudgetExhausted(Exception):
 
 class Spotify:
     def __init__(self, client_id, client_secret, market="IN", on_raw=None, max_calls=None,
-                 fallback_credentials=None):
+                 fallback_credentials=None, stop_on_rate_limit=False):
         self._credentials = [(client_id, client_secret)] + list(fallback_credentials or [])
         self._credential_index = 0
         self.client_id, self.client_secret = self._credentials[0]
@@ -42,6 +42,7 @@ class Spotify:
         self.batch_ok = {"albums": True, "tracks": True}
         self.calls = 0
         self.max_calls = max_calls  # per-run budget; None = unlimited
+        self.stop_on_rate_limit = stop_on_rate_limit
         self._token = None
         self._token_exp = 0
 
@@ -54,6 +55,15 @@ class Spotify:
         if not credentials:
             credentials = [(None, None)]
         return cls(*credentials[0], fallback_credentials=credentials[1:], **kwargs)
+
+    @classmethod
+    def second_account_from_secrets(cls, secrets, **kwargs):
+        """Build a client using only the explicitly configured second account."""
+        pair = (secrets.get("SPOTIFY_CLIENT_ID_2"), secrets.get("SPOTIFY_CLIENT_SECRET_2"))
+        if not all(pair):
+            raise ValueError("Spotify second account credentials are not configured")
+        kwargs.setdefault("stop_on_rate_limit", True)
+        return cls(*pair, **kwargs)
 
     def _switch_account(self):
         if self._credential_index + 1 >= len(self._credentials):
@@ -103,6 +113,8 @@ class Spotify:
                     self.on_raw(url, e.code, body)
                 if e.code == 429:
                     wait = int(e.headers.get("Retry-After") or 5)
+                    if self.stop_on_rate_limit:
+                        raise SpotifyError(429, url, body, retry_after=wait)
                     if wait > MAX_RETRY_WAIT:  # daily quota block: give up now, resume later
                         if self._switch_account():
                             self._fetch_token()

@@ -960,6 +960,10 @@ def post_run(conn, body):
             date.fromisoformat(body[k])  # ValueError -> 400
     if body.get("since") and body.get("until") and body["since"] > body["until"]:
         raise ValueError("'from' is after 'to'")
+    if body.get("job") == "spotify_second_account":
+        s = config.read_secrets()
+        if not (s.get("SPOTIFY_CLIENT_ID_2") and s.get("SPOTIFY_CLIENT_SECRET_2")):
+            raise ValueError("Configure SPOTIFY_CLIENT_ID_2 and SPOTIFY_CLIENT_SECRET_2 first")
     run_id = MANAGER.start(body.get("job", "spotify_discovery"), since=body.get("since"), until=body.get("until"))
     return {"run_id": run_id}
 
