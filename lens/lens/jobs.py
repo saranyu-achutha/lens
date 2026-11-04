@@ -5,7 +5,7 @@ import time
 import traceback
 from datetime import datetime, timedelta
 
-from . import alerts, cleanup, config, db, discover_spotify, health, instagram_audio, jiosaavn, shorts_use, song_daily, songs, spotify_plays, sync_youtube, sysstats, youtube_music
+from . import alerts, cleanup, config, db, pause, discover_spotify, health, instagram_audio, jiosaavn, shorts_use, song_daily, songs, spotify_plays, sync_youtube, sysstats, youtube_music
 from .spotify import SpotifyError
 from .youtube import YouTubeError
 
@@ -37,7 +37,7 @@ STEPS = {
     "instagram": [("instagram", instagram_audio.run), ("daily", song_daily.run)],
     "cleanup": [("cleanup", cleanup.run)],
 }
-SEVERITY = ["ok", "partial", "quota_exceeded", "cancelled", "failed"]
+SEVERITY = ["ok", "partial", "quota_exceeded", "paused", "cancelled", "failed"]
 CANCELLED = (discover_spotify.Cancelled, sync_youtube.Cancelled, songs.Cancelled, youtube_music.Cancelled, jiosaavn.Cancelled, shorts_use.Cancelled, instagram_audio.Cancelled)
 
 
@@ -63,6 +63,11 @@ class JobManager:
             if self.current:
                 raise RuntimeError(f"{self.current['job']} is already running")
             conn = db.connect(str(config.DB_FILE))
+            p = pause.get(conn)
+            if pause.covers(p, job) and trigger != "override":
+                conn.close()
+                raise RuntimeError(f"jobs are paused until {p['until'][:16].replace('T', ' ')} UTC"
+                                   f"{' (' + p['reason'] + ')' if p.get('reason') else ''}; resume them on the Developer dashboard first")
             run_id = conn.execute("INSERT INTO run_log (job, started_at, status) VALUES (?, ?, 'running')",
                                   (job, db.now_iso())).lastrowid
             conn.commit()
@@ -79,6 +84,15 @@ class JobManager:
                 self.current["stop"].set()
                 return True
         return False
+
+    def pause_now(self, p):
+        """Ask the running job to stop at its next safe point if pause p covers it; the run is recorded as 'paused'."""
+        with self.lock:
+            if self.current and pause.covers(p, self.current["job"]):
+                self.current["paused"] = True
+                self.current["stop"].set()
+                return self.current["job"]
+        return None
 
     def _log(self, j, msg):
         j["log"].append(f"{datetime.now().strftime('%H:%M:%S')}  {msg}")
@@ -101,8 +115,9 @@ class JobManager:
                 if name == "spotify" and step_status == "quota_exceeded":
                     health.record(conn, False, 429, st["stop_reason"], f"run #{j['run_id']}", st["retry_at"])
             except CANCELLED:
-                st, step_status = {}, "cancelled"
-                self._log(j, "cancelled by user (data stored so far is kept)")
+                st, step_status = {}, "paused" if j.get("paused") else "cancelled"
+                self._log(j, "paused: data read so far is kept; it continues after the resume" if j.get("paused")
+                          else "cancelled by user (data stored so far is kept)")
             except (SpotifyError, YouTubeError) as e:  # one source failing doesn't stop the next
                 st, step_status = {"error": str(e)}, "failed"
                 self._log(j, f"ERROR ({name}) {e}")
@@ -115,6 +130,8 @@ class JobManager:
             if st.get("csv"):
                 stats.setdefault("csvs", []).append(st["csv"])
         status = max((r["status"] for r in results.values()), key=SEVERITY.index, default="cancelled")
+        if j.get("paused") and status != "failed":  # some jobs return normally when asked to stop
+            status = "paused"
         stats["steps"] = results
         problems = [f"{n}: {r['error'] or r['stop_reason']}" for n, r in results.items() if r["error"] or r["stop_reason"]]
         if problems:
@@ -159,7 +176,7 @@ def ran_ok_today():
 def hours_since_youtube():
     conn = db.connect(str(config.DB_FILE))
     row = conn.execute("SELECT max(started_at) FROM run_log WHERE job IN ('youtube_sync','pipeline') "
-                       "AND status NOT IN ('failed','interrupted')").fetchone()
+                       "AND status NOT IN ('failed','interrupted','paused')").fetchone()
     conn.close()
     if not row[0]:
         return float("inf")
@@ -175,6 +192,14 @@ def start_scheduler(manager):
             cfg = config.load()
             s = cfg["schedule"]
             # A failed scheduled run is retried at most once an hour.
+            c0 = db.connect(str(config.DB_FILE))
+            try:
+                paused = pause.is_paused(c0, "pipeline")
+            finally:
+                c0.close()
+            if paused:
+                time.sleep(30)
+                continue
             if s["enabled"] and not manager.current and time.time() - last_attempt > 3600:
                 hh, mm = (int(x) for x in s["time"].split(":"))
                 now = datetime.now()
@@ -209,13 +234,13 @@ def _count(sql, args=()):
 BROWSER_JOBS = ("spotify_plays", "instagram")  # CPU-heavy headless-browser work, run in its own lane beside the API jobs
 
 
-def _due_work(cfg, tried, browser=True, api=True):
+def _due_work(cfg, tried, browser=True, api=True, paused=None):
     """The next job worth running now, or None. `tried` holds when each job was last started by this loop.
     browser / api choose which kind of work to consider (the worker runs one lane of each when it has two)."""
     since, until = config.window(cfg)
     today = datetime.now().date().isoformat()
     now = time.time()
-    ago = lambda job: now - tried.get(job, 0)
+    ago = lambda job: -1 if pause.covers(paused, job) else now - tried.get(job, 0)  # a paused job is never due
     in_window = "t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?"
     # 1. Instagram audio pages: linked audios without today's Reels count, at most every 3 hours. Checked before the
     #    Spotify plays so a long plays backlog can't keep it waiting all day (a run is under an hour).
@@ -329,7 +354,7 @@ def _due_work(cfg, tried, browser=True, api=True):
 
 def hours_since(job):
     conn = db.connect(str(config.DB_FILE))
-    row = conn.execute("SELECT max(started_at) FROM run_log WHERE job IN (?, 'pipeline') AND status NOT IN ('failed','interrupted')", (job,)).fetchone()
+    row = conn.execute("SELECT max(started_at) FROM run_log WHERE job IN (?, 'pipeline') AND status NOT IN ('failed','interrupted','paused')", (job,)).fetchone()
     conn.close()
     if not row[0]:
         return float("inf")
@@ -337,10 +362,10 @@ def hours_since(job):
 
 
 def _last_starts():
-    """{job: epoch seconds} of each job's latest start in the run log, any status."""
+    """{job: epoch seconds} of each job's latest start in the run log (paused runs left out: they are due again)."""
     conn = db.connect(str(config.DB_FILE))
     try:
-        rows = conn.execute("SELECT job, max(started_at) FROM run_log GROUP BY job").fetchall()
+        rows = conn.execute("SELECT job, max(started_at) FROM run_log WHERE status != 'paused' GROUP BY job").fetchall()
     finally:
         conn.close()
     out = {}
@@ -358,9 +383,18 @@ def start_worker(manager, browser_manager=None):
     so a 2-core machine uses both cores."""
     def lane(mgr, w, tried, **kinds):
         last_end = mgr.last and mgr.last.get("ended_at")
+        if mgr.last and mgr.last.get("status") == "paused":
+            tried.pop(mgr.last["job"], None)  # paused part-way: due again as soon as the pause ends
         if mgr.current or (last_end and time.time() - last_end < w.get("pause_seconds", 60)):
             return
-        due = _due_work(config.load(), tried, **kinds)
+        conn = db.connect(str(config.DB_FILE))
+        try:
+            p = pause.get(conn)  # an expired pause is cleared here, so the work resumes by itself
+        finally:
+            conn.close()
+        if p and p.get("all"):
+            return
+        due = _due_work(config.load(), tried, paused=p, **kinds)
         if due:
             job, why = due
             tried[job] = time.time()
@@ -417,7 +451,12 @@ def start_health_watcher(manager):
                 cfg = config.load()
                 s = config.read_secrets()
                 has_primary = s.get("SPOTIFY_CLIENT_ID") and s.get("SPOTIFY_CLIENT_SECRET")
-                if has_primary:
+                conn0 = db.connect(str(config.DB_FILE))
+                try:
+                    paused = pause.is_paused(conn0, "health_check")  # pausing every job pauses the Spotify probe too
+                finally:
+                    conn0.close()
+                if has_primary and not paused:
                     conn = db.connect(str(config.DB_FILE))
                     last = health.last_check(conn)
                     every = 6 * 3600 if last and last["ok"] else cfg["health"]["recheck_minutes"] * 60

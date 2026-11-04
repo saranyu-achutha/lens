@@ -152,6 +152,18 @@
 <path class="hl-sheen" d="M210,52 A44 44 0 0 1 238,28"/>
 <path d="M293,112 l7,7" stroke="url(#hB-grad)" stroke-width="7" fill="none"/><path d="M300,119 l20,18" stroke="url(#hB-grad)" stroke-width="11" stroke-linecap="round" fill="none"/></svg><div><h1>Developer dashboard</h1><p>Jobs, targets, daily readings, quotas, backlogs, storage and server health</p></div><span class="spacer"></span><button class="small" id="dev-refresh">↻ Refresh</button></div>
     <div class="card" id="dev-alerts-card" style="margin-bottom:16px" hidden><div class="card-head"><h2>Alerts</h2><span class="spacer"></span><span class="muted" style="font-size:12px">checked every 10 minutes</span></div><div id="dev-alerts"></div></div>
+    <div class="card" id="dev-pause-card" style="margin-bottom:16px"><div class="card-head"><h2>Job control</h2><span class="spacer"></span><span id="dev-pause-state"></span></div>
+      <div id="dev-pause-info" class="muted" style="font-size:13px;margin-bottom:10px"></div>
+      <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center">
+        <label class="muted" style="font-size:13px">for <select id="dev-pause-min"><option value="15">15 min</option><option value="30" selected>30 min</option><option value="60">1 h</option><option value="120">2 h</option><option value="240">4 h</option></select></label>
+        <input id="dev-pause-reason" placeholder="reason (optional)" style="min-width:180px">
+        <button id="dev-pause-btn" title="Running jobs finish; nothing new starts">Pause</button>
+        <button id="dev-pause-now" title="Running jobs stop at their next safe point; data read so far is kept">Pause now</button>
+        <button class="primary" id="dev-resume" title="Paused jobs continue where they stopped">Resume</button>
+      </div>
+      <details style="margin-top:10px"><summary class="muted" style="font-size:13px;cursor:pointer">Only some jobs</summary><div id="dev-pause-jobs" class="row" style="gap:10px 18px;flex-wrap:wrap;margin-top:8px;font-size:13px"></div></details>
+      <div id="dev-pause-log" style="margin-top:10px"></div>
+    </div>
     <div class="grid g4" id="dev-targets"></div>
     <div class="card" style="margin-top:16px"><div class="card-head"><h2>Data freshness</h2><span class="spacer"></span><span class="muted" style="font-size:12px">newest reading per source · page readers that read nothing in 24 h</span></div><div id="dev-fresh"></div></div>
     <div class="grid g4" style="margin-top:16px">

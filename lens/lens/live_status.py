@@ -119,8 +119,10 @@ def compute(conn, manager, browser, quota):
                             ("CSV exports compressed", mb("cleanup_outputs_saved")), ("Database shrunk by", mb("cleanup_db_shrunk"))],
                   "last": cl_last})
     # Lanes: running now and what the work loop would start next
-    nxt_api = jobs._due_work(cfg, {}, browser=False)
-    nxt_browser = jobs._due_work(cfg, {}, api=False)
+    from . import pause
+    paused = pause.get(conn)  # a paused job is not "next"
+    nxt_api = jobs._due_work(cfg, {}, browser=False, paused=paused)
+    nxt_browser = jobs._due_work(cfg, {}, api=False, paused=paused)
     lane = lambda m, nxt: dict({k: v for k, v in m.state(10**9).items() if k != "log"}, log=m.state(10**9).get("log", [])[-4:],
                                 next={"job": nxt[0], "why": nxt[1]} if nxt else None)
     return {"day": today, "at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "cards": cards,

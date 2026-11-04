@@ -25,7 +25,7 @@ from pathlib import Path
 
 import threading
 
-from . import ai, alerts, collection, config, crawl_stats, db, exports, health, insights, jobs, merge, metadata, review, song_daily, songs, spotify_charts, sysstats
+from . import ai, alerts, collection, config, crawl_stats, db, exports, health, insights, jobs, merge, metadata, pause, review, song_daily, songs, spotify_charts, sysstats
 from .discover_spotify import EXPORT_SQL
 from . import spotify
 from .spotify import Spotify, SpotifyError
@@ -1008,6 +1008,25 @@ def post_instagram_link(conn, body):
     return {"ok": True, "item_id": instagram_audio.link(conn, int(body["song"]), body.get("url") or "", who="developer")}
 
 
+def post_jobs_pause(conn, body):
+    """Pause jobs: every job (no 'jobs') or the listed ones, for 'minutes' (default 30; it ends by itself).
+    'now': also stop the running jobs it covers at their next safe point (data read so far is kept)."""
+    jobs_ = body.get("jobs") or None
+    if jobs_:
+        unknown = [j for j in jobs_ if j not in jobs.JOBS]
+        if unknown:
+            raise ValueError(f"unknown jobs: {', '.join(unknown)}")
+    p = pause.pause(conn, REQUEST.actor, (body.get("reason") or "").strip()[:200], body.get("minutes") or pause.DEFAULT_MINUTES,
+                    jobs_, now=bool(body.get("now")))
+    stopping = [j for j in (MANAGER.pause_now(p), BROWSER.pause_now(p)) if j] if body.get("now") else []
+    return {"pause": p, "stopping": stopping}
+
+
+def post_jobs_resume(conn, body):
+    ended = pause.resume(conn, REQUEST.actor, (body.get("reason") or "").strip()[:200])
+    return {"resumed": bool(ended), "was": ended}
+
+
 def post_cancel(conn, body):
     """Stop the running job in both lanes (API jobs and the browser job)."""
     return {"cancelled": MANAGER.cancel(), "cancelled_browser": BROWSER.cancel()}
@@ -1956,7 +1975,7 @@ def api_dev(conn, qs):
         j["problems"] += r["status"] in ("failed", "interrupted")
     failures = [r for r in runs if r["status"] in ("failed", "interrupted")][:5]
     try:
-        nxt = jobs._due_work(cfg, {})
+        nxt = jobs._due_work(cfg, {}, paused=pause.get(conn))
     except Exception as e:
         nxt = ("?", repr(e))
 
@@ -2005,6 +2024,8 @@ def api_dev(conn, qs):
                         "resets": datetime.fromtimestamp(next_reset(), timezone.utc).isoformat(timespec="minutes")},
             "spotify": {"ok": sp and sp["ok"], "checked_at": sp and sp["checked_at"], "retry_at": sp and sp.get("retry_at")},
             "spotify_quota": spotify_quota(conn),
+            "pause": pause.get(conn), "pause_log": pause.history(conn, 8),
+            "job_names": {k: v for k, v in jobs.JOBS.items()},
             "storage": {"db_bytes": size, "disk_free": du.free, "disk_total": du.total, "snapshot_rows": one("SELECT max(rowid) FROM snapshot"),
                         "song_daily_rows": one("SELECT count(*) FROM song_daily"), "first_day": one("SELECT min(capture_date) FROM snapshot"),
                         "backup": {"name": backups[-1].name, "at": datetime.fromtimestamp(backups[-1].stat().st_mtime).isoformat(timespec="minutes")} if backups else None},
@@ -2031,7 +2052,8 @@ POST = {"/api/config": post_config, "/api/secrets": post_secrets, "/api/test/spo
         "/api/youtube/channel": post_youtube_channel, "/api/youtube/label": post_youtube_label,
         # Live Claude endpoints (lens/ai.py) are switched off until the API integration: add
         # "/api/ai/explain": post_ai_explain, "/api/ai/ask": post_ai_ask here to enable them.
-        "/api/merge/apply": post_merge_apply, "/api/merge/reject": post_merge_reject, "/api/review/undo": post_undo}
+        "/api/merge/apply": post_merge_apply, "/api/merge/reject": post_merge_reject, "/api/review/undo": post_undo,
+        "/api/jobs/pause": post_jobs_pause, "/api/jobs/resume": post_jobs_resume}
 
 
 # Keep the Console out of search engines: robots.txt (no crawling), plus a noindex header on every response.
@@ -2135,6 +2157,11 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == "/api/job":
             st = MANAGER.state(int(qs.get("from", 0)))
             st["browser"] = {k: v for k, v in BROWSER.state(10**9).items() if k != "log"}
+            c = db.connect(str(config.DB_FILE))
+            try:
+                st["pause"] = pause.get(c)
+            finally:
+                c.close()
             return self._send(200, st)
         if url.path == "/api/export.csv":
             from . import songs

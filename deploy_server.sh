@@ -40,6 +40,23 @@ try:
 except Exception: print("?")'
 }
 
+console_post() {  # POST JSON to the Console as the developer; prints the reply (empty if it does not answer)
+    curl -s -m 10 -u "$USER_:$PASS" -H "Content-Type: application/json" -d "$2" "http://127.0.0.1:$PORT$1" 2>/dev/null || true
+}
+
+PAUSED_BY_US=0
+resume_jobs() {  # end the deploy's pause (a pause also ends by itself after 20 minutes)
+    if [[ $PAUSED_BY_US -eq 1 ]]; then
+        if console_post /api/jobs/resume '{"reason": "deploy finished"}' | grep -q '"resumed"'; then
+            echo "Jobs resumed: paused work continues where it stopped"
+        else
+            echo "NOTE: could not resume jobs; the deploy pause ends by itself within 20 minutes"
+        fi
+        PAUSED_BY_US=0
+    fi
+}
+trap resume_jobs EXIT  # whatever happens below, jobs are not left paused
+
 wait_idle() {  # crawl data matters: never restart in the middle of a job in either lane
     for ((i = 0; i < WAIT_MINUTES * 2; i++)); do
         local st; st=$(job_running)
@@ -54,8 +71,16 @@ wait_idle() {  # crawl data matters: never restart in the middle of a job in eit
     [[ "$(job_running)" != "1" ]]
 }
 
-# 1. Wait for a running pipeline (a restart would interrupt it)
+# 1. Pause the jobs: running ones stop at their next safe point (data read so far is kept, they continue after the
+#    resume), and nothing new starts. A Console without the pause feature is waited for instead.
 if [[ $FORCE -eq 0 ]]; then
+    say "Pausing jobs for the deploy"
+    if console_post /api/jobs/pause '{"now": true, "minutes": 20, "reason": "deploy"}' | grep -q '"pause"'; then
+        PAUSED_BY_US=1
+        echo "Paused (running jobs stop at a safe point; the pause ends by itself within 20 minutes)"
+    else
+        echo "This Console has no pause feature (or does not answer); waiting for the running jobs to finish instead"
+    fi
     say "Checking for running jobs (both lanes)"
     wait_idle || die "a job is still running after $WAIT_MINUTES min; try later or use --force"
     echo "Idle (or Console not running): OK"
@@ -127,6 +152,7 @@ for i in $(seq 1 30); do
     sleep 1
 done
 if [[ "$code" == "401" || "$code" == "200" ]]; then
+    resume_jobs
     say "Deployed $(git log -1 --format='%h %s')"
     systemctl --no-pager --lines=0 status "$SERVICE" | head -3
     echo "Rollback if needed: cd $REPO && git reset --hard $OLD && sudo systemctl restart $SERVICE"

@@ -9,6 +9,7 @@ remembered in `alert` so each has a "since", can be snoozed, and closes itself w
   backup              no nightly database backup in the last 30 hours
   spotify_api         the Spotify API health check is failing
   review              matches waiting for review
+  paused              jobs paused for more than 30 minutes
 Severity: critical (data is being lost now), warning (needs attention soon), info.
 """
 import json
@@ -137,6 +138,15 @@ def evaluate(conn):
         out.append({"key": "spotify_api", "severity": "warning", "action": "open:sources",
                     "title": "Spotify API is not answering normally",
                     "detail": f"{last.get('message') or ''} Retry after {last.get('retry_at') or 'the next check'}."})
+    # Jobs paused for a long time (a pause always ends by itself, but daily data waits meanwhile)
+    from . import pause
+    p = pause.get(conn)
+    if p and pause.minutes_paused(p) > pause.ALERT_AFTER_MINUTES:
+        what = "All jobs" if p.get("all") else ", ".join(p.get("jobs") or [])
+        out.append({"key": "paused", "severity": "warning", "action": "open:dev",
+                    "title": f"{what} paused for {pause.minutes_paused(p):.0f} minutes",
+                    "detail": f"Paused by {p.get('by') or '?'}{' (' + p['reason'] + ')' if p.get('reason') else ''}; "
+                              f"resumes by itself at {p['until'][:16].replace('T', ' ')} UTC. Resume on the Developer dashboard."})
     pending = conn.execute("SELECT count(*) FROM platform_item WHERE review_state='pending'").fetchone()[0]
     if pending:
         out.append({"key": "review", "severity": "info", "action": "open:review",

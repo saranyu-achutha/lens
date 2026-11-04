@@ -420,6 +420,7 @@ async function loadDev() {
     const ok = t.value != null && (t.lower ? t.value <= t.target : t.value >= t.target);
     return `<div class="card kpi target ${t.value == null ? "" : ok ? "on" : "off"}"><div class="label">${esc(t.name)}</div><div class="value">${t.value == null ? "–" : t.value + "%"}</div>
       <div class="sub">target ${t.lower ? "≤" : "≥"} ${t.target}% · ${esc(t.detail)}</div></div>`; }).join("");
+  renderPause(d);
   const j = d.job;
   const lanePill = (x) => x && x.running ? `<span class="pill run"><span class="dot"></span>${esc(x.job)}</span>` : '<span class="pill"><span class="dot"></span>Idle</span>';
   $("#dev-now").innerHTML = kv([["API jobs", lanePill(j)], ["Browser lane", lanePill(d.browser_job)],
@@ -466,7 +467,7 @@ async function loadDev() {
     `</tbody><tfoot><tr><td colspan="4" class="muted" style="font-size:12px">Spotify hides play counts under 1,000, so those tracks have no reading. Deezer is read once a day by the songs job.</td></tr></tfoot>`;
   $("#dev-backlog").innerHTML = `<thead><tr><th>Backlog</th><th class="num">Count</th><th>How it clears</th></tr></thead><tbody>` +
     d.backlog.map((b) => `<tr><td>${esc(b.name)}</td><td class="num">${b.count == null ? "–" : fmt(b.count)}</td><td class="muted">${esc(b.note)}</td></tr>`).join("") + "</tbody>";
-  const chip = (s) => `<span class="pill ${s === "ok" ? "ok" : s === "running" ? "run" : s === "partial" || s === "cancelled" ? "warn" : "bad"}"><span class="dot"></span>${esc(s)}</span>`;
+  const chip = (s) => `<span class="pill ${s === "ok" ? "ok" : s === "running" ? "run" : s === "paused" ? "" : s === "partial" || s === "cancelled" ? "warn" : "bad"}"><span class="dot"></span>${esc(s)}</span>`;
   $("#dev-jobs").innerHTML = d.jobs.length ? `<thead><tr><th>Job</th><th class="num">Runs</th><th class="num">OK</th><th>Last run</th><th>Status</th><th>Took</th></tr></thead><tbody>` +
     d.jobs.map((x) => `<tr title="${esc(x.last.note)}"><td>${esc(x.job)}</td><td class="num">${x.runs}</td><td class="num">${x.ok}</td><td class="muted">#${x.last.id} · ${ago(x.last.started_at)}</td><td>${chip(x.last.status)}</td><td class="muted">${runFor(x.last)}</td></tr>`).join("") + "</tbody>"
     : `<tbody><tr><td class="empty">No runs in the last 24 hours.</td></tr></tbody>`;
@@ -479,6 +480,41 @@ async function loadDev() {
     : `<tbody><tr><td class="empty">No failed runs in the last 24 hours.</td></tr></tbody>`;
 }
 $("#dev-refresh").onclick = () => loadDev();
+
+/* Job control: pause (running jobs finish) or pause now (they stop at the next safe point), every job or some;
+   a pause always ends by itself; Resume lets paused jobs continue where they stopped. */
+const utc = (iso) => iso ? new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
+function renderPause(d) {
+  const p = d.pause;
+  const what = p ? (p.all ? "All jobs" : (p.jobs || []).join(", ")) : "";
+  $("#dev-pause-state").innerHTML = p ? `<span class="pill warn"><span class="dot"></span>${esc(what)} paused</span>` : '<span class="pill ok"><span class="dot"></span>running normally</span>';
+  $("#dev-pause-info").innerHTML = p
+    ? `Paused by <b>${esc(p.by || "?")}</b> ${ago(p.since)}${p.reason ? ` · ${esc(p.reason)}` : ""} · ${p.mode === "now" ? "running jobs were stopped at a safe point" : "running jobs were left to finish"} · <b>resumes by itself at ${esc(utc(p.until))}</b>`
+    : "Pause before maintenance or a deploy: <b>Pause</b> lets running jobs finish, <b>Pause now</b> stops them at their next safe point (data read so far is kept). A pause always ends by itself.";
+  $("#dev-resume").disabled = !p;
+  const box = $("#dev-pause-jobs");
+  if (!box.dataset.filled) {
+    box.innerHTML = Object.entries(d.job_names || {}).map(([k, v]) => `<label title="${esc(v)}"><input type="checkbox" value="${esc(k)}"> ${esc(k)}</label>`).join("");
+    box.dataset.filled = "1";
+  }
+  const label = { pause: "paused", pause_now: "paused now", resume: "resumed", expired: "ended by itself" };
+  $("#dev-pause-log").innerHTML = (d.pause_log || []).length ? `<div class="muted" style="font-size:12px">Recent: ` +
+    d.pause_log.slice(0, 5).map((x) => `${esc(utc(x.at))} ${esc(label[x.action] || x.action)}${x.jobs ? ` (${esc(x.jobs.join(", "))})` : ""} by ${esc(x.by || "?")}${x.reason ? ` · ${esc(x.reason)}` : ""}`).join(" · ") + "</div>" : "";
+}
+async function doPause(now) {
+  const jobs = [...document.querySelectorAll("#dev-pause-jobs input:checked")].map((x) => x.value);
+  try {
+    const r = await api("/api/jobs/pause", { now, minutes: +$("#dev-pause-min").value, reason: $("#dev-pause-reason").value, jobs: jobs.length ? jobs : null });
+    toast(`${jobs.length ? jobs.join(", ") : "All jobs"} paused until ${utc(r.pause.until)}${r.stopping.length ? ` · stopping ${r.stopping.join(", ")} at a safe point` : ""}`);
+    loadDev();
+  } catch (e) { toast(e.message, true); }
+}
+$("#dev-pause-btn").onclick = () => doPause(false);
+$("#dev-pause-now").onclick = () => doPause(true);
+$("#dev-resume").onclick = async () => {
+  try { await api("/api/jobs/resume", {}); toast("Jobs resumed: paused work continues where it stopped"); loadDev(); }
+  catch (e) { toast(e.message, true); }
+};
 $("#dev-spotify-second").onclick = async () => {
   try {
     await api("/api/run", { job: "spotify_second_account" });
@@ -493,7 +529,7 @@ const CR_COLORS = { youtube: "var(--c-youtube)", ytmusic: "var(--c-ytmusic)", sp
   jiosaavn: "var(--c-jiosaavn)", deezer: "var(--c-deezer)", apple: "var(--c-apple)", musicbrainz: "var(--c-musicbrainz)" };
 const crColor = (s, i) => CR_COLORS[s] || ["#4c94ec", "#9a8ff0", "#f5a524", "#38bdf8"][i % 4];
 const crKind = (k) => `<span class="pill ${["quota", "cancelled", "interrupted"].includes(k) ? "warn" : "bad"}"><span class="dot"></span>${esc(k)}</span>`;
-const crStatus = (s) => `<span class="pill ${s === "ok" ? "ok" : ["partial", "cancelled", "interrupted"].includes(s) ? "warn" : "bad"}"><span class="dot"></span>${esc(s)}</span>`;
+const crStatus = (s) => `<span class="pill ${s === "ok" ? "ok" : s === "paused" ? "" : ["partial", "cancelled", "interrupted"].includes(s) ? "warn" : "bad"}"><span class="dot"></span>${esc(s)}</span>`;
 const crWhen = (t) => t ? new Date(t).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "–";
 const crNum = (v) => v ? (Math.abs(v) >= 1e5 ? compact(v) : fmt(v)) : '<span class="muted">0</span>';
 async function loadCrawl() {
@@ -1440,7 +1476,7 @@ async function loadRuns() {
 }
 async function loadRunsTable() {
   const { runs } = await api("/api/runs");
-  const pill = (s) => `<span class="pill ${{ ok: "ok", running: "run", failed: "bad", cancelled: "warn", interrupted: "warn", partial: "warn", quota_exceeded: "warn" }[s] || ""}"><span class="dot"></span>${esc(s)}</span>`;
+  const pill = (s) => `<span class="pill ${{ ok: "ok", running: "run", failed: "bad", cancelled: "warn", interrupted: "warn", partial: "warn", quota_exceeded: "warn", paused: "" }[s] || ""}"><span class="dot"></span>${esc(s)}</span>`;
   const secs = (a, b) => (a && b ? `${Math.round((Date.parse(b) - Date.parse(a)) / 1000)}s` : "–");
   $("#runs-table").innerHTML = `<thead><tr><th>#</th><th>Job</th><th>Started</th><th class="num">Took</th><th>Status</th><th class="num">Releases</th><th class="num">Tracks</th><th class="num">API calls</th><th>Details</th></tr></thead><tbody>` +
     (runs.length ? runs.map((r) => `<tr><td class="muted">${r.id}</td><td>${esc(STATUS.jobs[r.job] || r.job)}${r.stats.trigger ? `<div class="t2">${esc(r.stats.trigger)}</div>` : ""}</td><td>${new Date(r.started_at).toLocaleString()}</td>
