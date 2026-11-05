@@ -109,9 +109,8 @@ def due(conn, cfg, limit=None):
            ORDER BY t.first_published DESC LIMIT ?""", (since, until, before, limit or -1)).fetchall()
 
 
-def _choose(conn, song, rows, log):
+def _choose(vids, song, rows, log=None):
     """(outcome, best candidate or None, score): the best result by the match rules, read from its embed page."""
-    vids = spotify_found._videos(conn, song["id"])
     keys = match.block_keys(song_parts(song["title"])[0]) | match.block_keys(song["title"])
     new_from = (date.fromisoformat(song["first_day"]) - timedelta(days=spotify_found.NEW_BEFORE_DAYS)).isoformat()
     best_new, best_old = None, None
@@ -146,7 +145,7 @@ def _choose(conn, song, rows, log):
     return "not_found", None, None
 
 
-def start_browser(chrome):
+def start_browser(chrome, tabs=1):
     """A light headless browser (low CPU priority, no images) with its DevTools port: (process, port, profile folder)."""
     profile = tempfile.mkdtemp(prefix="lens_sps_")
     port = 9900 + os.getpid() % 90
@@ -154,7 +153,7 @@ def start_browser(chrome):
     proc = subprocess.Popen([chrome, "--headless=new", "--disable-gpu", "--no-first-run", "--mute-audio", "--lang=en-IN",
                              "--blink-settings=imagesEnabled=false", "--disable-extensions", "--disable-background-networking",
                              "--disable-component-update", "--disable-default-apps", "--disable-sync", "--no-pings",
-                             "--renderer-process-limit=2", "--js-flags=--max-old-space-size=384",
+                             f"--renderer-process-limit={tabs + 1}", "--js-flags=--max-old-space-size=384",
                              f"--user-data-dir={profile}", f"--remote-debugging-port={port}", "about:blank"],
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env, start_new_session=True,
                             preexec_fn=lambda: os.nice(19))
@@ -226,7 +225,7 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
                 time.sleep(pause_s)
                 continue  # not recorded: searched again next run
             empty_in_row = 0
-            outcome, e, score = _choose(conn, song, got.get("rows") or [], log)
+            outcome, e, score = _choose(spotify_found._videos(conn, song["id"]), song, got.get("rows") or [])
             conn.execute(
                 """INSERT INTO spotify_found (song_id, label, channel, yt_first, yt_title, track_id, sp_title, sp_artists, sp_release,
                                               file_status, title_match, outcome, score, imported_at)
@@ -256,8 +255,150 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
     return dict(st, status="ok", **({"stop_reason": stop_reason} if stop_reason else {}))
 
 
+# ---- The whole backlog on another machine (the laptop: more CPU, many tabs); the server imports and links.
+def export_songs(conn, cfg):
+    """Server: the period's songs with no Spotify link and none waiting in Review, with their videos (for the match rules)."""
+    spotify_found.ensure(conn)
+    since, until = config.window(cfg)
+    labels = config.channel_labels(cfg)
+    out = []
+    for r in conn.execute(
+            """SELECT t.id, coalesce(t.yt_title, t.title) title, substr(t.first_published,1,10) first_day,
+                      (SELECT channel FROM platform_item p WHERE p.track_id=t.id AND p.platform='youtube' ORDER BY published_at LIMIT 1) channel
+               FROM track t WHERE t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?
+                 AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='spotify'
+                                 AND p.review_state IN ('auto','approved','pending'))
+               ORDER BY t.first_published DESC""", (since, until)).fetchall():
+        out.append(dict(r, label=labels.get(r["channel"]),
+                        videos=[{"title": v["title"], "description": (v["description"] or "")[:3000], "published_at": v["published_at"],
+                                 "duration_ms": v["duration_ms"]} for v in spotify_found._videos(conn, r["id"])]))
+    return out
+
+
+def laptop_search(songs_list, tabs=12, out="spotify_laptop_search.json", log=print, pause_s=1.0):
+    """Laptop: every song searched (cleaned title + singer, then the title alone), `tabs` pages at once; the best match
+    by the rules among the top 5 results; then the found tracks' own pages (album, plays). Resumable: progress in `out`."""
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    res = json.load(open(out)) if os.path.exists(out) else {"songs": {}}
+    todo = [s for s in songs_list if str(s["id"]) not in res["songs"]]
+    log(f"{len(songs_list)} songs, {len(songs_list) - len(todo)} done earlier, {len(todo)} to search with {tabs} tabs")
+    proc, port, profile = start_browser(find_chrome(), tabs)
+    lock, stop, t0 = threading.Lock(), {"empty": 0, "why": None}, time.time()
+
+    def save():
+        tmp = out + ".tmp"
+        json.dump(res, open(tmp, "w"))
+        os.replace(tmp, out)
+
+    def one(song):
+        if stop["why"]:
+            return
+        qs = list(dict.fromkeys(q for q in (query(song["title"]), song_parts(song["title"])[0][:100], (song["title"] or "")[:100]) if q.strip()))
+        outcome, e, score, used, any_page = "not_found", None, None, None, False
+        for q in qs:
+            got = search(port, q) or (time.sleep(2) or search(port, q))
+            time.sleep(pause_s)
+            if not got:
+                continue
+            any_page = True
+            o, cand, sc = _choose(song["videos"], song, got.get("rows") or [])
+            if o == "queued" or (o == "older_release" and outcome == "not_found"):
+                outcome, e, score, used = o, cand, sc, q
+            if o == "queued":
+                break
+        with lock:
+            if not any_page:
+                stop["empty"] += 1
+                if stop["empty"] >= 12:
+                    stop["why"] = "12 songs in a row without any page: Spotify may be blocking; re-run later to continue"
+                return  # not recorded: searched again next run
+            stop["empty"] = 0
+            res["songs"][str(song["id"])] = {"outcome": outcome, "track": e, "score": score, "query": used or qs[0]}
+            n = len(res["songs"])
+            if n % 25 == 0:
+                save()
+                done = sum(1 for x in todo if str(x["id"]) in res["songs"])
+                rate = done / max(time.time() - t0, 1)
+                c = {}
+                for v in res["songs"].values():
+                    c[v["outcome"]] = c.get(v["outcome"], 0) + 1
+                log(f"  {done}/{len(todo)} searched ({c}), ~{(len(todo) - done) / max(rate, 1e-6) / 60:.0f} min left")
+    try:
+        with ThreadPoolExecutor(tabs) as pool:
+            list(pool.map(one, todo))
+    finally:
+        _kill_group(proc)
+        shutil.rmtree(profile, ignore_errors=True)
+        save()
+    if stop["why"]:
+        log("stopped: " + stop["why"])
+    found = [v["track"]["id"] for v in res["songs"].values() if v["outcome"] == "queued" and v["track"]]
+    if found:  # their own pages: album (the embed page leaves it out), play count
+        log(f"reading the {len(found)} found tracks' pages (album, plays)")
+        ver = json.load(open(spotify_found.verify_collect(found, tabs, out + ".pages.json", log=log)))
+        res.update(tracks=ver["tracks"], plays=ver.get("plays", {}), hidden=ver.get("hidden", []), date=ver["date"],
+                   captured_at=ver.get("captured_at"))
+    save()
+    c = {}
+    for v in res["songs"].values():
+        c[v["outcome"]] = c.get(v["outcome"], 0) + 1
+    log(f"done in {(time.time() - t0) / 60:.0f} min: {c}; {len(res.get('tracks') or {})} found tracks read -> {out}")
+    return out
+
+
+def import_laptop(conn, path, log=print):
+    """Server: the laptop's search results into spotify_found (every song marked searched today), then the found tracks
+    checked and linked like the verified lists (no Spotify call)."""
+    spotify_found.ensure(conn)
+    data = json.load(open(path))
+    cfg = config.load()
+    labels = config.channel_labels(cfg)
+    ts, day = db.now_iso(), songs.searched_day()
+    counts = {}
+    for sid, r in data["songs"].items():
+        sid = int(sid)
+        song = conn.execute("""SELECT coalesce(t.yt_title, t.title) title, substr(t.first_published,1,10) d,
+                                      (SELECT channel FROM platform_item p WHERE p.track_id=t.id AND p.platform='youtube' ORDER BY published_at LIMIT 1) ch
+                               FROM track t WHERE t.id=?""", (sid,)).fetchone()
+        if not song:
+            continue
+        prev = conn.execute("SELECT outcome FROM spotify_found WHERE song_id=?", (sid,)).fetchone()
+        if prev and prev[0] in ("linked", "review", "rejected", "already_linked"):
+            continue
+        e = r.get("track")
+        conn.execute(
+            """INSERT INTO spotify_found (song_id, label, channel, yt_first, yt_title, track_id, sp_title, sp_artists, sp_release,
+                                          file_status, title_match, outcome, score, imported_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,NULL,?,?,?)
+               ON CONFLICT(song_id) DO UPDATE SET track_id=excluded.track_id, sp_title=excluded.sp_title, sp_artists=excluded.sp_artists,
+                   sp_release=excluded.sp_release, file_status=excluded.file_status, title_match=NULL, outcome=excluded.outcome,
+                   score=excluded.score, imported_at=excluded.imported_at, checked_at=NULL""",
+            (sid, labels.get(song["ch"]), song["ch"], song["d"], song["title"], e and e["id"], e and e["name"],
+             e and ", ".join(a["name"] for a in e["artists"]), e and e.get("release_date") or None,
+             f"laptop search: {r.get('query')}", r["outcome"], r.get("score"), ts))
+        conn.execute("UPDATE track SET spotify_checked_at=? WHERE id=?", (ts, sid))
+        conn.execute("INSERT INTO state (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                     (f"spotify_search_day:{sid}", day))
+        counts[r["outcome"]] = counts.get(r["outcome"], 0) + 1
+    conn.commit()
+    log(f"Laptop search: {sum(counts.values())} songs recorded: " + ", ".join(f"{k} {v}" for k, v in counts.items()))
+    st = spotify_found.verify_import(conn, path, log=log) if data.get("tracks") else {}
+    return {"songs": counts, **st}
+
+
 def main():  # python3 -m lens.spotify_browser_search "<song title>" ...   (a test: query and results, nothing stored)
     import sys
+    a = sys.argv[1:]
+    if a[:1] == ["export"]:  # server
+        print(json.dumps(export_songs(db.connect(str(config.DB_FILE)), config.load()), ensure_ascii=False))
+        return
+    if a[:1] == ["laptop"]:  # laptop: laptop <songs.json> [tabs] [out.json]
+        laptop_search(json.load(open(a[1])), int(a[2]) if len(a) > 2 else 12, a[3] if len(a) > 3 else "spotify_laptop_search.json")
+        return
+    if a[:1] == ["import"]:  # server: import <out.json>
+        print(json.dumps(import_laptop(db.connect(str(config.DB_FILE)), a[1])))
+        return
     proc, port, profile = start_browser(find_chrome())
     try:
         for t in sys.argv[1:]:
