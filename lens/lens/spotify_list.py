@@ -176,7 +176,9 @@ def main():
     ap.add_argument("--max-calls", default="", help="account=n,... calls this run may make (the server's daily limit left)")
     a = ap.parse_args()
     caps = {k: int(v) for k, v in (x.split("=") for x in a.max_calls.split(",") if "=" in x)}
-    print(json.dumps(run(a.accounts.split(","), a.state, a.known, max_calls=caps), indent=1))
+    import sys  # progress goes to stderr, so stdout is only the summary (read by spotify_list_laptop.sh)
+    print(json.dumps(run(a.accounts.split(","), a.state, a.known, log=lambda m: print(m, file=sys.stderr, flush=True),
+                         max_calls=caps), indent=1))
 
 
 if __name__ == "__main__":
