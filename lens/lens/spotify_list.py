@@ -37,10 +37,15 @@ class Lane:
         self.tok = json.load(urllib.request.urlopen(req, timeout=30))["access_token"]
         self.acct, self.interval, self.S, self.lock = acct, interval, state, lock
         self.next, self.stop = time.monotonic(), None
+        self.cap, self.made = None, 0
 
     def get(self, path, params):
         if self.stop:
             return None
+        if self.cap is not None and self.made >= self.cap:
+            self.stop = f"daily limit: {self.cap} calls left on the server's counter, all used"
+            return None
+        self.made += 1
         time.sleep(max(0, self.next - time.monotonic()))
         self.next = max(time.monotonic(), self.next) + self.interval
         url = f"{API}{path}?" + urllib.parse.urlencode(dict(params, market="IN"))
@@ -71,7 +76,8 @@ class Lane:
             self.S["calls"][self.acct] = self.S["calls"].get(self.acct, 0) + 1
 
 
-def run(accounts=("second",), state_file="data/spotify_list_state.json", known_file=None, log=print):
+def run(accounts=("second",), state_file="data/spotify_list_state.json", known_file=None, log=print, max_calls=None):
+    """max_calls: {account: calls this run may make} (the server's 600-a-day ledger minus what it has used)."""
     cfg = config.load()
     since, until = config.window(cfg)
     interval = float(cfg["songs"].get("spotify_min_interval_s", 1))
@@ -131,6 +137,9 @@ def run(accounts=("second",), state_file="data/spotify_list_state.json", known_f
     t0 = time.time()
     calls0 = dict(S["calls"])
     lanes = [Lane(a, secrets, interval, S, lock) for a in accounts]
+    for lane in lanes:
+        lane.cap = (max_calls or {}).get(lane.acct)
+    lanes = [l for l in lanes if l.cap is None or l.cap > 0]
     threads = [threading.Thread(target=work, args=(lane,)) for lane in lanes]
     for t in threads:
         t.start()
@@ -164,8 +173,10 @@ def main():
     ap.add_argument("--accounts", default="second", help="comma-separated: primary, second")
     ap.add_argument("--state", default=str(config.DB_FILE.parent / "spotify_list_state.json"))
     ap.add_argument("--known", help="file of album IDs already read on the server")
+    ap.add_argument("--max-calls", default="", help="account=n,... calls this run may make (the server's daily limit left)")
     a = ap.parse_args()
-    print(json.dumps(run(a.accounts.split(","), a.state, a.known), indent=1))
+    caps = {k: int(v) for k, v in (x.split("=") for x in a.max_calls.split(",") if "=" in x)}
+    print(json.dumps(run(a.accounts.split(","), a.state, a.known, max_calls=caps), indent=1))
 
 
 if __name__ == "__main__":

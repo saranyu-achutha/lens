@@ -35,7 +35,13 @@ echo "pause: $(srv_api /api/jobs/pause "{\"jobs\": [$JOBS], \"minutes\": 180, \"
 $SSH "cd lens/lens && sqlite3 -readonly data/lens.db \"SELECT album_id FROM spotify_label_album WHERE fetched_at IS NOT NULL\"" > "$APP/data/spotify_known_albums.txt"
 echo "server has read $(wc -l < "$APP/data/spotify_known_albums.txt") releases already"
 
-(cd "$APP" && python3 -m lens.spotify_list --accounts "$ACCTS" --state "$STATE" --known "$APP/data/spotify_known_albums.txt") > "$APP/data/spotify_list_summary.json"
+# the server's 600-a-day counter decides how many calls each account may still make (Spotify blocks above ~700 a day)
+CAPS=$($SSH "cd lens/lens && python3 -c \"
+from lens import config, spotify
+c = config.load()
+print(','.join(f'{a}={max(0, spotify.daily_limit(a, c) - spotify.calls_last_24h(a))}' for a in ('primary', 'second')))\"")
+echo "calls left today (server counter): $CAPS"
+(cd "$APP" && python3 -m lens.spotify_list --accounts "$ACCTS" --state "$STATE" --known "$APP/data/spotify_known_albums.txt" --max-calls "$CAPS") > "$APP/data/spotify_list_summary.json"
 cat "$APP/data/spotify_list_summary.json"
 
 # load into the server, count the calls, record a block
