@@ -116,8 +116,8 @@ def _datasets():
                                         "and the YouTube song it matched (filled by the label sweep, growing daily)", "rows": _label_tracks},
         "archived_songs": {"name": "Archived songs", "what": "songs first uploaded before the period start: kept for reference, not crawled",
                            "rows": _archived},
-        "spotify_browser_found": {"name": "Spotify browser search", "what": "Spotify tracks found by the laptop's browser search for songs "
-                                  "the API had not found: new releases are checked and linked (or sent to Review); older releases are "
+        "spotify_browser_found": {"name": "Spotify browser search", "what": "Spotify tracks found by the logged-out browser search (laptop list and the "
+                                  "daily spotify_browser_search job) for songs the API had not found: new releases are checked and linked (or sent to Review); older releases are "
                                   "kept here for reference only and cost no crawl", "rows": _browser_found},
     }
 

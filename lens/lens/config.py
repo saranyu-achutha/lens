@@ -116,6 +116,11 @@ DEFAULTS = {
         "spotify_primary_rediscover_reserve": 150,
         # Spotify IDs, step 1 (before any per-song search): the labels' releases on Spotify, linked to the songs.
         "spotify_label_sweep_auto": True,
+        "spotify_browser_search_auto": True,          # logged-out open.spotify.com search (browser lane, no API)
+        "spotify_browser_search_per_run": 60,
+        "spotify_browser_search_every_minutes": 240,
+        "spotify_browser_search_recheck_days": 7,
+        "spotify_browser_search_pause_s": 3,
         "spotify_label_sweep_per_run": 200,           # calls a run (from the same per-account budget as re-discovery)
         "spotify_label_sweep_every_minutes": 60,
         "spotify_label_queries": {"Sony Music India": ["Sony Music Entertainment India", "Sony Music India"]},

@@ -6,7 +6,7 @@ import time
 import traceback
 from datetime import datetime, timedelta
 
-from . import alerts, cleanup, config, db, pause, spotify_labels, discover_spotify, health, instagram_audio, jiosaavn, shorts_use, song_daily, songs, spotify_plays, sync_youtube, sysstats, youtube_music
+from . import alerts, cleanup, config, db, pause, spotify_labels, spotify_browser_search, discover_spotify, health, instagram_audio, jiosaavn, shorts_use, song_daily, songs, spotify_plays, sync_youtube, sysstats, youtube_music
 from .spotify import SpotifyError
 from .youtube import YouTubeError
 
@@ -21,6 +21,7 @@ JOBS = {
     "ytmusic": "YouTube Music only (find songs' audio tracks, read their plays)",
     "jiosaavn": "JioSaavn only (find songs' tracks, read their plays)",
     "spotify_plays": "Spotify play counts (public track pages, light headless browser)",
+    "spotify_browser_search": "Spotify browser search: songs without a Spotify link searched on open.spotify.com, logged out (no API, light headless browser)",
     "shorts": "YouTube Shorts made with each song's official audio (public sound pages)",
     "instagram": "Instagram Reels made with each song's official audio (public audio pages, light headless browser)",
     "cleanup": "Daily cleanup: backup if missing, old raw replies and CSVs compressed into archives, disk space given back",
@@ -35,6 +36,7 @@ STEPS = {
     "spotify_second_account": [("spotify_second_account", songs.run_spotify_second_account)],
     "spotify_primary_rediscover": [("spotify_primary_rediscover", songs.run_spotify_primary_rediscover)],
     "spotify_label_sweep": [("spotify_label_sweep", spotify_labels.run)],
+    "spotify_browser_search": [("spotify_browser_search", spotify_browser_search.run)],
     "spotify_discovery": [("spotify", discover_spotify.run)],
     "shorts": [("shorts", shorts_use.run), ("daily", song_daily.run)],
     "instagram": [("instagram", instagram_audio.run), ("daily", song_daily.run)],
@@ -262,7 +264,7 @@ def _count(sql, args=()):
         conn.close()
 
 
-BROWSER_JOBS = ("spotify_plays", "instagram")  # CPU-heavy headless-browser work, run in its own lane beside the API jobs
+BROWSER_JOBS = ("spotify_plays", "instagram", "spotify_browser_search")  # CPU-heavy headless-browser work, run in its own lane beside the API jobs
 
 
 def _due_work(cfg, tried, browser=True, api=True, paused=None):
@@ -284,6 +286,19 @@ def _due_work(cfg, tried, browser=True, api=True, paused=None):
             conn.close()
             if n:
                 return "instagram", f"{n} Instagram audios without today's Reels count"
+        except SystemExit:
+            pass
+    # 1a. Spotify web search (logged out, no API): songs without a Spotify link, a short run every few hours, before the
+    #     long play-count run; what it finds is queued for the label sweep's one /tracks call each.
+    if browser and cfg["songs"].get("spotify_browser_search_auto", True) and \
+            ago(spotify_browser_search.JOB) > 60 * float(cfg["songs"].get("spotify_browser_search_every_minutes", 240)):
+        try:
+            spotify_plays.find_chrome()
+            conn = db.connect(str(config.DB_FILE))
+            n = len(spotify_browser_search.due(conn, cfg))
+            conn.close()
+            if n:
+                return spotify_browser_search.JOB, f"{n} songs without a Spotify link to search on open.spotify.com"
         except SystemExit:
             pass
     # 1b. Spotify play counts: once a day for tracks without today's count (needs a browser on this machine).

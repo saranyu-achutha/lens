@@ -440,7 +440,11 @@ def spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until="999
                          (f"spotify_search_day:{song['id']}", searched_day()))
             conn.commit()
             quals = song["song_key"].split("|")[1].split(",") if song["song_key"] and "|" in song["song_key"] else []
-            q = f'track:"{song["title"]}"' + "".join(f" {x}" for x in quals if "-" not in x)
+            from .spotify_browser_search import query as clean_query
+            cq = clean_query(song["title"])
+            # a YouTube title with " I " / "|" parts or native script beside the Latin spelling: search its cleaned parts
+            # (title + singer) as plain text, as the browser search does (it found many songs the exact phrase missed)
+            q = (cq if cq and cq != song["title"].strip() else f'track:"{song["title"]}"') + "".join(f" {x}" for x in quals if "-" not in x)
             if song["isrc"]:
                 q = f"isrc:{song['isrc']}"  # known from Deezer: an exact lookup
             res = sp.get("/search", {"q": q, "type": "track", "market": sp.market, "limit": 10, "offset": 0})
