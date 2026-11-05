@@ -1,5 +1,6 @@
 """Background job runner (one job at a time) with live log and a daily scheduler."""
 import json
+import sqlite3
 import threading
 import time
 import traceback
@@ -100,6 +101,19 @@ class JobManager:
         j["log"].append(f"{datetime.now().strftime('%H:%M:%S')}  {msg}")
 
     def _run(self, j, params):
+        """Run the job; whatever goes wrong, the lane is freed at the end so the next job can start."""
+        try:
+            self._run_steps(j, params)
+        except Exception:
+            traceback.print_exc()
+            j["status"] = "failed"
+        finally:
+            with self.lock:
+                if self.current is j:
+                    j.setdefault("ended_at", time.time())
+                    self.last, self.current = j, None
+
+    def _run_steps(self, j, params):
         conn = db.connect(str(config.DB_FILE))
         steps = STEPS[j["job"]]
         stats, results = {}, {}
@@ -139,13 +153,28 @@ class JobManager:
         if problems:
             stats["stop_reason" if status != "failed" else "error"] = " · ".join(problems)
         self._log(j, "done" if status == "ok" else f"finished: {status}")
-        conn.commit()
         stats["trigger"] = j["trigger"]
         stats["log_tail"] = j["log"][-200:]
-        conn.execute("UPDATE run_log SET finished_at=?, status=?, stats=? WHERE id=?",
-                     (db.now_iso(), status, json.dumps(stats), j["run_id"]))
-        conn.commit()
-        conn.close()
+        # Record the result, retrying while another writer holds the database; whatever happens, the lane is freed
+        # below (a failed save once left the browser lane "running" for 6 hours and blocked Spotify plays and Instagram).
+        for attempt in range(6):
+            try:
+                conn.commit()
+                conn.execute("UPDATE run_log SET finished_at=?, status=?, stats=? WHERE id=?",
+                             (db.now_iso(), status, json.dumps(stats), j["run_id"]))
+                conn.commit()
+                break
+            except sqlite3.OperationalError as e:
+                self._log(j, f"could not save the run result ({e}); retrying")
+                try:
+                    conn.rollback()
+                except sqlite3.Error:
+                    pass
+                time.sleep(30)
+        try:
+            conn.close()
+        except sqlite3.Error:
+            pass
         with self.lock:
             j["status"] = status
             j["ended_at"] = time.time()

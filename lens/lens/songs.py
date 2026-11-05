@@ -803,6 +803,8 @@ def deezer_readings(conn, cfg, since, ts, log, check, run_id):
                             DO UPDATE SET value=excluded.value, captured_at=excluded.captured_at""",
                          (item, d["rank"], today, ts))
         ok += 1
+        if ok % 25 == 0:  # commit as it goes: one transaction across thousands of calls locked out every other job
+            conn.commit()
         time.sleep(0.15)  # Deezer allows 50 requests per 5 s
     conn.commit()
     if rows:

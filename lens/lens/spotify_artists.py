@@ -129,6 +129,7 @@ def run(conn, cfg, secrets, since, until, ts, log, check, run_id, budget=700):
                 if sid in best and sid not in attached:
                     confirm(sid, only_auto=True)
             done_artists.append(aid)
+            conn.commit()  # links kept as it goes, and the write lock is never held across the next artist's calls
             if n % 25 == 0:
                 log(f"  {n}/{len(by_artist)} artists checked ({len(best)} songs with a candidate, {sp.calls} calls)")
     except BudgetExhausted as e:
