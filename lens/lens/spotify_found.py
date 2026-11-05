@@ -126,6 +126,147 @@ def _videos(conn, sid):
                            ORDER BY asset_type IN ('audio','lyric') DESC, published_at LIMIT 3""", (sid,)).fetchall()
 
 
+def _check(conn, r, t, rejected, known_tracks, since, ts, st):
+    """One queued link with its full track details (from /tracks or from the public pages): scored against the song's
+    videos with the usual rules and the title guard, then linked, sent to Review, or dropped."""
+    sid, outcome, total, decision = r["song_id"], None, None, None
+    linked = conn.execute("""SELECT 1 FROM platform_item WHERE track_id=? AND platform='spotify'
+                             AND review_state IN ('auto','approved')""", (sid,)).fetchone()
+    if not t.get("id"):
+        outcome = "gone"
+    elif linked:
+        outcome = "already_linked"
+    elif (t["id"], sid) in rejected:
+        outcome = "rejected"
+    elif t["id"] in known_tracks:
+        outcome = "taken"  # this Spotify track is already another song's (or waiting in Review)
+    else:
+        album = t.get("album") or {}
+        track = {"title": t["name"], "artists": [a["name"] for a in t.get("artists") or []], "release_title": album.get("name"),
+                 "release_date": album.get("release_date"), "duration_ms": t.get("duration_ms")}
+        best = None
+        for v in _videos(conn, sid):
+            s, detail = match.score(track, {"title": v["title"], "description": v["description"], "published_at": v["published_at"],
+                                            "duration_s": (v["duration_ms"] or 0) / 1000 or None})
+            if best is None or s > best[0]:
+                best = (s, detail)
+        decision = match.decide(*best) if best else None
+        if decision == "auto":  # same guard as the sweep: the track's own title must share a word with the song
+            core = match.parse_spotify_title(t["name"])[0]
+            if not match.block_keys(core) & match.block_keys(r["yt_title"]):
+                decision = "pending"
+        if decision and (album.get("release_date") or "") < (date.fromisoformat(r["yt_first"]) - timedelta(days=NEW_BEFORE_DAYS)).isoformat():
+            decision = None  # an older release after all (the album date): not this song
+        if decision:
+            total = best[0]
+            songs.attach_spotify(conn, sid, t, decision, dict(best[1], via=t.get("via") or "browser_search"), since, ts)
+            known_tracks.add(t["id"])
+            outcome = "linked" if decision == "auto" else "review"
+        else:
+            outcome, total = "no_match", best[0] if best else None
+    conn.execute("UPDATE spotify_found SET outcome=?, score=?, checked_at=? WHERE song_id=?", (outcome, total, ts, sid))
+    for k in ("found_checked", "found_linked", "found_review", "found_dropped"):
+        st.setdefault(k, 0)
+    st["found_checked"] += 1
+    st["found_linked"] += outcome == "linked"
+    st["found_review"] += outcome == "review"
+    st["found_dropped"] += outcome not in ("linked", "review")
+    return outcome
+
+
+# ---- Verified on another machine from the public pages (no API): the laptop renders each queued track's page.
+UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36"
+
+
+def export_queued(conn):
+    ensure(conn)
+    return [r[0] for r in conn.execute("SELECT track_id FROM spotify_found WHERE outcome='queued' ORDER BY yt_first DESC")]
+
+
+def _embed(kind, sid):
+    """The public embed page's entity (track or album), {} if gone, None if it could not be read."""
+    import time, urllib.error, urllib.request
+    req = urllib.request.Request(f"https://open.spotify.com/embed/{kind}/{sid}", headers={"User-Agent": UA})
+    for attempt in range(3):
+        try:
+            h = urllib.request.urlopen(req, timeout=20).read().decode("utf-8", "ignore")
+            m = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', h, re.S)
+            return json.loads(m.group(1))["props"]["pageProps"]["state"]["data"]["entity"] if m else {}
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return {}
+            time.sleep(int(e.headers.get("Retry-After") or 0) or 5 * (attempt + 1))
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError, KeyError):
+            time.sleep(3 * (attempt + 1))
+    return None
+
+
+def verify_collect(ids, tabs=16, out=None, log=print):
+    """Laptop: each track's public page (headless browser, `tabs` at once: album, release date, duration, play count)
+    plus the embed pages (artist IDs, album name and size). Writes {date, tracks: {id: track like /tracks}, plays...}."""
+    import tempfile, time
+    from pathlib import Path
+    from . import spotify_plays
+    folder = tempfile.mkdtemp(prefix="lens_verify_")
+    res = json.loads(Path(spotify_plays.collect(ids, workers=tabs, log=log, folder=folder)).read_text())
+    from concurrent.futures import ThreadPoolExecutor
+    metas = res.get("meta") or {}
+    have = [tid for tid in ids if (metas.get(tid) or {}).get("album")]
+    with ThreadPoolExecutor(8) as pool:  # the embed pages are plain HTTP: 8 at a time
+        embeds = dict(zip(have, pool.map(lambda tid: _embed("track", tid), have)))
+        aids = sorted({metas[tid]["album"].rstrip("/").rsplit("/", 1)[-1][:22] for tid in have})
+        albums = dict(zip(aids, pool.map(lambda aid: _embed("album", aid) or {}, aids)))
+    tracks = {}
+    for tid in have:
+        meta, e = metas[tid], embeds.get(tid)
+        if not e:
+            continue  # page not read: stays queued for the server's /tracks check
+        aid = meta["album"].rstrip("/").rsplit("/", 1)[-1][:22]
+        al = albums.get(aid) or {}
+        n_tracks = len(al.get("trackList") or []) or None
+        rel = meta.get("release_date") or ((e.get("releaseDate") or {}).get("isoString") or "")[:10]
+        tracks[tid] = {"id": tid, "name": e.get("name") or meta.get("name"), "duration_ms": e.get("duration"),
+                       "explicit": e.get("isExplicit"), "via": "browser_search+pages",
+                       "artists": [{"name": a["name"], "id": (a.get("uri") or "").rsplit(":", 1)[-1]} for a in e.get("artists") or []],
+                       "external_ids": {}, "external_urls": {"spotify": f"https://open.spotify.com/track/{tid}"},
+                       "album": {"id": aid, "name": al.get("name") or meta.get("name"), "release_date": rel,
+                                 "release_date_precision": "day" if len(rel) == 10 else None, "total_tracks": n_tracks,
+                                 "album_type": "single" if n_tracks and n_tracks <= 3 else "album" if n_tracks else None}}
+    res["tracks"] = tracks
+    out = out or f"spotify_verified_{res['date']}.json"
+    Path(out).write_text(json.dumps(res))
+    log(f"{len(tracks)} of {len(ids)} tracks verified from the public pages -> {out}")
+    return out
+
+
+def verify_import(conn, path, log=print):
+    """Server: the laptop's verified tracks are checked and linked like /tracks replies (no Spotify call); their play
+    counts are stored as today's readings once linked."""
+    from . import spotify_plays
+    ensure(conn)
+    data = json.load(open(path))
+    since = config.window(config.load())[0]
+    ts = db.now_iso()
+    rejected = {(r[0], r[1]) for r in conn.execute(
+        "SELECT p.platform_id, m.track_id FROM match_rejection m JOIN platform_item p ON p.id=m.platform_item_id WHERE p.platform='spotify'")}
+    known = {r[0] for r in conn.execute("SELECT platform_id FROM platform_item WHERE platform='spotify'")}
+    st = {}
+    for r in [dict(x) for x in conn.execute("SELECT song_id, track_id, yt_title, yt_first FROM spotify_found WHERE outcome='queued'")]:
+        t = data["tracks"].get(r["track_id"])
+        if t:
+            _check(conn, r, t, rejected, known, since, ts, st)
+    conn.commit()
+    tmp = path + ".plays.json"
+    linked = {r[0] for r in conn.execute("SELECT track_id FROM spotify_found WHERE outcome='linked'")}
+    json.dump({"date": data["date"], "captured_at": data.get("captured_at"), "meta": {},
+               "plays": {k: v for k, v in (data.get("plays") or {}).items() if k in linked},
+               "hidden": [k for k in data.get("hidden") or [] if k in linked]}, open(tmp, "w"))
+    spotify_plays.import_file(conn, tmp, log=log)
+    log(f"Verified from the public pages: {st.get('found_checked', 0)} checked, {st.get('found_linked', 0)} linked, "
+        f"{st.get('found_review', 0)} to Review, {st.get('found_dropped', 0)} dropped; {queued(conn)} still queued")
+    return st
+
+
 def process(conn, lanes, parallel, should_stop, rejected, known_tracks, since, ts, st, log=print):
     """The queued links: one /tracks/{id} call each (spread over the lanes), then scored and linked here (main thread)."""
     ensure(conn)
@@ -148,53 +289,27 @@ def process(conn, lanes, parallel, should_stop, rejected, known_tracks, since, t
 
     for got in parallel(fetch, todo):
         for r, t in got:
-            sid, outcome, total, decision = r["song_id"], None, None, None
-            linked = conn.execute("""SELECT 1 FROM platform_item WHERE track_id=? AND platform='spotify'
-                                     AND review_state IN ('auto','approved')""", (sid,)).fetchone()
-            if not t.get("id"):
-                outcome = "gone"
-            elif linked:
-                outcome = "already_linked"
-            elif (t["id"], sid) in rejected:
-                outcome = "rejected"
-            elif t["id"] in known_tracks:
-                outcome = "taken"  # this Spotify track is already another song's (or waiting in Review)
-            else:
-                album = t.get("album") or {}
-                track = {"title": t["name"], "artists": [a["name"] for a in t.get("artists") or []], "release_title": album.get("name"),
-                         "release_date": album.get("release_date"), "duration_ms": t.get("duration_ms")}
-                best = None
-                for v in _videos(conn, sid):
-                    s, detail = match.score(track, {"title": v["title"], "description": v["description"], "published_at": v["published_at"],
-                                                    "duration_s": (v["duration_ms"] or 0) / 1000 or None})
-                    if best is None or s > best[0]:
-                        best = (s, detail)
-                decision = match.decide(*best) if best else None
-                if decision == "auto":  # same guard as the sweep: the track's own title must share a word with the song
-                    core = match.parse_spotify_title(t["name"])[0]
-                    if not match.block_keys(core) & match.block_keys(r["yt_title"]):
-                        decision = "pending"
-                if decision and (album.get("release_date") or "") < (date.fromisoformat(r["yt_first"]) - timedelta(days=NEW_BEFORE_DAYS)).isoformat():
-                    decision = None  # an older release after all (the album date): not this song
-                if decision:
-                    total = best[0]
-                    songs.attach_spotify(conn, sid, t, decision, dict(best[1], via="browser_search"), since, ts)
-                    known_tracks.add(t["id"])
-                    outcome = "linked" if decision == "auto" else "review"
-                else:
-                    outcome, total = "no_match", best[0] if best else None
-            conn.execute("UPDATE spotify_found SET outcome=?, score=?, checked_at=? WHERE song_id=?", (outcome, total, ts, sid))
-            st["found_checked"] += 1
-            st["found_linked"] += outcome == "linked"
-            st["found_review"] += outcome == "review"
-            st["found_dropped"] += outcome not in ("linked", "review")
+            _check(conn, r, t, rejected, known_tracks, since, ts, st)
         conn.commit()
     log(f"Browser-found Spotify links: {st['found_checked']} checked, {st['found_linked']} linked, "
         f"{st['found_review']} to Review, {st['found_dropped']} dropped; {queued(conn)} still queued")
 
 
+USAGE = """usage:
+  python3 -m lens.spotify_found import <file.txt>              server: load a browser search list
+  python3 -m lens.spotify_found export-queued > ids.json       server: the queued track IDs
+  python3 -m lens.spotify_found verify ids.json [tabs] [out]   laptop: read their public pages (default 16 tabs)
+  python3 -m lens.spotify_found import-verified <out.json>     server: check and link them (no Spotify call)"""
+
 if __name__ == "__main__":
-    if len(sys.argv) == 3 and sys.argv[1] == "import":
-        print(json.dumps(import_file(db.connect(str(config.DB_FILE)), sys.argv[2])))
+    a = sys.argv[1:]
+    if len(a) == 2 and a[0] == "import":
+        print(json.dumps(import_file(db.connect(str(config.DB_FILE)), a[1])))
+    elif a == ["export-queued"]:
+        print(json.dumps(export_queued(db.connect(str(config.DB_FILE)))))
+    elif len(a) >= 2 and a[0] == "verify":
+        verify_collect(json.load(open(a[1])), int(a[2]) if len(a) > 2 else 16, a[3] if len(a) > 3 else None)
+    elif len(a) == 2 and a[0] == "import-verified":
+        print(json.dumps(verify_import(db.connect(str(config.DB_FILE)), a[1])))
     else:
-        print("usage: python3 -m lens.spotify_found import <file.txt>")
+        print(USAGE)
