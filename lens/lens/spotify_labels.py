@@ -20,7 +20,7 @@ all matching happen in the main thread. Every track read is kept in spotify_labe
 import json
 from datetime import date, datetime, timedelta, timezone
 
-from . import config, db, match, songs
+from . import config, db, match, songs, spotify_found
 from .spotify import BudgetExhausted, DailyLimitReached, Spotify, SpotifyError
 
 SCHEMA = """
@@ -124,6 +124,8 @@ def done_today(conn, cfg):
         if _state(conn, f"spotify_label_new:{lb}", {}).get("day") != today():
             return False
     since = config.window(cfg)[0]
+    if spotify_found.queued(conn):  # browser-found links waiting for their check: cheaper than searching those songs
+        return False
     return not conn.execute("SELECT 1 FROM spotify_label_album WHERE fetched_at IS NULL AND release_date >= ? LIMIT 1",
                             (since,)).fetchone()
 
@@ -309,6 +311,9 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
                 _read_album(conn, _isrc_lane(lanes), a, res, by_label.get(a["label"], []), rejected, known_tracks, since, ts, st)
     read_pending()
 
+    # 2b. Spotify links found by the browser search (spotify_found import): one /tracks call each, then matched here
+    spotify_found.process(conn, lanes, parallel, should_stop, rejected, known_tracks, since, ts, st, log)
+
     # 3. backfill (label:"..." year:y), page by page across runs; new albums found are read straight away
     def backfill(lane, lbs):
         res = {}
@@ -353,6 +358,7 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
     st["label_sweep_calls"] = sum(l.sp.calls for l in lanes)
     st["label_sweep_calls_by_account"] = {l.acct: l.sp.calls for l in lanes}
     stops = [f"{songs.ACCOUNT_NAME[l.acct]}: {l.stop}" for l in lanes if l.stop]
+    st.setdefault("found_checked", 0)
     log(f"Spotify label sweep: {st['label_sweep_albums']} albums read, {st['label_sweep_tracks']} tracks, "
         f"{st['label_sweep_linked']} linked, {st['label_sweep_review']} to Review, {st['label_sweep_no_song']} with no YouTube song "
         f"({st['label_sweep_calls']} calls: " + ", ".join(f"{k} {v}" for k, v in st["label_sweep_calls_by_account"].items()) + ")"

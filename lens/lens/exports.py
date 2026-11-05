@@ -77,6 +77,15 @@ def _archived(conn, day):
     return [d[0] for d in cur.description], (tuple(r) for r in cur)
 
 
+def _browser_found(conn, day):
+    from .spotify_found import ensure
+    ensure(conn)
+    cur = conn.execute("""SELECT yt_title AS song, yt_first AS first_upload, label, channel, sp_title AS spotify_song,
+                                 sp_artists AS spotify_artists, sp_release AS spotify_release, title_match, outcome, score, checked_at
+                          FROM spotify_found ORDER BY outcome, yt_first DESC, yt_title""")
+    return [d[0] for d in cur.description], (tuple(r) for r in cur)
+
+
 def _window(day):
     return config.window(config.load())
 
@@ -107,6 +116,9 @@ def _datasets():
                                         "and the YouTube song it matched (filled by the label sweep, growing daily)", "rows": _label_tracks},
         "archived_songs": {"name": "Archived songs", "what": "songs first uploaded before the period start: kept for reference, not crawled",
                            "rows": _archived},
+        "spotify_browser_found": {"name": "Spotify browser search", "what": "Spotify tracks found by the laptop's browser search for songs "
+                                  "the API had not found: new releases are checked and linked (or sent to Review); older releases are "
+                                  "kept here for reference only and cost no crawl", "rows": _browser_found},
     }
 
 
