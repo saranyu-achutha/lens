@@ -46,9 +46,33 @@ def _log(conn, action, by, reason=None, jobs=None, until=None):
                  (db.now_iso(), action, by, reason, json.dumps(jobs) if jobs else None, until))
 
 
+def _parts(p):
+    """A pause's separate requests (each with its own jobs and end); an older single pause is one part."""
+    return p.get("parts") or [{k: p.get(k) for k in ("all", "jobs", "mode", "by", "reason", "since", "until")}]
+
+
+def _combine(parts):
+    """The pause that several requests make together: every job any of them covers, until the last one ends."""
+    if not parts:
+        return None
+    every = any(x.get("all") for x in parts)
+    jobs = None if every else sorted({j for x in parts for j in x.get("jobs") or []})
+    return {"all": every, "jobs": jobs, "mode": parts[-1].get("mode"), "by": parts[-1].get("by"),
+            "reason": "; ".join(dict.fromkeys(x.get("reason") or "" for x in parts if x.get("reason"))),
+            "since": min(x["since"] for x in parts), "until": max(x["until"] for x in parts), "parts": parts}
+
+
+def _save(conn, p):
+    if p:
+        conn.execute("INSERT INTO state (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                     (KEY, json.dumps(p)))
+    else:
+        conn.execute("DELETE FROM state WHERE key=?", (KEY,))
+
+
 def get(conn):
-    """The active pause as a dict (all, jobs, mode, by, reason, since, until), or None. An expired pause is
-    cleared here (and logged), so it ends even if nobody presses Resume."""
+    """The active pause as a dict (all, jobs, mode, by, reason, since, until, parts), or None. Requests that have run
+    out are dropped here (and logged), so a pause ends even if nobody presses Resume."""
     row = conn.execute("SELECT value FROM state WHERE key=?", (KEY,)).fetchone()
     if not row:
         return None
@@ -56,12 +80,16 @@ def get(conn):
         p = json.loads(row[0])
     except (TypeError, ValueError):
         p = None
-    if not p or (p.get("until") or "") <= _now().isoformat(timespec="seconds"):
-        conn.execute("DELETE FROM state WHERE key=?", (KEY,))
-        if p:
-            _log(conn, "expired", "auto", p.get("reason"), p.get("jobs"), p.get("until"))
+    now = _now().isoformat(timespec="seconds")
+    parts = _parts(p) if p else []
+    live = [x for x in parts if (x.get("until") or "") > now]
+    if len(live) != len(parts) or not p:
+        for x in parts:
+            if x not in live:
+                _log(conn, "expired", "auto", x.get("reason"), x.get("jobs"), x.get("until"))
+        p = _combine(live)
+        _save(conn, p)
         conn.commit()
-        return None
     return p
 
 
@@ -75,24 +103,41 @@ def is_paused(conn, job):
 
 
 def pause(conn, by, reason="", minutes=DEFAULT_MINUTES, jobs=None, now=False):
-    """Start (or replace) a pause. jobs=None pauses every job. Returns the pause."""
+    """Start a pause. jobs=None pauses every job. A pause already running is kept: the new request is added to it
+    (each request covers its own jobs until its own end). Returns the combined pause."""
     minutes = max(1, min(int(minutes or DEFAULT_MINUTES), MAX_MINUTES))
     jobs = sorted(set(jobs)) if jobs else None
-    p = {"all": jobs is None, "jobs": jobs, "mode": "now" if now else "finish", "by": by, "reason": reason or "",
-         "since": db.now_iso(), "until": (_now() + timedelta(minutes=minutes)).isoformat(timespec="seconds")}
-    conn.execute("INSERT INTO state (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                 (KEY, json.dumps(p)))
-    _log(conn, "pause_now" if now else "pause", by, reason, jobs, p["until"])
+    part = {"all": jobs is None, "jobs": jobs, "mode": "now" if now else "finish", "by": by, "reason": reason or "",
+            "since": db.now_iso(), "until": (_now() + timedelta(minutes=minutes)).isoformat(timespec="seconds")}
+    old = get(conn)
+    p = _combine((_parts(old) if old else []) + [part])
+    _save(conn, p)
+    _log(conn, "pause_now" if now else "pause", by, reason, jobs, part["until"])
     conn.commit()
     return p
 
 
-def resume(conn, by, reason=""):
-    """End the pause. Returns the pause that ended, or None if there was none."""
+def resume(conn, by, reason="", jobs=None):
+    """End the pause (jobs=None), or lift only the listed jobs: requests for those jobs alone end, and the jobs are
+    taken out of the others (a pause of every job stays). Returns the pause as it was, or None if there was none."""
     p = get(conn)
-    conn.execute("DELETE FROM state WHERE key=?", (KEY,))
-    if p:
-        _log(conn, "resume", by, reason or p.get("reason"), p.get("jobs"))
+    if not p:
+        conn.commit()
+        return None
+    if jobs:
+        lift = set(jobs)
+        rest = []
+        for x in _parts(p):
+            if x.get("all"):
+                rest.append(x)
+            else:
+                left = sorted(set(x.get("jobs") or []) - lift)
+                if left:
+                    rest.append(dict(x, jobs=left))
+        _save(conn, _combine(rest))
+    else:
+        _save(conn, None)
+    _log(conn, "resume", by, reason or p.get("reason"), sorted(jobs) if jobs else p.get("jobs"))
     conn.commit()
     return p
 

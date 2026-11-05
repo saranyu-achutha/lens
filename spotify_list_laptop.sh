@@ -28,7 +28,7 @@ srv_api() {  # POST JSON (on stdin) to the server Console as the developer
 JOBS='"spotify_label_sweep"'
 [[ $ACCTS == *second* ]] && JOBS="$JOBS, \"spotify_second_account\""
 [[ $ACCTS == *primary* ]] && JOBS="$JOBS, \"spotify_primary_rediscover\""
-lift() { echo "resume: $(srv_api /api/jobs/resume '{"reason": "laptop Spotify list finished"}' | head -c 120)"; }
+lift() { echo "resume: $(srv_api /api/jobs/resume "{\"reason\": \"laptop Spotify list finished\", \"jobs\": [$JOBS]}" | head -c 120)"; }
 trap lift EXIT
 echo "pause: $(srv_api /api/jobs/pause "{\"jobs\": [$JOBS], \"minutes\": 180, \"reason\": \"Spotify list from the laptop\"}" | head -c 160)"
 
@@ -65,7 +65,7 @@ EOF
 $SSH "cd lens/lens && sqlite3 data/lens.db" < "$APP/data/spotify_list_server.sql" && echo "server counter and block times updated"
 
 # the server matches the imported track lists without calls (its worker, within a few minutes); wait for it
-srv_api /api/jobs/resume '{"reason": "let the sweep match the imported lists"}' > /dev/null
+srv_api /api/jobs/resume "{\"reason\": \"let the sweep match the imported lists\", \"jobs\": [$JOBS]}" > /dev/null  # only this run's jobs
 for i in $(seq 1 40); do
     left=$($SSH "cd lens/lens && sqlite3 -readonly data/lens.db \"SELECT count(*) FROM spotify_label_album WHERE fetched_at IS NULL AND tracks_json IS NOT NULL\"")
     [[ "$left" == "0" ]] && break

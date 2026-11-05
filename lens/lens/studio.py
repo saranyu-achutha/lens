@@ -1018,12 +1018,13 @@ def post_jobs_pause(conn, body):
             raise ValueError(f"unknown jobs: {', '.join(unknown)}")
     p = pause.pause(conn, REQUEST.actor, (body.get("reason") or "").strip()[:200], body.get("minutes") or pause.DEFAULT_MINUTES,
                     jobs_, now=bool(body.get("now")))
-    stopping = [j for j in (MANAGER.pause_now(p), BROWSER.pause_now(p)) if j] if body.get("now") else []
+    new = {"all": jobs_ is None, "jobs": jobs_}  # "now" stops only the jobs this request covers
+    stopping = [j for j in (MANAGER.pause_now(new), BROWSER.pause_now(new)) if j] if body.get("now") else []
     return {"pause": p, "stopping": stopping}
 
 
 def post_jobs_resume(conn, body):
-    ended = pause.resume(conn, REQUEST.actor, (body.get("reason") or "").strip()[:200])
+    ended = pause.resume(conn, REQUEST.actor, (body.get("reason") or "").strip()[:200], body.get("jobs") or None)
     return {"resumed": bool(ended), "was": ended}
 
 
