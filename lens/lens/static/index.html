@@ -31,26 +31,30 @@
 <circle cx="17" cy="17" r="13" fill="none" stroke="url(#lg-brand)" stroke-width="4"/><path d="M27 27l9 9" stroke="url(#lg-brand)" stroke-width="5" stroke-linecap="round"/>
 <g fill="url(#lg-brand)"><rect x="10" y="15" width="2.6" height="5" rx="1.3"/><rect x="14" y="11" width="2.6" height="13" rx="1.3"/><rect x="18" y="13" width="2.6" height="9" rx="1.3"/><rect x="22" y="15.5" width="2.6" height="4" rx="1.3"/></g></svg><div class="brand-text"><b>Market Lens</b><small><span class="brand-tag">CONSOLE</span></small></div></div>
   <button class="side-toggle" id="side-toggle" type="button" aria-label="Expand or collapse the menu"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg><span>Collapse menu</span></button>
+  <div class="nav-sec">Insights</div>
   <a class="nav dev-only" href="#overview"><svg viewBox="0 0 24 24"><path d="M4 13h6V4H4zM14 20h6v-9h-6zM4 20h6v-4H4zM14 4v4h6V4z"/></svg>Overview</a>
   <a class="nav" href="#dashboard"><svg viewBox="0 0 24 24"><path d="M3 12l9-8 9 8"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></svg>Dashboard</a>
-  <a class="nav" href="#platforms"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 15v3M11 11v7M15 7v11M19 13v5"/></svg>Platforms</a>
   <a class="nav" href="#mgmt"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Management</a>
   <a class="nav" href="#share"><svg viewBox="0 0 24 24"><path d="M12 3v9l7.8 4.5"/><circle cx="12" cy="12" r="9"/></svg>Market share</a>
   <a class="nav" href="#reports"><svg viewBox="0 0 24 24"><path d="M4 4h16v16H4z"/><path d="M8 15l3-3 2 2 4-5"/></svg>Reports</a>
+  <div class="nav-sec">Data</div>
+  <a class="nav" href="#platforms"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 15v3M11 11v7M15 7v11M19 13v5"/></svg>Platforms</a>
   <a class="nav" href="#daily"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4M7 13h4M7 17h7"/></svg>Daily data</a>
-  <a class="nav dev-only" href="#pdata"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>Platform data</a>
   <a class="nav" href="#catalogue"><svg viewBox="0 0 24 24"><circle cx="7" cy="17" r="3"/><path d="M10 17V5l10-2v12"/><circle cx="17" cy="15" r="3"/></svg>Songs</a>
+  <a class="nav dev-only" href="#pdata"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>Platform data</a>
   <a class="nav dev-only" href="#explore"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6M11 8v6"/></svg>Explore</a>
   <a class="nav dev-only" href="#insights"><svg viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>AI Insights</a>
+  <div class="nav-sec dev-only">Operations</div>
   <a class="nav dev-only" href="#review"><svg viewBox="0 0 24 24"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/></svg>Review<span class="nav-badge" id="review-badge" style="display:none"></span></a>
-  <a class="nav dev-only" href="#dev"><svg viewBox="0 0 24 24"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/></svg>Developer</a>
   <a class="nav dev-only" href="#status"><svg viewBox="0 0 24 24"><path d="M3 12h4l2-5 4 10 2-5h6"/><circle cx="12" cy="12" r="10" stroke-opacity=".35"/></svg>Status</a>
   <a class="nav dev-only" href="#missed"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Missed readings<span class="pill bad" id="nav-missed" style="margin-left:auto;padding:0 6px;display:none"></span></a>
   <a class="nav dev-only" href="#crawl"><svg viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>Crawl stats</a>
-  <a class="nav dev-only" href="#schedule"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Collection schedule</a>
-  <a class="nav dev-only" href="#charts"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Spotify chart</a>
   <a class="nav dev-only" href="#apis"><svg viewBox="0 0 24 24"><path d="M8 9l-4 3 4 3M16 9l4 3-4 3"/><circle cx="12" cy="12" r="1.6"/></svg>API stats</a>
   <a class="nav dev-only" href="#runs"><svg viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z"/></svg>Runs</a>
+  <a class="nav dev-only" href="#dev"><svg viewBox="0 0 24 24"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/></svg>Developer</a>
+  <div class="nav-sec dev-only">Setup</div>
+  <a class="nav dev-only" href="#schedule"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Collection schedule</a>
+  <a class="nav dev-only" href="#charts"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Spotify chart</a>
   <a class="nav dev-only" href="#outputs"><svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg>Outputs</a>
   <a class="nav dev-only" href="#sources"><svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.6 0l3-3a4 4 0 0 0-5.6-5.6l-1 1"/><path d="M14 10a4 4 0 0 0-5.6 0l-3 3a4 4 0 0 0 5.6 5.6l1-1"/></svg>Sources</a>
   <a class="nav dev-only" href="#settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Settings</a>
@@ -464,7 +468,7 @@
       <label class="field" style="margin:0"><span>Label</span><select id="rp-label"><option value="">All labels</option></select></label>
       <label class="field" style="margin:0"><span>Sort by</span><select id="rp-sort"></select></label>
       <label class="field" style="margin:0;flex:1;min-width:180px"><span>Song</span><input id="rp-q" placeholder="Filter by song name…"></label>
-      <a class="btn" id="rp-csv" href="#" style="align-self:flex-end;background:var(--accent);border-color:var(--accent);color:#fff;padding:7px 14px;text-decoration:none">⬇ Download CSV</a>
+      <a class="btn primary" id="rp-csv" href="#">⬇ Download CSV</a>
     </div></div>
     <div class="grid g6" id="rp-kpis"></div>
     <div class="card flush" style="margin-top:16px"><div class="table-wrap"><table id="rp-table"></table></div>
@@ -476,7 +480,7 @@
         <label class="field" style="margin:0"><span>Month</span><select id="ld-month"></select></label>
         <label class="field" style="margin:0"><span>Rank labels by</span><select id="ld-by"></select></label>
         <label class="field" style="margin:0"><span>Day by day for</span><select id="ld-label"></select></label>
-        <span class="spacer"></span><a class="btn" id="ld-csv" href="#" style="background:var(--accent);border-color:var(--accent);color:#fff;padding:7px 14px;text-decoration:none">⬇ Download CSV</a>
+        <span class="spacer"></span><a class="btn primary" id="ld-csv" href="#">⬇ Download CSV</a>
       </div></div>
       <div class="card flush"><div class="card-head" style="padding:16px 16px 0"><h2 id="ld-rank-title">Labels ranked</h2></div><div class="table-wrap"><table id="ld-rank"></table></div></div>
       <div class="card flush" style="margin-top:16px"><div class="card-head" style="padding:16px 16px 0"><h2 id="ld-days-title">Day by day</h2><span class="spacer"></span>
@@ -486,7 +490,7 @@
     <div id="rp-lmonthly" style="display:none">
       <div class="card" style="margin-bottom:16px"><div class="row" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
         <label class="field" style="margin:0"><span>Rank labels by</span><select id="lm-by"></select></label>
-        <span class="spacer"></span><a class="btn" id="lm-csv" href="#" style="background:var(--accent);border-color:var(--accent);color:#fff;padding:7px 14px;text-decoration:none">⬇ Download CSV</a>
+        <span class="spacer"></span><a class="btn primary" id="lm-csv" href="#">⬇ Download CSV</a>
       </div></div>
       <div id="lm-months"></div>
     </div>
@@ -503,7 +507,7 @@
       <label class="field dd-day" style="margin:0"><span>Sort by</span><select id="dd-sort"></select></label>
       <label class="field dd-day" style="margin:0;flex:1;min-width:180px"><span>Song</span><input id="dd-q" placeholder="Filter by song name…"></label>
       <h2 id="dd-song" style="display:none;margin:0;align-self:flex-end;flex:1"></h2>
-      <a class="btn" id="dd-csv" href="#" style="align-self:flex-end;background:var(--accent);border-color:var(--accent);color:#fff;padding:7px 14px;text-decoration:none">⬇ Download CSV</a>
+      <a class="btn primary" id="dd-csv" href="#">⬇ Download CSV</a>
     </div></div>
     <div class="card dd-songhead" id="dd-head" style="display:none;margin-bottom:16px"></div>
     <div class="grid g6" id="dd-kpis" style="display:none;margin-bottom:16px"></div>
@@ -544,7 +548,7 @@
       <label class="field" style="margin:0"><span>Show</span><select id="pd-read"><option value="">Read on that day</option><option value="all">All tracked items</option></select></label>
       <label class="field" style="margin:0;flex:1;min-width:180px"><span>Song or title</span><input id="pd-q" placeholder="Search…"></label>
       <label class="field" style="margin:0"><span>Rows</span><select id="pd-limit"><option>50</option><option selected>100</option><option>500</option></select></label>
-      <a class="btn" id="pd-csv" href="#" style="align-self:flex-end;background:var(--accent);border-color:var(--accent);color:#fff;padding:7px 14px;text-decoration:none">⬇ Download CSV</a>
+      <a class="btn primary" id="pd-csv" href="#">⬇ Download CSV</a>
     </div></div>
     <div class="grid g6" id="pd-kpis"></div>
     <div class="card flush" style="margin-top:16px"><div class="table-wrap" style="max-height:640px"><table id="pd-table" class="sticky-head"></table></div>

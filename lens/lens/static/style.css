@@ -1102,3 +1102,121 @@ tr.focus-row td { background: color-mix(in srgb, var(--accent-2) 8%, transparent
   border-left: 4px solid var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--surface-1, transparent)); }
 .card.notice:empty { display: none; }
 .card.notice b { color: var(--text-primary); }
+
+/* =====================================================================================================================
+   Professional refresh (2026-11-06): one consistent, crisp layer over everything above. Brand gradients (logo blue,
+   violet, teal) stay as accents; numbers are solid and tabular; calmer background; clear hierarchy.
+   ===================================================================================================================== */
+:root { --radius: 12px; --radius-sm: 8px; --ring: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .18); --line: color-mix(in srgb, var(--border) 85%, transparent); }
+:root[data-theme="light"] { --shadow-sm: 0 1px 2px rgba(16, 24, 40, .06), 0 1px 1px rgba(16, 24, 40, .03); }
+body { font-feature-settings: "cv11", "ss01", "tnum"; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+
+/* calmer background: the decorative waves stay, quietly */
+.bg-art { opacity: .38; }
+:root[data-theme="light"] .bg-art { opacity: .5; }
+.bg-eq { opacity: .45; }
+
+/* type scale */
+.page-head h1 { font-size: 26px; font-weight: 700; letter-spacing: -.022em; line-height: 1.15; margin: 0 0 4px; }
+.page-head p { color: var(--text-muted); font-size: 13.5px; margin: 0; max-width: 820px; }
+.page-head { align-items: center; gap: 16px; margin-bottom: 18px; }
+h2, .card-head h2 { font-size: 15px; font-weight: 650; letter-spacing: -.01em; }
+.num, .kpi .value, td.num, th.num { font-variant-numeric: tabular-nums; }
+
+/* menu: grouped */
+nav.side .nav-sec { margin: 16px 10px 6px; font-size: 10.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--text-muted); opacity: .8; }
+nav.side .nav-sec:first-of-type { margin-top: 6px; }
+nav.side a.nav { padding: 7px 10px; font-size: 13.5px; border-radius: var(--radius-sm); }
+@media (min-width: 0) {
+  html.side-mini nav.side:not(:hover) .nav-sec { font-size: 0; height: 1px; margin: 12px 8px; padding: 0; background: var(--border); opacity: 1; }
+}
+
+/* cards: flat, crisp, one shadow */
+.card { border-radius: var(--radius); border: 1px solid var(--line); box-shadow: var(--shadow-sm);
+  background: color-mix(in srgb, var(--surface-1) 94%, transparent); background-image: none; }
+.card.flush > h2, .card.flush > .card-head { padding: 16px 18px 6px; }
+.card-head { gap: 10px; }
+
+/* KPI tiles: solid numbers, a thin brand accent on top, equal heights */
+.kpi { position: relative; overflow: hidden; padding: 18px 18px 16px; min-height: 132px; background-image: none !important; }
+.kpi::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 3px;
+  background: linear-gradient(90deg, var(--kpi-c, var(--accent)), color-mix(in srgb, var(--kpi-c, var(--accent)) 30%, var(--accent-2))); opacity: .9; }
+.kpi::after { display: none !important; }
+.kpi .label { font-size: 11px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted); }
+.kpi .value { font-size: 30px; font-weight: 700; letter-spacing: -.025em; line-height: 1.1; margin-top: 8px;
+  background: none !important; -webkit-text-fill-color: currentColor !important; color: var(--text-primary); }
+.glance .kpi .value { font-size: 32px; }
+.kpi .sub, .kpi .explain { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+.kpi .gainline { margin-top: 8px; }
+
+/* chips and pills */
+.gain-chip { font-size: 11.5px; padding: 2px 8px; letter-spacing: .01em; }
+.pill { font-size: 12px; font-weight: 550; }
+
+/* tables: quiet header, aligned figures, hover, sticky inside scroll areas */
+table { font-size: 13px; }
+th, td { padding: 10px 14px; border-bottom: 1px solid var(--line); }
+thead th, th { background: var(--surface-1) !important; color: var(--text-muted) !important; font-size: 10.5px; font-weight: 650;
+  letter-spacing: .07em; text-transform: uppercase; white-space: nowrap; }
+.table-wrap thead th { position: sticky; top: 0; z-index: 1; box-shadow: inset 0 -1px 0 var(--line); }
+tbody tr { transition: background .12s; }
+tbody tr:hover td { background: color-mix(in srgb, var(--accent) 5%, transparent); }
+tbody tr:last-child td { border-bottom: 0; }
+td.num b, td b { font-weight: 650; }
+.table-wrap { scrollbar-width: thin; }
+
+/* segmented controls: one track, an active chip */
+.seg { background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px; padding: 3px; gap: 2px; }
+.seg button { border: 0 !important; background: transparent !important; padding: 5px 12px; font-size: 12.5px; color: var(--text-secondary); box-shadow: none; }
+.seg button:hover { color: var(--text-primary); }
+.seg button.on { background: var(--surface-1) !important; color: var(--text-primary); font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .18), inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent); }
+
+/* buttons: one primary style (downloads, main actions) */
+.btn.primary, a.btn.primary, button.primary { background: var(--brand-grad-2) !important; color: #fff !important; border: 0 !important;
+  padding: 8px 16px; font-weight: 600; text-decoration: none !important; box-shadow: 0 1px 2px rgba(0, 0, 0, .2); align-self: flex-end; }
+.btn.primary:hover, button.primary:hover { filter: brightness(1.06); }
+
+/* form fields */
+.field > span { font-size: 11px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); }
+select, input[type="number"], input[type="text"], input:not([type]) { border-radius: var(--radius-sm); }
+
+/* keyboard focus */
+:focus-visible { outline: none; box-shadow: var(--ring) !important; border-radius: 8px; }
+
+/* section titles: a short brand bar */
+.sec-title h2 { position: relative; padding-left: 12px; }
+.sec-title h2::before { content: ""; position: absolute; left: 0; top: 3px; bottom: 3px; width: 3px; border-radius: 3px; background: var(--brand-grad); }
+
+/* notices and how-to notes */
+.card.notice { border-left: 3px solid transparent; border-image: var(--brand-grad) 1; border-radius: 0 var(--radius) var(--radius) 0; box-shadow: none; }
+.card.howto { box-shadow: none; background: color-mix(in srgb, var(--surface-2) 60%, transparent); }
+
+/* charts: fine grid and axes */
+.chart svg .grid line { stroke: var(--grid); stroke-dasharray: 3 4; }
+.chart svg .axis text { font-size: 11px; fill: var(--text-muted); }
+.chart svg path.line { stroke-width: 2.25; }
+.chart svg path.area { opacity: .75; }
+
+/* loading placeholders: an empty grid or table shimmers instead of looking broken */
+@keyframes ml-shimmer { 0% { background-position: -400px 0; } 100% { background-position: 400px 0; } }
+#page-dashboard .grid:empty, #page-dashboard table:empty, #page-dashboard .chart:empty, #page-dashboard .share-list:empty, #page-mgmt .grid:empty, #page-mgmt table:empty, #page-mgmt .chart:empty, #page-mgmt .share-list:empty, #page-share .grid:empty, #page-share table:empty, #page-share .chart:empty, #page-share .share-list:empty, #page-overview .grid:empty, #page-overview table:empty, #page-overview .chart:empty, #page-overview .share-list:empty {
+  min-height: 120px; border-radius: var(--radius);
+  background: linear-gradient(90deg, transparent 0, color-mix(in srgb, var(--text-muted) 10%, transparent) 50%, transparent 100%) var(--surface-2);
+  background-size: 800px 100%; animation: ml-shimmer 1.4s linear infinite; }
+#page-dashboard table:empty, #page-mgmt table:empty, #page-share table:empty, #page-overview table:empty { display: block; min-height: 220px; }
+
+/* platform and share cards */
+.pf-card .pf-total { font-size: 28px; letter-spacing: -.025em; }
+.share-line .sl-pct { font-size: 18px; }
+
+/* small screens */
+@media (max-width: 760px) {
+  .page-head { flex-wrap: wrap; }
+  .page-head h1 { font-size: 22px; }
+  .kpi { min-height: 0; }
+  .glance .kpi .value { font-size: 26px; }
+  .seg { flex-wrap: wrap; border-radius: 14px; }
+  th, td { padding: 9px 10px; }
+}
