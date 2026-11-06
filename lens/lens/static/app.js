@@ -292,6 +292,18 @@ async function loadOverview() {
     render();
     $("#ov-pf-asof").textContent = `gains on the last completed day, ${cd.as_of || "–"}`;
     platformTrend($("#ov-pf-trend"), $("#ov-pf-legend"), cd);
+    // gains on the last completed day, as on the Dashboard: Fastest riser tile and the gainers table
+    const r0 = cd.risers[0], tile = [...document.querySelectorAll("#ov-kpis .kpi")].find((x) => x.querySelector(".label")?.textContent === "Fastest riser");
+    if (tile && r0) {
+      tile.querySelector(".value").textContent = r0.title;
+      tile.querySelector(".sub").textContent = `+${compact(r0.yt_gain)} views on ${cd.as_of}${r0.label ? ` · ${r0.label}` : ""}`;
+      tile.dataset.id = r0.id; tile.classList.add("kpi-song", "click");
+      tile.onclick = () => { openTrack(r0.id); if (r0.yt_video_id) play("youtube", r0.yt_video_id, r0.title); };
+    }
+    $("#ov-risers-title").textContent = `Biggest YouTube gainers (${cd.as_of || "last completed day"})`;
+    $("#ov-risers").innerHTML = cd.risers.length ? `<thead><tr><th>#</th><th></th><th>Song</th><th class="num">Views gained</th><th class="num">Streams gained</th><th class="num">YouTube views</th></tr></thead><tbody>` +
+      cd.risers.map((r, i) => songRow(r, i, (r) => `<td class="num delta-up">+${compact(r.yt_gain)}</td><td class="num ${r.audio_gain > 0 ? "delta-up" : "muted"}">${r.audio_gain ? "+" + compact(r.audio_gain) : "–"}</td><td class="num">${compact(r.yt_views)}</td>`)).join("") + "</tbody>"
+      : `<tbody><tr><td class="empty">Growth appears after two days of readings.</td></tr></tbody>`;
   }).catch(() => {});
   $("#ov-top").innerHTML = ov.top.length ? tbl(ov.top) : `<tbody><tr><td class="empty">No readings yet. Run the pipeline.</td></tr></tbody>`;
   $("#ov-risers").innerHTML = ov.risers.length ? tbl(ov.risers, true) :
