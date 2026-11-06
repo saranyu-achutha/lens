@@ -1434,3 +1434,56 @@ select, input[type="number"], input[type="text"], input[type="search"], input:no
   .kpi:hover { transform: none; }
 }
 @media (max-width: 560px) { .ratio-row { flex-wrap: wrap; } .ratio-row select { flex: 1 1 100%; } }
+
+/* ===== Transparency pass (2026-11-06): the aurora shows through on every page; pop-ups that hold text stay near solid ===== */
+:root {
+  --glass-bg: color-mix(in srgb, var(--surface-1) 58%, transparent);
+  --glass-bg-2: color-mix(in srgb, var(--surface-2) 42%, transparent);
+  --glass-nav: color-mix(in srgb, var(--surface-1) 52%, transparent);
+  --glass-head: color-mix(in srgb, var(--surface-1) 70%, transparent);
+  --glass-track: color-mix(in srgb, var(--surface-3) 55%, transparent);
+  --glass-row: color-mix(in srgb, var(--surface-2) 40%, transparent);
+}
+:root[data-theme="light"] {
+  --glass-bg: rgba(255, 255, 255, .66);
+  --glass-bg-2: rgba(244, 247, 252, .55);
+  --glass-nav: rgba(255, 255, 255, .58);
+  --glass-head: rgba(248, 250, 254, .74);
+  --glass-track: rgba(15, 23, 42, .07);
+  --glass-row: rgba(47, 111, 219, .045);
+}
+/* shell */
+nav.side { background: var(--glass-nav) !important; }
+@media (max-width: 1100px) { nav.side { background: color-mix(in srgb, var(--surface-1) 86%, transparent) !important; } }  /* slide-in menu over the page */
+html.side-mini nav.side:hover { background: color-mix(in srgb, var(--surface-1) 84%, transparent) !important; }        /* hover menu over the page */
+:root[data-theme="light"].side-mini nav.side:hover { background: rgba(255, 255, 255, .9) !important; }
+/* table headers: clear over the card; a frosted band only where the header sticks over scrolling rows */
+thead th, th { background: transparent !important; }
+.table-wrap thead th { background: var(--glass-head) !important; backdrop-filter: blur(12px) saturate(140%); -webkit-backdrop-filter: blur(12px) saturate(140%); }
+:root[data-theme="light"] thead th, :root[data-theme="light"] th { background: transparent !important; }
+:root[data-theme="light"] .table-wrap thead th { background: var(--glass-head) !important; }
+tr.label-row td, :root[data-theme="light"] tr.label-row td { background: var(--glass-row) !important; }
+#dd-table td.dd-song, #dd-table td.dd-day { background: color-mix(in srgb, var(--surface-1) 88%, transparent) !important; }  /* sticky column: rows scroll under it */
+:root[data-theme="light"] #dd-table td.dd-song, :root[data-theme="light"] #dd-table td.dd-day { background: rgba(255, 255, 255, .92) !important; }
+/* inner panels and blocks */
+.label-block, .rule-row, .ai-msg.bot, .fresh, .st-back, .st-log, .chip, .card.howto, .seg { background: var(--glass-bg-2) !important; }
+.label-block, .rule-row, .fresh, .st-back { border-color: var(--edge) !important; }
+/* bar and progress tracks */
+.bar-track, .sch-bar, .st-bar, .sp-bar, .popbar .track, .share-track { background: var(--glass-track) !important; }
+/* chips and pills (light theme had solid fills) */
+:root[data-theme="light"] .src, :root[data-theme="light"] .pill:not(.ok):not(.bad):not(.warn):not(.run) { background: rgba(245, 247, 251, .62); }
+:root[data-theme="light"] a.mchip { background: rgba(243, 246, 251, .62); }
+:root[data-theme="light"] .st { background: rgba(238, 242, 248, .7); }
+/* fields */
+select, input[type="number"], input[type="text"], input[type="search"], input[type="date"], input:not([type]), textarea { background-color: var(--glass-bg-2) !important; }
+select option { background: var(--surface-1); color: var(--text-primary); }
+/* drawer: lighter, still frosted (text sits on it) */
+.drawer { background: color-mix(in srgb, var(--surface-1) 78%, transparent) !important; }
+:root[data-theme="light"] .drawer { background: rgba(255, 255, 255, .82) !important; }
+.drawer .card { background: color-mix(in srgb, var(--surface-2) 45%, transparent) !important; }
+:root[data-theme="light"] .drawer .card { background: rgba(255, 255, 255, .6) !important; }
+/* hover states stay a tint, never a solid fill */
+nav.side a.nav:hover, .side-toggle:hover { background: color-mix(in srgb, var(--accent) 10%, transparent) !important; }
+button:not(.primary):hover { background-color: color-mix(in srgb, var(--accent) 10%, transparent); }
+/* live console (Runs): a dark glass terminal, its gradient frame kept */
+.console { background: linear-gradient(color-mix(in srgb, var(--console-bg) 74%, transparent), color-mix(in srgb, var(--console-bg) 74%, transparent)) padding-box, var(--brand-grad) border-box !important; }
