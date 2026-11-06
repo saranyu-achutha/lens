@@ -715,10 +715,12 @@ const monthName = (m) => new Date(m + "-01T00:00:00Z").toLocaleDateString("en-GB
 function lrHead(by) {
   return `<tr><th class="num">#</th><th>Label</th>${LR_COLS.map(([k, n]) => `<th class="num"${k === by ? ' style="color:var(--accent)"' : ""}>${n}${k === "releases" ? "" : " gained"}</th>`).join("")}</tr>`;
 }
-function lrRows(rows, by) {
+function lrRows(rows, by, noReadings = false) {
   const top = Math.max(1, ...rows.map((r) => r[by] || 0));
+  const cell = (k, r) => noReadings && k !== "releases" ? '<span class="muted">–</span>'
+    : k === by ? `<span class="share-bar" style="--w:${Math.round((100 * (r[k] || 0)) / top)}%;--c:var(--accent)"><b>${lrNum(k, r[k])}</b></span>` : lrNum(k, r[k]);
   return rows.map((r) => `<tr class="label-row" data-label="${esc(r.label)}" style="cursor:pointer"><td class="num"><b>${r.rank}</b></td><td>${labelTag(r.label)}</td>` +
-    LR_COLS.map(([k]) => `<td class="num">${k === by ? `<span class="share-bar" style="--w:${Math.round((100 * (r[k] || 0)) / top)}%;--c:var(--accent)"><b>${lrNum(k, r[k])}</b></span>` : lrNum(k, r[k])}</td>`).join("") + "</tr>").join("");
+    LR_COLS.map(([k]) => `<td class="num">${cell(k, r)}</td>`).join("") + "</tr>").join("");
 }
 function showReportTab(t) {
   LR.tab = t;
@@ -743,7 +745,7 @@ async function loadLabelDaily() {
   $("#ld-by").innerHTML = Object.entries(d.metrics).map(([k, n]) => `<option value="${k}"${k === d.by ? " selected" : ""}>${esc(n)}</option>`).join("");
   $("#ld-label").innerHTML = `<option value="">All labels</option>` + d.labels.map((l) => `<option${l === LR.label ? " selected" : ""}>${esc(l)}</option>`).join("");
   $("#ld-csv").href = `/api/labels/report.csv?view=daily&month=${d.month}&by=${d.by}`;
-  $("#ld-rank-title").textContent = `Labels ranked by ${d.metrics[d.by].toLowerCase()}, ${monthName(d.month)}${d.month === d.today.slice(0, 7) ? " so far" : ""}`;
+  $("#ld-rank-title").textContent = `Labels ranked by ${d.metrics[d.by]}, ${monthName(d.month)}${d.month === d.today.slice(0, 7) ? " so far" : ""}`;
   $("#ld-rank").innerHTML = `<thead>${lrHead(d.by)}</thead><tbody>${lrRows(d.ranking, d.by)}</tbody>`;
   const lab = LR.label;
   $("#ld-days-title").textContent = `Day by day: ${lab || "all labels"}`;
@@ -760,9 +762,9 @@ async function loadLabelMonthly() {
   $("#lm-by").innerHTML = Object.entries(d.metrics).map(([k, n]) => `<option value="${k}"${k === d.by ? " selected" : ""}>${esc(n)}</option>`).join("");
   $("#lm-csv").href = `/api/labels/report.csv?view=monthly&by=${d.by}`;
   $("#lm-months").innerHTML = d.months.length ? d.months.map((m) => `<div class="card flush" style="margin-bottom:16px"><div class="card-head" style="padding:16px 16px 0"><h2>${monthName(m.month)}</h2><span class="spacer"></span>
-      <span class="muted" style="font-size:12px">${m.days_with_readings ? `readings on ${m.days_with_readings} days · ranked by ${esc(d.metrics[m.ranked_by].toLowerCase())}` : "no readings yet that month (collection began in late October): releases only"}
+      <span class="muted" style="font-size:12px">${m.days_with_readings ? `readings on ${m.days_with_readings} days · ranked by ${esc(d.metrics[m.ranked_by])}` : "no readings yet that month (collection began in late October): releases only"}
       · ${fmt(m.total.releases)} releases${m.total.yt ? ` · +${compact(m.total.yt)} YouTube views · +${compact1(m.total.audio)} audio streams` : ""}</span></div>
-      <div class="table-wrap"><table><thead>${lrHead(m.ranked_by)}</thead><tbody>${lrRows(m.ranking, m.ranked_by)}</tbody></table></div></div>`).join("")
+      <div class="table-wrap"><table><thead>${lrHead(m.ranked_by)}</thead><tbody>${lrRows(m.ranking, m.ranked_by, !m.days_with_readings)}</tbody></table></div></div>`).join("")
     : `<div class="card empty">No completed month yet.</div>`;
 }
 ["#ld-month", "#ld-by", "#ld-label"].forEach((id) => $(id).addEventListener("change", () => {
