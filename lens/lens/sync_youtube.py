@@ -2,7 +2,7 @@
 and match videos to Spotify tracks with fixed rules (lens.match).
 
 Readings: once a day per video; videos published in the last `fresh_days` can be read more often
-(youtube.fresh_every_hours: 6, 12 or 24; 24 = once a day like everything else). Quota: playlistItems and videos cost 1 unit per 50 items, so a run uses a few
+(youtube.fresh_every_hours: 6, 8, 12 or 24; 24 = once a day like everything else). Quota: playlistItems and videos cost 1 unit per 50 items, so a run uses a few
 hundred of the 10,000 daily units.
 """
 import json

@@ -2,7 +2,7 @@
 quota and in machine time, so a change can be judged before it is saved.
 
 Two settings can be changed here (both in config.json):
-  youtube.fresh_every_hours     new videos (first `fresh_days` days): every 6, 12 or 24 hours; older videos once a day
+  youtube.fresh_every_hours     new videos (first `fresh_days` days): every 6, 8, 12 or 24 hours; older videos once a day
   songs.jiosaavn_refresh_hours  JioSaavn play counts: every 6, 12 or 24 hours
 Every other source is read once a day per item (daily numbers are kept for good; nothing is ever read less often).
 
@@ -20,7 +20,7 @@ from datetime import datetime, timedelta, timezone
 
 from . import config
 
-CHOICES = {"youtube_fresh_every_hours": (6, 12, 24), "jiosaavn_refresh_hours": (6, 12, 24)}
+CHOICES = {"youtube_fresh_every_hours": (6, 8, 12, 24), "jiosaavn_refresh_hours": (6, 12, 24)}
 
 
 def _n(conn, sql, args=()):
