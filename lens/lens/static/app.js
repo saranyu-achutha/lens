@@ -37,9 +37,9 @@ function toast(msg, bad = false) {
 let STATUS = null;
 
 /* ---------- Router ---------- */
-const PAGES = ["overview", "dashboard", "share", "dev", "status", "missed", "crawl", "apis", "charts", "schedule", "platforms", "reports", "daily", "pdata", "catalogue", "explore", "insights", "review", "runs", "outputs", "sources", "settings"];
+const PAGES = ["overview", "dashboard", "mgmt", "share", "dev", "status", "missed", "crawl", "apis", "charts", "schedule", "platforms", "reports", "daily", "pdata", "catalogue", "explore", "insights", "review", "runs", "outputs", "sources", "settings"];
 // The client login sees only these pages (the server refuses everything else for it).
-const CLIENT_PAGES = ["dashboard", "share", "platforms", "reports", "daily", "catalogue"];
+const CLIENT_PAGES = ["dashboard", "mgmt", "share", "platforms", "reports", "daily", "catalogue"];
 // A developer can switch to "Client view" to see exactly what the client sees (menu, pages, header); not remembered.
 let CLIENT_VIEW = false;
 const isClient = () => STATUS?.role === "client" || CLIENT_VIEW;
@@ -51,7 +51,7 @@ function route() {
   const sec = p === "apis" ? "crawl" : p;  // Crawl stats and API stats share one page layout
   document.querySelectorAll("section.page").forEach((s) => s.classList.toggle("active", s.id === `page-${sec}`));
   document.querySelectorAll("a.nav").forEach((a) => a.classList.toggle("active", a.getAttribute("href") === `#${p}`));
-  ({ overview: loadOverview, dashboard: loadClient, dev: loadDev, crawl: loadCrawl, apis: loadCrawl, charts: loadCharts, schedule: loadSchedule, status: loadStatus, missed: loadMissed, share: loadShare, platforms: loadPlatform, reports: loadReport, daily: loadDaily, pdata: loadPData, catalogue: loadCatalogue, explore: loadExplore, insights: loadInsights, review: loadReview, runs: loadRuns, outputs: loadOutputs, sources: loadSources, settings: loadSettings })[p]();
+  ({ overview: loadOverview, dashboard: loadClient, dev: loadDev, crawl: loadCrawl, apis: loadCrawl, charts: loadCharts, schedule: loadSchedule, status: loadStatus, missed: loadMissed, share: loadShare, mgmt: loadMgmt, platforms: loadPlatform, reports: loadReport, daily: loadDaily, pdata: loadPData, catalogue: loadCatalogue, explore: loadExplore, insights: loadInsights, review: loadReview, runs: loadRuns, outputs: loadOutputs, sources: loadSources, settings: loadSettings })[p]();
   const track = new URLSearchParams(location.hash.split("?")[1] || "").get("track");
   if (track) openTrack(track);
   const meta = new URLSearchParams(location.hash.split("?")[1] || "").get("meta");  // e.g. #explore?meta=singer:arijit singh
@@ -2542,3 +2542,59 @@ $("#sh-month").addEventListener("change", (e) => { MS.month = e.target.value; lo
 $("#sh-measure").addEventListener("change", (e) => { MS.measure = e.target.value; loadShare(); });
 $("#sh-label").addEventListener("change", (e) => { MS.label = e.target.value; loadShare(); });
 $("#sh-save").onclick = async () => { await api("/api/market_share/settings", { days: MS.days }); loadShare(); };
+
+
+/* ---------- Management summary (POC): ranked by Spotify, the week = last 7 completed days ---------- */
+const MG = { genre: "category", method: "split" };
+const chg = (v) => v == null ? '<span class="muted">–</span>' : `<span class="${v >= 0 ? "delta-up" : "delta-down"}">${v >= 0 ? "▲" : "▼"} ${Math.abs(v)}%</span>`;
+async function loadMgmt() {
+  const d = await api(`/api/management?genre=${MG.genre}&method=${MG.method}`);
+  const wk = `${dayLabel(d.week[0])} – ${dayLabel(d.week[1])}`;
+  $("#mg-week").innerHTML = `<span class="dot"></span>Week ${wk} · ranked by Spotify`;
+  $("#mg-started").innerHTML = `<b>Official daily readings started:</b> ${startedLine(d.started)}.${d.full_prev ? "" : " The week before this one began before Spotify readings did, so week-on-week changes show from the next full week."}`;
+  const lead = (xs) => xs.find((x) => x.name !== "Unknown") || {};
+  const L = lead(d.labels), G = lead(d.languages);
+  $("#mg-kpis").innerHTML = `
+    <div class="card kpi" style="--kpi-c:${PCOLOR.spotify}"><div class="label">Spotify plays this week</div><div class="value">${compact1(d.sp_week)}</div>
+      <div class="gainline">${d.change == null ? '<span class="gain-chip none">change from next week</span>' : `<span class="gain-chip">${d.change >= 0 ? "+" : ""}${d.change}% vs week before</span>`}</div>
+      <div class="explain">Growth over ${wk}, all songs of the period · YouTube +${compact(d.yt_week)} views alongside.</div></div>
+    <div class="card kpi"><div class="label">Songs on Spotify</div><div class="value">${fmt(d.on_spotify)}</div>
+      <div class="gainline"><span class="gain-chip none">of ${fmt(d.songs)} songs</span></div><div class="explain">${fmt(d.releases_week)} songs released this week.</div></div>
+    <div class="card kpi" style="--kpi-c:var(--accent-2)"><div class="label">Top label</div><div class="value" style="font-size:22px">${esc(L.name || "–")}</div>
+      <div class="gainline"><span class="gain-chip">${L.share ?? "–"}% of Spotify plays</span></div><div class="explain">+${compact1(L.sp_week)} plays this week.</div></div>
+    <div class="card kpi" style="--kpi-c:var(--good)"><div class="label">Top language</div><div class="value" style="font-size:22px">${esc(G.name || "–")}</div>
+      <div class="gainline"><span class="gain-chip">${G.share ?? "–"}% of Spotify plays</span></div><div class="explain">${fmt(G.songs)} songs · +${compact1(G.sp_week)} plays.</div></div>
+    <div class="card kpi" style="--kpi-c:var(--warning)"><div class="label">Top artist</div><div class="value" style="font-size:22px">${esc(d.top_artists[0]?.name || "–")}</div>
+      <div class="gainline"><span class="gain-chip">+${compact1(d.top_artists[0]?.sp_week)} plays</span></div><div class="explain">${fmt(d.top_artists[0]?.songs)} songs this period.</div></div>`;
+  const songTbl = (xs, el) => { $(el).innerHTML = xs.length ? `<thead><tr><th>#</th><th></th><th>Song</th><th>Language</th><th class="num">Spotify this week</th><th class="num">YouTube this week</th></tr></thead><tbody>` +
+    xs.map((r, i) => `<tr class="click" data-id="${r.id}"><td class="muted num">${i + 1}</td>${playOne(r)}<td><div class="t1">${esc(r.title)}${labelTag(r.label)}</div><div class="t2">${esc(r.release)}</div></td>
+      <td>${esc(r.language)}</td><td class="num"><b>+${compact1(r.sp_week)}</b></td><td class="num muted">+${compact(r.yt_week)}</td></tr>`).join("") + "</tbody>"
+    : `<tbody><tr><td class="empty">No Spotify growth this week yet.</td></tr></tbody>`; };
+  songTbl(d.top_songs, "#mg-songs");
+  songTbl(d.top_releases, "#mg-releases");
+  $("#mg-releases-title").textContent = `Top new releases (last ${d.new_release_days} days)`;
+  const grpTbl = (xs, el, first, tag) => { $(el).innerHTML = `<thead><tr><th>#</th><th>${first}</th><th class="num">Songs</th><th class="num">Spotify this week</th><th class="num">Share</th><th class="num">vs week before</th><th class="num">YouTube this week</th></tr></thead><tbody>` +
+    xs.map((r) => `<tr><td class="muted num">${r.rank}</td><td>${tag ? labelTag(r.name) : `<b>${esc(r.name)}</b>`}</td><td class="num">${fmt(r.songs)}</td><td class="num"><b>+${compact1(r.sp_week)}</b></td>
+      <td class="num"><span class="share-bar" style="--w:${r.share || 0}%;--c:${PCOLOR.spotify}">${r.share ?? "–"}%</span></td><td class="num">${chg(r.change)}</td><td class="num muted">+${compact(r.yt_week)}</td></tr>`).join("") + "</tbody>"; };
+  grpTbl(d.top_artists, "#mg-artists", "Artist");
+  grpTbl(d.labels, "#mg-labels", "Label", true);
+  grpTbl(d.languages, "#mg-langs", "Language");
+  const colors = ["#6366f1", "#ef4444", "#10b981", "#f59e0b", "#06b6d4", "#ec4899"];
+  const series = d.language_trend.map((l, i) => ({ name: l.name, color: colors[i % colors.length], points: l.points }));
+  multiLine($("#mg-lang-trend"), series.filter((x) => x.points.length), { height: 260 });
+  $("#mg-lang-legend").innerHTML = series.map((x) => `<span><span style="display:inline-block;width:12px;height:3px;background:${x.color};vertical-align:middle;margin-right:5px"></span>${esc(x.name)}</span>`).join("");
+  document.querySelectorAll("#mg-genre-src button").forEach((b) => { b.classList.toggle("on", b.dataset.g === MG.genre); b.onclick = () => { MG.genre = b.dataset.g; loadMgmt(); }; });
+  document.querySelectorAll("#mg-genre-method button").forEach((b) => { b.classList.toggle("on", b.dataset.m === MG.method); b.onclick = () => { MG.method = b.dataset.m; loadMgmt(); }; });
+  grpTbl(d.genres, "#mg-genres", MG.genre === "apple" ? "Apple Music genre" : "Category");
+  const gc = d.genre_check, pc = (n) => Math.round((100 * n) / (gc.songs || 1));
+  $("#mg-genre-check").innerHTML = `<b>Genre attribution: findings for review.</b>
+    <ul style="margin:6px 0 0 18px;padding:0">
+      <li>Spotify gives no genres to apps in development mode, so genre comes from <b>our category</b> (every song, ${fmt(gc.coverage.category)} of ${fmt(gc.songs)}, one value each)
+        or <b>Apple Music's genre</b> (${fmt(gc.coverage.genre)} songs, ${pc(gc.coverage.genre)}%, one value each).</li>
+      <li>Songs with more than one genre today: our category <b>${fmt(gc.multi.category)}</b>, Apple <b>${fmt(gc.multi.genre)}</b>. So the method below changes nothing yet; it is ready for when a song carries several genres.</li>
+      <li>Apple's genres mix in languages (${gc.apple_genres_that_are_languages.map(esc).join(", ")}), so Apple's view overlaps the language view; our category is the default.</li>
+      <li>Methods: <b>Split equally</b> (1/k of the song to each of its k genres; totals stay 100%, recommended) · <b>Primary only</b> (its first genre) · <b>Full credit</b> (each genre in full; totals above 100%).</li>
+      <li>Artists: ${fmt(gc.multi.spotify_artist)} songs have several Spotify artists; each credited artist gets the song in full (as artist charts do).</li></ul>`;
+  $("#mg-how").innerHTML = `<b>How to read this.</b> Everything is ranked by <b>Spotify plays gained</b> in the week (${wk}, the last 7 completed days); YouTube views are shown alongside, not used for ranking.
+    A gain is each track's reading minus its own previous reading, so late Spotify counts land on the next reading and nothing is lost. Language-wise growth uses each song's detected language.`;
+}
