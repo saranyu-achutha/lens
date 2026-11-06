@@ -1229,3 +1229,208 @@ select, input[type="number"], input[type="text"], input:not([type]) { border-rad
 td:nth-child(2) b, #mg-artists td:nth-child(2) { white-space: nowrap; }
 .ratio-row { flex-wrap: nowrap; }
 .ratio-row select { min-width: 0; flex: 1 1 0; }
+
+/* =====================================================================================================================
+   Aurora (2026-11-06): the logo's blue, violet and teal bloom at random behind the Console (aurora.js picks places,
+   sizes and colours), faint sparkles, glass cards with a gradient edge, a living logo and gradient headings. Everything
+   animated uses transform and opacity only, pauses in a hidden tab and stops for reduced motion.
+   ===================================================================================================================== */
+:root {
+  --au-1: #3987e5; --au-2: #9085e9; --au-3: #199e70; --au-4: #5b6cf0; --au-5: #2fb6c9;
+  --au-op: .55; --au-blend: screen;
+  --glass-bg: color-mix(in srgb, var(--surface-1) 78%, transparent);
+  --glass-bg-2: color-mix(in srgb, var(--surface-2) 66%, transparent);
+  --edge: color-mix(in srgb, #ffffff 9%, transparent);
+  --edge-grad: linear-gradient(135deg, color-mix(in srgb, var(--au-1) 70%, transparent), color-mix(in srgb, var(--au-2) 55%, transparent) 50%, color-mix(in srgb, var(--au-3) 65%, transparent));
+  --lift: 0 1px 0 color-mix(in srgb, #fff 6%, transparent) inset, 0 10px 30px -12px rgba(0, 0, 0, .55);
+  --lift-hover: 0 1px 0 color-mix(in srgb, #fff 8%, transparent) inset, 0 18px 44px -16px color-mix(in srgb, var(--au-1) 45%, rgba(0, 0, 0, .6));
+  --radius: 16px; --radius-sm: 10px;
+}
+:root[data-theme="light"] {
+  --au-1: #6aa6f2; --au-2: #b2a8f5; --au-3: #6fd3ae; --au-4: #8f9cf7; --au-5: #7fd7e4;
+  --au-op: .42; --au-blend: multiply;
+  --glass-bg: rgba(255, 255, 255, .84);
+  --glass-bg-2: rgba(246, 248, 253, .72);
+  --edge: rgba(15, 23, 42, .07);
+  --lift: 0 1px 0 rgba(255, 255, 255, .9) inset, 0 1px 2px rgba(16, 24, 40, .05), 0 12px 30px -14px rgba(40, 60, 120, .22);
+  --lift-hover: 0 1px 0 rgba(255, 255, 255, .9) inset, 0 2px 4px rgba(16, 24, 40, .05), 0 22px 44px -18px rgba(70, 80, 200, .32);
+}
+body { background: var(--bg) !important; }
+
+/* --- the aurora itself --- */
+.aurora { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; contain: strict; }
+.aurora::after { /* fine grain keeps the colour soft and filmic */
+  content: ""; position: absolute; inset: 0; opacity: .07; mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+:root[data-theme="light"] .aurora::after { opacity: .05; }
+.au-blob { position: absolute; left: var(--x); top: var(--y); width: var(--s); height: var(--s); margin: calc(var(--s) / -2) 0 0 calc(var(--s) / -2);
+  border-radius: 50%; mix-blend-mode: var(--au-blend); will-change: transform, opacity;
+  background: radial-gradient(circle at 50% 50%, var(--c) 0%, color-mix(in srgb, var(--c) 45%, transparent) 32%, transparent 68%);
+  animation: au-bloom 22s ease-in-out infinite; opacity: 0; }
+@keyframes au-bloom {
+  0%   { opacity: 0; transform: translate(0, 0) scale(.55); }
+  35%  { opacity: var(--au-op); }
+  60%  { opacity: calc(var(--au-op) * .9); transform: translate(calc(var(--dx) * .6), calc(var(--dy) * .6)) scale(1.05); }
+  100% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(1.3); }
+}
+.au-spark { position: absolute; width: 14px; height: 14px; opacity: 0; will-change: transform, opacity;
+  background: radial-gradient(circle, #fff 0 1.2px, transparent 2.4px),
+              linear-gradient(0deg, transparent 44%, rgba(255, 255, 255, .85) 50%, transparent 56%),
+              linear-gradient(90deg, transparent 44%, rgba(255, 255, 255, .85) 50%, transparent 56%);
+  -webkit-mask: radial-gradient(circle, #000 0, transparent 70%); mask: radial-gradient(circle, #000 0, transparent 70%);
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--au-2) 90%, transparent));
+  animation: au-twinkle 5s ease-in-out infinite; }
+@keyframes au-twinkle {
+  0%, 100% { opacity: 0; transform: scale(.2) rotate(0deg); }
+  45% { opacity: .9; transform: scale(var(--z)) rotate(45deg); }
+  60% { opacity: .5; transform: scale(calc(var(--z) * .8)) rotate(60deg); }
+}
+:root[data-theme="light"] .au-spark { filter: drop-shadow(0 0 3px rgba(91, 108, 240, .7));
+  background: radial-gradient(circle, #6d5fd8 0 1.1px, transparent 2.2px),
+              linear-gradient(0deg, transparent 45%, rgba(109, 95, 216, .55) 50%, transparent 55%),
+              linear-gradient(90deg, transparent 45%, rgba(109, 95, 216, .55) 50%, transparent 55%); }
+.aurora.paused .au-blob, .aurora.paused .au-spark { animation-play-state: paused; }
+.bg-art { opacity: .2; z-index: 0; }
+:root[data-theme="light"] .bg-art { opacity: .3; }
+@media (prefers-reduced-motion: reduce) {
+  .au-blob { animation: none; opacity: calc(var(--au-op) * .7); transform: none; }
+  .au-spark { display: none; }
+}
+
+/* --- shell: glass menu and top bar --- */
+nav.side { background: var(--glass-bg) !important; backdrop-filter: blur(22px) saturate(160%); -webkit-backdrop-filter: blur(22px) saturate(160%);
+  border-right: 1px solid var(--edge) !important; }
+header.top { background: color-mix(in srgb, var(--bg) 45%, transparent) !important; backdrop-filter: blur(20px) saturate(160%); -webkit-backdrop-filter: blur(20px) saturate(160%);
+  border-bottom: 1px solid var(--edge) !important; }
+:root[data-theme="light"] header.top { background: rgba(255, 255, 255, .62) !important; }
+
+/* living logo: the lens catches light, the bars breathe */
+.brand { position: relative; }
+.brand .logo { filter: drop-shadow(0 4px 14px var(--brand-glow)) drop-shadow(0 0 2px color-mix(in srgb, var(--au-2) 50%, transparent)); }
+.brand .logo rect { transform-box: fill-box; transform-origin: 50% 50%; animation: logo-eq 2.4s ease-in-out infinite; }
+.brand .logo rect:nth-child(2) { animation-delay: -.6s; }
+.brand .logo rect:nth-child(3) { animation-delay: -1.2s; }
+.brand .logo rect:nth-child(4) { animation-delay: -1.8s; }
+@keyframes logo-eq { 0%, 100% { transform: scaleY(1); } 50% { transform: scaleY(.62); } }
+.brand b { background: linear-gradient(90deg, var(--au-1), var(--au-2), var(--au-3), var(--au-2), var(--au-1)) 0 0 / 300% 100% !important;
+  -webkit-background-clip: text !important; background-clip: text !important; color: transparent !important; animation: grad-flow 9s linear infinite; }
+:root[data-theme="light"] .brand b { background-image: linear-gradient(90deg, #2f6fdb, #6d5fd8, #128a62, #6d5fd8, #2f6fdb) !important; }
+.brand-tag { background: color-mix(in srgb, var(--accent) 12%, transparent); border-radius: 999px; padding: 1px 8px; }
+@keyframes grad-flow { to { background-position: 300% 0; } }
+
+/* menu items: soft pill, gradient glow when active */
+nav.side a.nav { position: relative; transition: background .18s, color .18s, transform .18s; }
+nav.side a.nav:hover { background: color-mix(in srgb, var(--accent) 9%, transparent); transform: translateX(2px); }
+nav.side a.nav.active { color: var(--text-primary) !important;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--au-1) 22%, transparent), color-mix(in srgb, var(--au-2) 12%, transparent) 70%, transparent) !important;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--au-1) 22%, transparent); }
+nav.side a.nav.active::before { box-shadow: 0 0 12px var(--au-1), 0 0 2px var(--au-2); }
+nav.side a.nav.active svg { stroke: url(#lg-brand) var(--accent); filter: drop-shadow(0 0 6px color-mix(in srgb, var(--au-1) 70%, transparent)); }
+:root[data-theme="light"] nav.side a.nav.active svg { filter: none; }
+
+/* --- page headings: flowing brand gradient --- */
+.page-head h1 { background: linear-gradient(92deg, var(--text-primary) 0%, #9cc6f6 30%, #b0a7f4 55%, #4fd1a5 80%, var(--text-primary) 100%) 0 0 / 200% 100% !important;
+  -webkit-background-clip: text !important; background-clip: text !important; color: transparent !important; animation: h1-sheen 12s ease-in-out infinite alternate; }
+:root[data-theme="light"] .page-head h1 { background-image: linear-gradient(92deg, #0b1324 0%, #2f6fdb 30%, #6d5fd8 55%, #128a62 80%, #0b1324 100%) !important; }
+@keyframes h1-sheen { from { background-position: 0 0; } to { background-position: 100% 0; } }
+.page { animation: page-in .45s cubic-bezier(.2, .7, .2, 1) both; }
+@keyframes page-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.page-head.has-art { border-radius: 20px !important; border: 1px solid var(--edge); box-shadow: var(--lift); }
+#page-dashboard .page-head, #page-dev .page-head {
+  background: radial-gradient(ellipse 55% 140% at 100% 0%, color-mix(in srgb, var(--au-1) 26%, transparent), transparent 62%),
+              radial-gradient(ellipse 45% 140% at 0% 100%, color-mix(in srgb, var(--au-2) 22%, transparent), transparent 62%),
+              radial-gradient(ellipse 40% 120% at 70% 130%, color-mix(in srgb, var(--au-3) 18%, transparent), transparent 62%),
+              var(--glass-bg) !important; }
+
+/* --- cards: frosted glass with a gradient edge that lights up on hover --- */
+.card { position: relative; background: var(--glass-bg) !important; border: 1px solid var(--edge) !important; border-radius: var(--radius) !important;
+  backdrop-filter: none !important; box-shadow: var(--lift) !important;
+  transition: box-shadow .25s ease, transform .25s ease, border-color .25s; }
+.card::after { content: ""; position: absolute; inset: -1px; border-radius: inherit; padding: 1px; pointer-events: none;
+  background: var(--edge-grad); opacity: 0; transition: opacity .3s ease;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0); }
+.card:hover { box-shadow: var(--lift-hover) !important; }
+.card:hover::after { opacity: .85; }
+.card.notice { box-shadow: var(--lift), inset 3px 0 0 var(--accent) !important; }
+.card.howto { background: var(--glass-bg-2) !important; }
+.card.notice::after, .card.howto::after, .card.empty::after { display: none; }
+
+/* KPI tiles: a glowing orb of the tile's colour, a gradient top line, a light sweep on hover */
+.kpi { isolation: isolate; }
+.kpi::before { height: 2px !important; background: linear-gradient(90deg, transparent, var(--kpi-c, var(--accent)) 25%, color-mix(in srgb, var(--kpi-c, var(--accent)) 40%, var(--au-2)) 75%, transparent) !important;
+  box-shadow: 0 0 14px var(--kpi-c, var(--accent)); }
+.kpi::after { display: block !important; content: "" !important; position: absolute; inset: auto -30% -60% auto; width: 70%; aspect-ratio: 1; border-radius: 50%; padding: 0;
+  background: radial-gradient(circle, color-mix(in srgb, var(--kpi-c, var(--accent)) 30%, transparent), transparent 65%) !important;
+  -webkit-mask: none !important; mask: none !important; opacity: .7 !important; z-index: -1; transition: transform .6s ease, opacity .4s; }
+.kpi:hover { transform: translateY(-2px); }
+.kpi:hover::after { transform: translate(-12%, -12%) scale(1.15); opacity: 1 !important; }
+:root[data-theme="light"] .kpi::after { opacity: .55 !important; }
+.kpi .value { letter-spacing: -.03em; }
+:root:not([data-theme="light"]) .kpi .value { text-shadow: 0 0 24px color-mix(in srgb, var(--kpi-c, var(--accent)) 35%, transparent); }
+
+/* tables inside glass */
+thead th, th { background: color-mix(in srgb, var(--surface-1) 92%, transparent) !important; }
+:root[data-theme="light"] thead th, :root[data-theme="light"] th { background: rgba(248, 250, 254, .92) !important; }
+tbody tr:hover td { background: color-mix(in srgb, var(--au-1) 7%, transparent) !important; }
+
+/* buttons: gradient pill with a light sweep */
+.btn.primary, a.btn.primary, button.primary { position: relative; overflow: hidden;
+  background: linear-gradient(120deg, #3987e5, #7d74e6 55%, #9085e9) !important;
+  box-shadow: 0 6px 20px -6px color-mix(in srgb, var(--au-1) 70%, transparent), inset 0 1px 0 rgba(255, 255, 255, .25) !important;
+  transition: transform .18s ease, box-shadow .18s ease, filter .18s; }
+.btn.primary::after, button.primary::after { content: ""; position: absolute; top: 0; bottom: 0; left: -60%; width: 40%; pointer-events: none;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, .45), transparent); transform: skewX(-20deg); transition: left .6s ease; }
+.btn.primary:hover, button.primary:hover { transform: translateY(-1px); box-shadow: 0 10px 26px -8px color-mix(in srgb, var(--au-2) 80%, transparent), inset 0 1px 0 rgba(255, 255, 255, .3) !important; }
+.btn.primary:hover::after, button.primary:hover::after { left: 120%; }
+button:not(.primary):not(.tab):not(.seg button), .btn:not(.primary), .icon-btn { transition: background .18s, border-color .18s, color .18s, box-shadow .18s; }
+.icon-btn:hover, button.small:hover, .btn.small:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent); }
+
+/* segmented controls and tabs: gradient chip */
+.seg { background: var(--glass-bg-2) !important; border-color: var(--edge) !important; }
+.seg button.on { background: linear-gradient(120deg, color-mix(in srgb, var(--au-1) 26%, var(--surface-1)), color-mix(in srgb, var(--au-2) 22%, var(--surface-1))) !important;
+  box-shadow: 0 2px 10px -2px color-mix(in srgb, var(--au-1) 45%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--au-1) 40%, transparent) !important; }
+:root[data-theme="light"] .seg button.on { background: #fff !important; color: #1d4fc4 !important;
+  box-shadow: 0 2px 8px -2px rgba(47, 111, 219, .35), inset 0 0 0 1px rgba(47, 111, 219, .28) !important; }
+.tabs .tab.active { color: var(--text-primary); text-shadow: 0 0 18px color-mix(in srgb, var(--au-1) 50%, transparent); }
+
+/* pills, chips and fields */
+.pill.run .dot { box-shadow: 0 0 0 0 var(--accent); animation: dot-pulse 1.6s ease-out infinite; }
+@keyframes dot-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 70%, transparent); } 100% { box-shadow: 0 0 0 8px transparent; } }
+select, input[type="number"], input[type="text"], input[type="search"], input:not([type]), textarea {
+  background-color: var(--glass-bg-2); border-color: var(--edge); transition: border-color .18s, box-shadow .18s; }
+.gsearch input { border-radius: 999px !important; }
+.gsearch-panel, .alerts-panel, .tooltip { background: color-mix(in srgb, var(--surface-1) 86%, transparent) !important; backdrop-filter: blur(22px) saturate(160%);
+  border: 1px solid var(--edge) !important; border-radius: 14px !important; box-shadow: 0 24px 60px -20px rgba(0, 0, 0, .6) !important; }
+:root[data-theme="light"] .gsearch-panel, :root[data-theme="light"] .alerts-panel, :root[data-theme="light"] .tooltip { background: rgba(255, 255, 255, .94) !important; box-shadow: 0 24px 50px -20px rgba(40, 60, 120, .3) !important; }
+
+/* drawer and player: glass panels */
+.drawer { background: color-mix(in srgb, var(--surface-1) 88%, transparent) !important; backdrop-filter: blur(26px) saturate(160%); border-left: 1px solid var(--edge); }
+:root[data-theme="light"] .drawer { background: rgba(255, 255, 255, .94) !important; }
+.player { border-radius: 18px; overflow: hidden; border: 1px solid var(--edge); backdrop-filter: blur(20px); }
+
+/* charts: lines glow softly in the dark theme */
+.bar-fill { box-shadow: 0 0 10px -3px currentColor; background-image: linear-gradient(90deg, rgba(255, 255, 255, .0), rgba(255, 255, 255, .22)); }
+
+/* section titles: a glowing brand bar */
+.sec-title h2::before { box-shadow: 0 0 10px color-mix(in srgb, var(--au-1) 80%, transparent); }
+
+/* footer */
+.site-foot { border-top: 1px solid transparent !important;
+  border-image: linear-gradient(90deg, transparent, color-mix(in srgb, var(--au-1) 45%, transparent), color-mix(in srgb, var(--au-2) 45%, transparent), transparent) 1 !important; }
+
+/* scrollbars in brand colours */
+* { scrollbar-color: color-mix(in srgb, var(--accent) 35%, transparent) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: linear-gradient(180deg, color-mix(in srgb, var(--au-1) 50%, transparent), color-mix(in srgb, var(--au-2) 50%, transparent)); border-radius: 10px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-track { background: transparent; }
+
+@media (prefers-reduced-motion: reduce) {
+  .page, .brand b, .page-head h1, .brand .logo rect, .pill.run .dot { animation: none !important; }
+  .card, .kpi, .btn.primary, button.primary { transition: none; }
+}
+@media (max-width: 760px) {
+  .card:hover::after { opacity: 0; }
+  .kpi:hover { transform: none; }
+}
+@media (max-width: 560px) { .ratio-row { flex-wrap: wrap; } .ratio-row select { flex: 1 1 100%; } }

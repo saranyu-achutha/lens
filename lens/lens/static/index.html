@@ -18,6 +18,7 @@
   if (m !== "full") document.documentElement.classList.add("side-mini"); })();</script>
 </head>
 <body>
+<div class="aurora" id="aurora" aria-hidden="true"></div>
 <svg class="bg-art" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><defs>
 <linearGradient id="bg-grad" x1="0" y1="0" x2="1" y2="0"><stop offset="0" style="stop-color:var(--accent)"/><stop offset=".55" style="stop-color:var(--accent-2)"/><stop offset="1" style="stop-color:var(--accent-3)"/></linearGradient>
 <linearGradient id="bg-area" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--accent);stop-opacity:.10"/><stop offset="1" style="stop-color:var(--accent);stop-opacity:0"/></linearGradient>
@@ -770,6 +771,7 @@
   <div class="player-foot"><span class="mono muted" id="player-id"></span><span class="spacer"></span><a id="player-open" target="_blank" rel="noopener"></a></div>
 </div>
 <div class="toast" id="toast"></div>
+<script src="/aurora.js"></script>
 <script src="/app.js"></script>
 <script>document.getElementById("year").textContent = new Date().getFullYear();</script>
 </body>
