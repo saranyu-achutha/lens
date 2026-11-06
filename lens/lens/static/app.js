@@ -87,7 +87,11 @@ async function refreshStatus() {
   const sp = $("#sched-pill");
   const sc = STATUS.config, parts = [];
   if (sc.schedule.enabled) parts.push(`pipeline daily ${esc(sc.schedule.time)}`);
-  if (sc.youtube.enabled) parts.push(`YouTube every ${sc.youtube.every_hours} h`);
+  // every_hours: how often the scheduler starts the whole pipeline; fresh_every_hours: how often each video is read
+  if (sc.youtube.enabled) {
+    const fr = +sc.youtube.fresh_every_hours || 24;
+    parts.push(`Pipeline every ${sc.youtube.every_hours} h · YouTube readings ${fr >= 24 ? "daily" : `every ${fr} h (first ${sc.youtube.fresh_days || 7} days)`}`);
+  }
   sp.className = "pill" + (parts.length ? " ok" : "");
   sp.innerHTML = `<span class="dot"></span>${parts.length ? parts.join(" · ") : "Schedule off"}`;
   $("#top-lastok").textContent = STATUS.last_ok ? `Last run ${new Date(STATUS.last_ok).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}` : "";
