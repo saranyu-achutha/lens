@@ -395,7 +395,9 @@
 
   <!-- REPORTS -->
   <section class="page" id="page-reports">
-    <div class="page-head"><div><h1>Reports</h1><p>Each song's readings on two days and the change between them. Only readings taken on those exact days are used, so a missed day shows as “–” instead of a wrong change.</p></div></div>
+    <div class="page-head"><div><h1>Reports</h1><p id="rp-intro">Each song's readings on two days and the change between them.</p></div><span class="spacer"></span>
+      <div class="seg" id="rp-tabs"><button class="small" data-t="songs">Songs: two days</button><button class="small" data-t="ldaily">Labels: daily</button><button class="small" data-t="lmonthly">Labels: monthly</button></div></div>
+    <div id="rp-songs">
     <div class="card" style="margin-bottom:16px"><div class="row" style="flex-wrap:wrap;gap:12px">
       <label class="field" style="margin:0"><span>From</span><select id="rp-from"></select></label>
       <label class="field" style="margin:0"><span>To</span><select id="rp-to"></select></label>
@@ -407,6 +409,27 @@
     <div class="grid g6" id="rp-kpis"></div>
     <div class="card flush" style="margin-top:16px"><div class="table-wrap"><table id="rp-table"></table></div>
       <div class="pager"><span id="rp-count"></span><span class="spacer"></span><button class="small" id="rp-prev">‹ Prev</button><button class="small" id="rp-next">Next ›</button></div></div>
+    </div>
+    <div id="rp-ldaily" style="display:none">
+      <div class="card" style="margin-bottom:16px"><div class="row" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
+        <label class="field" style="margin:0"><span>Month</span><select id="ld-month"></select></label>
+        <label class="field" style="margin:0"><span>Rank labels by</span><select id="ld-by"></select></label>
+        <label class="field" style="margin:0"><span>Day by day for</span><select id="ld-label"></select></label>
+        <span class="spacer"></span><a class="btn" id="ld-csv" href="#" style="background:var(--accent);border-color:var(--accent);color:#fff;padding:7px 14px;text-decoration:none">⬇ Download CSV</a>
+      </div></div>
+      <div class="card flush"><div class="card-head" style="padding:16px 16px 0"><h2 id="ld-rank-title">Labels ranked</h2></div><div class="table-wrap"><table id="ld-rank"></table></div></div>
+      <div class="card flush" style="margin-top:16px"><div class="card-head" style="padding:16px 16px 0"><h2 id="ld-days-title">Day by day</h2><span class="spacer"></span>
+        <span class="muted" style="font-size:12px">⏳ = still coming in (late Spotify counts land on the day they are read)</span></div>
+        <div class="table-wrap" style="max-height:640px"><table id="ld-days"></table></div></div>
+    </div>
+    <div id="rp-lmonthly" style="display:none">
+      <div class="card" style="margin-bottom:16px"><div class="row" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
+        <label class="field" style="margin:0"><span>Rank labels by</span><select id="lm-by"></select></label>
+        <span class="spacer"></span><a class="btn" id="lm-csv" href="#" style="background:var(--accent);border-color:var(--accent);color:#fff;padding:7px 14px;text-decoration:none">⬇ Download CSV</a>
+      </div></div>
+      <div id="lm-months"></div>
+    </div>
+    <div class="card howto" style="margin-top:16px" id="rp-how"></div>
   </section>
 
   <!-- DAILY DATA -->

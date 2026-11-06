@@ -463,10 +463,10 @@ async function loadClient() {
     const sh = d[k];
     $(el + "-card").style.display = sh ? "" : "none";
     if (!sh) return;
-    $(el + "-sub").textContent = `${compact(sh.total)} ${what} made with the official audio of ${fmt(sh.songs)} songs${sh.gain ? ` · +${compact(sh.gain)} in the last day` : ""}`;
+    $(el + "-sub").textContent = `${compact(sh.total)} ${what} made with the official audio of ${fmt(sh.songs)} songs${sh.gain ? ` · ${sh.gain > 0 ? "+" : ""}${compact(sh.gain)} in the last day` : ""}`;
     $(el).innerHTML = sh.top.length ? `<thead><tr><th>#</th><th>Song</th><th class="num">${what} made</th><th class="num">Last day</th></tr></thead><tbody>` +
       sh.top.map((r, i) => `<tr class="click" data-id="${r.id}"><td class="muted num">${i + 1}</td><td><div class="t1">${esc(r.title)}</div></td><td class="num"><b>${compact(r.shorts)}</b></td>
-        <td class="num ${r.gain > 0 ? "delta-up" : ""}">${r.gain ? "+" + compact(r.gain) : "–"}</td></tr>`).join("") + "</tbody>"
+        <td class="num ${r.gain > 0 ? "delta-up" : r.gain < 0 ? "delta-down" : ""}">${r.gain ? (r.gain > 0 ? "+" : "") + compact(r.gain) : "–"}</td></tr>`).join("") + "</tbody>"
       : `<tbody><tr><td class="empty">None made with the songs' official audio yet.</td></tr></tbody>`;
   });
   const day = dayLabel(d.as_of);
@@ -707,7 +707,72 @@ $("#cr-kinds").addEventListener("click", (e) => { const tr = e.target.closest("t
 /* ---------- Reports: readings on two days and the change ---------- */
 const RP = { from: "", to: "", label: "", sort: "yt_views_delta", q: "", offset: 0, limit: 100 };
 const rpParams = (extra = {}) => new URLSearchParams({ from: RP.from, to: RP.to, label: RP.label, sort: RP.sort, q: RP.q, ...extra });
-async function loadReport() {
+/* ---------- Reports → Labels: daily (a month day by day) and monthly (completed months), growth not lifetime totals ---------- */
+const LR = { tab: "songs", month: "", by: "yt", label: "", mby: "yt" };
+const LR_COLS = [["releases", "Releases", null], ["yt", "YouTube views", "youtube"], ["audio", "Audio streams", "audio"], ["sp", "Spotify", "spotify"], ["ytm", "YouTube Music", "ytmusic"], ["js", "JioSaavn", "jiosaavn"]];
+const lrNum = (k, v) => k === "releases" ? fmt(v) : v ? (k === "sp" || k === "ytm" || k === "audio" ? compact1(v) : compact(v)) : '<span class="muted">0</span>';
+const monthName = (m) => new Date(m + "-01T00:00:00Z").toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" });
+function lrHead(by) {
+  return `<tr><th class="num">#</th><th>Label</th>${LR_COLS.map(([k, n]) => `<th class="num"${k === by ? ' style="color:var(--accent)"' : ""}>${n}${k === "releases" ? "" : " gained"}</th>`).join("")}</tr>`;
+}
+function lrRows(rows, by) {
+  const top = Math.max(1, ...rows.map((r) => r[by] || 0));
+  return rows.map((r) => `<tr class="label-row" data-label="${esc(r.label)}" style="cursor:pointer"><td class="num"><b>${r.rank}</b></td><td>${labelTag(r.label)}</td>` +
+    LR_COLS.map(([k]) => `<td class="num">${k === by ? `<span class="share-bar" style="--w:${Math.round((100 * (r[k] || 0)) / top)}%;--c:var(--accent)"><b>${lrNum(k, r[k])}</b></span>` : lrNum(k, r[k])}</td>`).join("") + "</tr>").join("");
+}
+function showReportTab(t) {
+  LR.tab = t;
+  document.querySelectorAll("#rp-tabs button").forEach((b) => b.classList.toggle("on", b.dataset.t === t));
+  $("#rp-songs").style.display = t === "songs" ? "" : "none";
+  $("#rp-ldaily").style.display = t === "ldaily" ? "" : "none";
+  $("#rp-lmonthly").style.display = t === "lmonthly" ? "" : "none";
+  $("#rp-intro").textContent = t === "songs" ? "Each song's readings on two days and the change between them. Only readings taken on those exact days are used, so a missed day shows as “–” instead of a wrong change."
+    : t === "ldaily" ? "Each label's releases and growth day by day for a month (this month by default), labels ranked over the month so far."
+    : "Each completed month: every label's releases and growth over the month, ranked.";
+  $("#rp-how").innerHTML = t === "songs" ? "" : `<b>How to read this.</b> <b>Growth, not lifetime totals:</b> each track's gain is its reading minus its own previous reading, counted on the day of the newer reading.
+    So when a platform is read late (Spotify play counts often arrive a day later), that day shows little or nothing and the next reading carries it; a month's sum is exact.
+    A newly linked track's first reading adds nothing. <b>YouTube views</b> and <b>audio streams</b> (Spotify + YouTube Music + JioSaavn) are counted apart. Releases = songs first uploaded on the labels' YouTube channels that day or month.`;
+  $("#rp-how").style.display = t === "songs" ? "none" : "";
+  if (t === "ldaily") loadLabelDaily(); else if (t === "lmonthly") loadLabelMonthly(); else loadReportSongs();
+}
+document.querySelectorAll("#rp-tabs button").forEach((b) => (b.onclick = () => showReportTab(b.dataset.t)));
+async function loadLabelDaily() {
+  const d = await api(`/api/labels/report?view=daily&month=${encodeURIComponent(LR.month)}&by=${LR.by}`);
+  LR.month = d.month;
+  $("#ld-month").innerHTML = d.months.map((m) => `<option value="${m}"${m === d.month ? " selected" : ""}>${monthName(m)}${m === d.today.slice(0, 7) ? " (this month)" : ""}</option>`).join("");
+  $("#ld-by").innerHTML = Object.entries(d.metrics).map(([k, n]) => `<option value="${k}"${k === d.by ? " selected" : ""}>${esc(n)}</option>`).join("");
+  $("#ld-label").innerHTML = `<option value="">All labels</option>` + d.labels.map((l) => `<option${l === LR.label ? " selected" : ""}>${esc(l)}</option>`).join("");
+  $("#ld-csv").href = `/api/labels/report.csv?view=daily&month=${d.month}&by=${d.by}`;
+  $("#ld-rank-title").textContent = `Labels ranked by ${d.metrics[d.by].toLowerCase()}, ${monthName(d.month)}${d.month === d.today.slice(0, 7) ? " so far" : ""}`;
+  $("#ld-rank").innerHTML = `<thead>${lrHead(d.by)}</thead><tbody>${lrRows(d.ranking, d.by)}</tbody>`;
+  const lab = LR.label;
+  $("#ld-days-title").textContent = `Day by day: ${lab || "all labels"}`;
+  const cells = (r, day) => LR_COLS.map(([k]) => {
+    const late = (k === "sp" || k === "audio") && (day.recent || (day.read.sp != null && day.read.sp < 90));
+    return `<td class="num">${lrNum(k, r[k])}${late ? ` <span title="Spotify counts still coming in: ${day.read.sp ?? 0}% of tracks read that day">⏳</span>` : ""}</td>`; }).join("");
+  const leader = (day) => { const best = d.labels.map((l) => [l, day.labels[l][d.by] || 0]).sort((a, b) => b[1] - a[1])[0]; return best && best[1] ? labelTag(best[0]) : '<span class="muted">–</span>'; };
+  $("#ld-days").innerHTML = `<thead><tr><th>Day</th>${LR_COLS.map(([k, n]) => `<th class="num">${n}${k === "releases" ? "" : " gained"}</th>`).join("")}${lab ? "" : `<th>Top label</th>`}<th class="num">Spotify read</th></tr></thead><tbody>` +
+    d.days.map((day) => `<tr><td><b>${dayLabel(day.day)}</b>${day.recent ? ' <span class="muted" style="font-size:11px">may still change</span>' : ""}</td>${cells(lab ? day.labels[lab] : day.all, day)}${lab ? "" : `<td>${leader(day)}</td>`}
+      <td class="num muted">${day.read.sp == null ? "–" : day.read.sp + "%"}</td></tr>`).join("") + "</tbody>";
+}
+async function loadLabelMonthly() {
+  const d = await api(`/api/labels/report?view=monthly&by=${LR.mby}`);
+  $("#lm-by").innerHTML = Object.entries(d.metrics).map(([k, n]) => `<option value="${k}"${k === d.by ? " selected" : ""}>${esc(n)}</option>`).join("");
+  $("#lm-csv").href = `/api/labels/report.csv?view=monthly&by=${d.by}`;
+  $("#lm-months").innerHTML = d.months.length ? d.months.map((m) => `<div class="card flush" style="margin-bottom:16px"><div class="card-head" style="padding:16px 16px 0"><h2>${monthName(m.month)}</h2><span class="spacer"></span>
+      <span class="muted" style="font-size:12px">${m.days_with_readings ? `readings on ${m.days_with_readings} days · ranked by ${esc(d.metrics[m.ranked_by].toLowerCase())}` : "no readings yet that month (collection began in late October): releases only"}
+      · ${fmt(m.total.releases)} releases${m.total.yt ? ` · +${compact(m.total.yt)} YouTube views · +${compact1(m.total.audio)} audio streams` : ""}</span></div>
+      <div class="table-wrap"><table><thead>${lrHead(m.ranked_by)}</thead><tbody>${lrRows(m.ranking, m.ranked_by)}</tbody></table></div></div>`).join("")
+    : `<div class="card empty">No completed month yet.</div>`;
+}
+["#ld-month", "#ld-by", "#ld-label"].forEach((id) => $(id).addEventListener("change", () => {
+  LR.month = $("#ld-month").value; LR.by = $("#ld-by").value; LR.label = $("#ld-label").value; loadLabelDaily(); }));
+$("#lm-by").addEventListener("change", () => { LR.mby = $("#lm-by").value; loadLabelMonthly(); });
+["#ld-rank", "#lm-months"].forEach((id) => $(id).addEventListener("click", (e) => { const tr = e.target.closest("tr[data-label]"); if (!tr) return;
+  Object.assign(CAT, { label: tr.dataset.label, channel: "", day: "", status: "", offset: 0 }); location.hash = isClient() ? "#catalogue" : "#catalogue"; }));
+
+async function loadReport() { showReportTab(LR.tab); }
+async function loadReportSongs() {
   const d = await api(`/api/report?${rpParams({ offset: RP.offset, limit: RP.limit })}`);
   RP.from = d.from || ""; RP.to = d.to || "";
   const opts = (sel) => d.days.slice().reverse().map((x) => `<option ${x === sel ? "selected" : ""}>${x}</option>`).join("");

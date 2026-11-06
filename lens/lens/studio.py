@@ -39,7 +39,7 @@ PASSWORD = None  # client login: any username with STUDIO_PASSWORD
 DEV_LOGIN = (None, None)  # developer login: DEVELOPER_USERNAME + DEVELOPER_PASSWORD (.env)
 # What the client login may read: its dashboard, platforms, reports, daily data and songs. Everything else
 # (developer pages, raw data, review, runs, settings, docs) and every change (POST) is for the developer login only.
-CLIENT_GET = {"/api/status", "/api/client", "/api/platform", "/api/report", "/api/report.csv", "/api/daily", "/api/daily.csv", "/api/shorts",
+CLIENT_GET = {"/api/status", "/api/client", "/api/platform", "/api/report", "/api/report.csv", "/api/labels/report", "/api/labels/report.csv", "/api/daily", "/api/daily.csv", "/api/shorts",
               "/api/song/compare", "/api/tracks", "/api/track", "/api/search", "/api/insights/song", "/api/meta/detail", "/api/export.csv"}
 
 SORTS = {"song_date": "song_date", "release_date": "release_date", "title": "title", "artists": "artists",
@@ -1013,6 +1013,19 @@ def post_freshness_mark(conn, body):
     else:
         freshness.mark_unavailable(conn, body["item_id"], body["platform"])
     return {"ok": True}
+
+
+def api_label_report(conn, qs):
+    """Reports → Labels: ?view=daily&month=YYYY-MM (a month day by day, default this month) or ?view=monthly (completed
+    months); ?by= ranks the labels (releases, yt, audio, sp, ytm, js)."""
+    from . import label_report
+    by = qs.get("by") if qs.get("by") in label_report.METRICS else "yt"
+    if qs.get("view") == "monthly":
+        return label_report.monthly(conn, by)
+    month = qs.get("month") or None
+    if month:
+        date.fromisoformat(month + "-01")  # ValueError -> 400
+    return label_report.daily(conn, month, by)
 
 
 def api_live(conn, qs):
@@ -2108,7 +2121,7 @@ def fmt_n(n):
 GET = {"/api/coverage": api_coverage, "/api/insights": api_insights, "/api/insights/song": api_insights_song, "/api/ai/status": api_ai_status, "/api/ai/assist": api_ai_assist,
        "/api/meta/top": api_meta_top, "/api/meta/detail": api_meta_detail,
        "/api/merge/suggestions": api_merge_suggestions, "/api/status": api_status, "/api/overview": api_overview, "/api/crawl": api_crawl, "/api/client": api_client, "/api/search": api_search, "/api/dev": api_dev, "/api/tracks": api_tracks,
-       "/api/track": api_track, "/api/platform": api_platform, "/api/report": api_report, "/api/daily": api_daily, "/api/shorts": api_shorts, "/api/system": lambda conn, qs: sysstats.api(conn), "/api/alerts": api_alerts, "/api/live": api_live, "/api/freshness": api_freshness, "/api/charts": lambda conn, qs: alerts.charts_status(conn),
+       "/api/track": api_track, "/api/platform": api_platform, "/api/report": api_report, "/api/daily": api_daily, "/api/shorts": api_shorts, "/api/system": lambda conn, qs: sysstats.api(conn), "/api/alerts": api_alerts, "/api/live": api_live, "/api/labels/report": api_label_report, "/api/freshness": api_freshness, "/api/charts": lambda conn, qs: alerts.charts_status(conn),
        "/api/collection": lambda conn, qs: collection.estimate(conn, overrides={k: qs[k] for k in collection.CHOICES if qs.get(k)}), "/api/items": api_items, "/api/song/compare": api_song_compare, "/api/items/history": api_item_history, "/api/runs": api_runs, "/api/seeds": api_seeds,
        "/api/artist_search": api_artist_search, "/api/health": api_health, "/api/datasets": api_datasets,
        "/api/datasets/view": api_dataset_view, "/api/raw": api_raw, "/api/raw/item": api_raw_item,
@@ -2257,6 +2270,15 @@ class Handler(BaseHTTPRequestHandler):
             conn.close()
             return self._send(200, text.encode("utf-8-sig"), "text/csv; charset=utf-8",
                               {"Content-Disposition": f'attachment; filename="market_lens_report_{frm}_to_{to}.csv"'})
+        if url.path == "/api/labels/report.csv":
+            from . import label_report
+            conn = db.connect(str(config.DB_FILE))
+            try:
+                text, name = label_report.csv_text(conn, qs.get("view") or "daily", qs.get("month") or None, qs.get("by") or "yt")
+            finally:
+                conn.close()
+            return self._send(200, text.encode("utf-8-sig"), "text/csv; charset=utf-8",
+                              {"Content-Disposition": f'attachment; filename="market_lens_{name}.csv"'})
         if url.path in ("/api/datasets/download", "/api/datasets/archived"):  # CSV built in memory on request; nothing kept on disk
             conn = db.connect(str(config.DB_FILE))
             try:
