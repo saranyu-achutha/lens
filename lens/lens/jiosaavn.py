@@ -263,6 +263,8 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
                 continue
             if pc in (None, ""):  # JioSaavn hides the count of songs with few plays: nothing to read today
                 conn.execute("INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)", (f"js_hidden:{iid}", today))
+                from . import freshness
+                freshness.mark(conn, iid, "plays", "hidden", ts)  # read, no number: counts for the 24-hour check
                 hidden += 1
                 continue
             # song.getDetails has release_date / year at the top level (search results keep them under more_info)

@@ -6,7 +6,7 @@ import time
 import traceback
 from datetime import datetime, timedelta
 
-from . import alerts, cleanup, config, db, pause, spotify_labels, spotify_browser_search, discover_spotify, health, instagram_audio, jiosaavn, shorts_use, song_daily, songs, spotify_plays, sync_youtube, sysstats, youtube_music
+from . import alerts, cleanup, config, db, freshness, pause, spotify_labels, spotify_browser_search, discover_spotify, health, instagram_audio, jiosaavn, shorts_use, song_daily, songs, spotify_plays, sync_youtube, sysstats, youtube_music
 from .spotify import SpotifyError
 from .youtube import YouTubeError
 
@@ -264,7 +264,16 @@ def _count(sql, args=()):
         conn.close()
 
 
-BROWSER_JOBS = ("spotify_plays", "instagram", "spotify_browser_search")  # CPU-heavy headless-browser work, run in its own lane beside the API jobs
+BROWSER_JOBS = ("spotify_plays", "instagram", "spotify_browser_search")
+
+
+def _browser_ok():
+    """True when this machine has the headless browser the browser jobs need."""
+    try:
+        spotify_plays.find_chrome()
+        return True
+    except SystemExit:
+        return False  # CPU-heavy headless-browser work, run in its own lane beside the API jobs
 
 
 def _due_work(cfg, tried, browser=True, api=True, paused=None):
@@ -274,6 +283,16 @@ def _due_work(cfg, tried, browser=True, api=True, paused=None):
     today = datetime.now().date().isoformat()
     now = time.time()
     ago = lambda job: -1 if pause.covers(paused, job) else now - tried.get(job, 0)  # a paused job is never due
+    # 0. Readings within 24 hours (user rule, 2026-11-06): a platform with items of the songs in scope not read for
+    #    freshness.hours gets its job first, at most every freshness.retry_minutes, until they are read (failed runs retried).
+    try:
+        conn = db.connect(str(config.DB_FILE))
+        wd = freshness.watchdog_job(conn, cfg, tried, paused, browser=browser, api=api)
+        conn.close()
+        if wd and (wd[0] not in BROWSER_JOBS or _browser_ok()):
+            return wd
+    except Exception as e:  # the watchdog must never stop the worker
+        print(f"worker: freshness watchdog skipped ({e})")
     in_window = "t.source='youtube' AND t.first_published >= ? AND t.old_release IS NULL AND substr(t.first_published,1,10) <= ?"
     # 1. Instagram audio pages: linked audios without today's Reels count, at most every 3 hours. Checked before the
     #    Spotify plays so a long plays backlog can't keep it waiting all day (a run is under an hour).

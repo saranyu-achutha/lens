@@ -788,6 +788,9 @@ def deezer_readings(conn, cfg, since, ts, log, check, run_id):
         d = json.loads(body)
         if d.get("error") or not d.get("id"):
             conn.execute("INSERT OR REPLACE INTO state (key, value) VALUES (?,?)", (f"deezer_missing:{r['isrc']}", today))
+            from . import freshness
+            for (iid,) in conn.execute("SELECT id FROM platform_item WHERE platform='deezer' AND track_id=?", (r["id"],)).fetchall():
+                freshness.mark(conn, iid, "rank", "gone", ts)  # Deezer no longer has the ISRC: read, nothing to count
             miss += 1
             continue
         conn.execute(

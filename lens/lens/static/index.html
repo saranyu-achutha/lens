@@ -43,6 +43,7 @@
   <a class="nav dev-only" href="#review"><svg viewBox="0 0 24 24"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/></svg>Review<span class="nav-badge" id="review-badge" style="display:none"></span></a>
   <a class="nav dev-only" href="#dev"><svg viewBox="0 0 24 24"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/></svg>Developer</a>
   <a class="nav dev-only" href="#status"><svg viewBox="0 0 24 24"><path d="M3 12h4l2-5 4 10 2-5h6"/><circle cx="12" cy="12" r="10" stroke-opacity=".35"/></svg>Status</a>
+  <a class="nav dev-only" href="#missed"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Missed readings<span class="pill bad" id="nav-missed" style="margin-left:auto;padding:0 6px;display:none"></span></a>
   <a class="nav dev-only" href="#crawl"><svg viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>Crawl stats</a>
   <a class="nav dev-only" href="#schedule"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Collection schedule</a>
   <a class="nav dev-only" href="#charts"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Spotify chart</a>
@@ -216,6 +217,16 @@
       <div class="card flush" id="cr-health-card"><h2>API health checks</h2><div class="table-wrap"><table id="cr-health-table"></table></div></div>
     </div>
     <div class="card flush" style="margin-top:16px"><div class="card-head"><h2>Failure log</h2><span class="spacer"></span><span id="cr-kind-chip"></span></div><div class="table-wrap" style="max-height:520px"><table id="cr-failures"></table></div></div>
+  </section>
+
+  <section class="page" id="page-missed">
+    <div class="page-head"><div><h1>Missed readings</h1><p id="ms-sub">Songs not read within 24 hours on a platform they are linked to.</p></div>
+      <span class="spacer"></span><span class="muted" id="ms-at" style="font-size:12.5px"></span><button class="small" id="ms-refresh">↻ Refresh</button></div>
+    <div class="grid g6" id="ms-kpis"></div>
+    <div class="card flush" style="margin-top:16px"><h2>Reading jobs: last run</h2><div class="table-wrap"><table id="ms-runs"></table></div></div>
+    <div class="card flush" style="margin-top:16px"><div class="card-head"><h2 id="ms-title">Not read within 24 hours</h2><span class="spacer"></span>
+      <select id="ms-platform" style="width:auto;min-width:220px"></select></div>
+      <div class="table-wrap" style="max-height:640px"><table id="ms-table"></table></div></div>
   </section>
 
   <!-- CATALOGUE -->

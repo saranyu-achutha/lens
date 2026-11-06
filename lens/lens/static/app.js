@@ -32,7 +32,7 @@ function toast(msg, bad = false) {
 let STATUS = null;
 
 /* ---------- Router ---------- */
-const PAGES = ["overview", "dashboard", "dev", "status", "crawl", "apis", "charts", "schedule", "platforms", "reports", "daily", "pdata", "catalogue", "explore", "insights", "review", "runs", "outputs", "sources", "settings"];
+const PAGES = ["overview", "dashboard", "dev", "status", "missed", "crawl", "apis", "charts", "schedule", "platforms", "reports", "daily", "pdata", "catalogue", "explore", "insights", "review", "runs", "outputs", "sources", "settings"];
 // The client login sees only these pages (the server refuses everything else for it).
 const CLIENT_PAGES = ["dashboard", "platforms", "reports", "daily", "catalogue"];
 // A developer can switch to "Client view" to see exactly what the client sees (menu, pages, header); not remembered.
@@ -46,7 +46,7 @@ function route() {
   const sec = p === "apis" ? "crawl" : p;  // Crawl stats and API stats share one page layout
   document.querySelectorAll("section.page").forEach((s) => s.classList.toggle("active", s.id === `page-${sec}`));
   document.querySelectorAll("a.nav").forEach((a) => a.classList.toggle("active", a.getAttribute("href") === `#${p}`));
-  ({ overview: loadOverview, dashboard: loadClient, dev: loadDev, crawl: loadCrawl, apis: loadCrawl, charts: loadCharts, schedule: loadSchedule, status: loadStatus, platforms: loadPlatform, reports: loadReport, daily: loadDaily, pdata: loadPData, catalogue: loadCatalogue, explore: loadExplore, insights: loadInsights, review: loadReview, runs: loadRuns, outputs: loadOutputs, sources: loadSources, settings: loadSettings })[p]();
+  ({ overview: loadOverview, dashboard: loadClient, dev: loadDev, crawl: loadCrawl, apis: loadCrawl, charts: loadCharts, schedule: loadSchedule, status: loadStatus, missed: loadMissed, platforms: loadPlatform, reports: loadReport, daily: loadDaily, pdata: loadPData, catalogue: loadCatalogue, explore: loadExplore, insights: loadInsights, review: loadReview, runs: loadRuns, outputs: loadOutputs, sources: loadSources, settings: loadSettings })[p]();
   const track = new URLSearchParams(location.hash.split("?")[1] || "").get("track");
   if (track) openTrack(track);
   const meta = new URLSearchParams(location.hash.split("?")[1] || "").get("meta");  // e.g. #explore?meta=singer:arijit singh
@@ -2212,3 +2212,39 @@ async function loadStatus() {
   stTimer = setTimeout(() => { if (location.hash.startsWith("#status")) loadStatus(); }, 30000);
 }
 $("#st-refresh").onclick = () => loadStatus();
+
+
+// ---- Missed readings: items of the songs in scope not read within 24 hours (lens/freshness.py), retried by the watchdog
+let msTimer, MS_PLAT = "";
+const istTime = (iso) => iso ? new Date(iso).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true }) + " IST" : "never";
+async function loadMissed() {
+  clearTimeout(msTimer);
+  const d = await api("/api/freshness" + (MS_PLAT ? `?platform=${encodeURIComponent(MS_PLAT)}` : ""));
+  const s = d.settings, plats = Object.keys(d.names);
+  $("#ms-sub").textContent = `Songs first uploaded from ${s.since} (not released before the period), on every platform they are linked to: an item is missed when it was last read more than ${s.hours} hours ago, or linked that long ago and never read. A platform with missed items gets its job started again every ${s.retry_minutes} minutes until they are read.`;
+  $("#ms-at").textContent = `updated ${istTime(d.at)}`;
+  $("#ms-kpis").innerHTML = plats.map((p) => { const c = d.counts[p] || { total: 0, missed: 0 };
+    return `<div class="card kpi click" data-p="${p}" style="--kpi-c:${c.missed ? "var(--bad, #e5484d)" : "var(--good, #30a46c)"}"><div class="label">${esc(d.names[p])}</div>
+      <div class="value">${fmt(c.missed)}</div><div class="sub">missed of ${fmt(c.total)} items${d.stuck?.[p] != null ? ' · <b>stuck: its job does not read them</b>' : ""}</div></div>`; }).join("");
+  document.querySelectorAll("#ms-kpis .kpi").forEach((k) => (k.onclick = () => { MS_PLAT = MS_PLAT === k.dataset.p ? "" : k.dataset.p; $("#ms-platform").value = MS_PLAT; loadMissed(); }));
+  $("#ms-runs").innerHTML = `<thead><tr><th>Platform</th><th>Job</th><th>Last run</th><th>Status</th><th>Finished</th><th>Error / stop reason</th></tr></thead><tbody>` +
+    plats.map((p) => { const r = d.runs[p]; return `<tr><td>${esc(d.names[p])}</td><td>${esc(r?.job || "")}</td><td>${istTime(r?.started_at)}</td>
+      <td>${r ? `<span class="pill ${r.status === "ok" ? "good" : r.status === "running" ? "" : "warn"}">${esc(r.status)}</span>` : "–"}</td>
+      <td>${r?.finished_at ? istTime(r.finished_at) : ""}</td><td style="font-size:12.5px">${esc(r?.error || "")}</td></tr>`; }).join("") + "</tbody>";
+  const sel = $("#ms-platform");
+  sel.innerHTML = `<option value="">All platforms (${fmt(Object.values(d.counts).reduce((a, c) => a + c.missed, 0))})</option>` +
+    plats.map((p) => `<option value="${p}">${esc(d.names[p])} (${fmt((d.counts[p] || {}).missed || 0)})</option>`).join("");
+  sel.value = MS_PLAT;
+  sel.onchange = () => { MS_PLAT = sel.value; loadMissed(); };
+  $("#ms-title").textContent = `Not read within ${s.hours} hours: ${fmt(d.missed_total)}${d.missed_total > d.missed.length ? ` (first ${fmt(d.missed.length)} shown)` : ""}`;
+  $("#ms-table").innerHTML = d.missed.length ? `<thead><tr><th>Song</th><th>First upload</th><th>Label</th><th>Platform</th><th>Item</th><th>Last read</th><th class="num">Hours since</th></tr></thead><tbody>` +
+    d.missed.map((r) => `<tr class="click" data-id="${r.song_id}"><td>${esc(r.song)}</td><td>${esc(r.first_upload)}</td><td>${esc(r.label)}</td>
+      <td>${esc(d.names[r.platform])}</td><td style="font-size:12.5px">${esc(r.item || "")}</td><td>${r.last_read ? istTime(r.last_read) : '<span class="pill warn">never</span>'}</td>
+      <td class="num">${r.hours_since == null ? "–" : fmt(r.hours_since)}</td></tr>`).join("") + "</tbody>"
+    : `<tbody><tr><td class="muted" style="padding:16px">Every item was read within ${s.hours} hours.</td></tr></tbody>`;
+  document.querySelectorAll("#ms-table tr.click").forEach((tr) => (tr.onclick = () => openTrack(tr.dataset.id)));
+  const total = Object.values(d.counts).reduce((a, c) => a + c.missed, 0), b = $("#nav-missed");
+  if (b) { b.textContent = fmt(total); b.style.display = total ? "" : "none"; }
+  msTimer = setTimeout(() => { if (location.hash.startsWith("#missed")) loadMissed(); }, 60000);
+}
+$("#ms-refresh").onclick = () => loadMissed();

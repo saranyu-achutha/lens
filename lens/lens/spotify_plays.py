@@ -322,6 +322,12 @@ def import_file(conn, path, log=print):
                         WHERE platform='spotify' AND platform_id=?""", (meta.get("release_date"), dur, tid))
     # Tracks found under 1,000 plays (Spotify hides the count): drop any value stored for them that day,
     # so an earlier wrong reading cannot stay.
+    # reads that gave no number still count as read (the 24-hour check, lens/freshness.py): hidden counts, pages gone
+    from . import freshness
+    for tid, outcome in [(t, "hidden") for t in res.get("hidden", [])] + \
+            [(t, "gone") for t, why in (res.get("missing") or {}).items() if not str(why).startswith("page error")]:
+        for (item_id,) in conn.execute("SELECT id FROM platform_item WHERE platform='spotify' AND platform_id=?", (tid,)).fetchall():
+            freshness.mark(conn, item_id, "plays", outcome, ts)
     gone = 0
     for tid in res.get("hidden", []):
         gone += conn.execute("""DELETE FROM snapshot WHERE metric='plays' AND capture_date=? AND platform_item_id IN
@@ -343,7 +349,10 @@ def due_ids(conn, day=None):
         if f.exists():
             r = json.loads(f.read_text())
             skip |= set(r.get("hidden", [])) | {t for t, why in r.get("missing", {}).items() if not str(why).startswith("page error")}
-    return [i for i in export_ids(conn) if i not in read and i not in skip]
+    last = dict(conn.execute("""SELECT p.platform_id, max(s.captured_at) FROM platform_item p JOIN snapshot s ON s.platform_item_id=p.id
+                                AND s.metric='plays' WHERE p.platform='spotify' GROUP BY 1""").fetchall())
+    # oldest read first (never read before everything), so a long day still reads every track within 24 hours
+    return sorted((i for i in export_ids(conn) if i not in read and i not in skip), key=lambda i: last.get(i) or "")
 
 
 def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, **_):
