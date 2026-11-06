@@ -47,7 +47,12 @@ console_post() {  # POST JSON to the Console as the developer; prints the reply 
 PAUSED_BY_US=0
 resume_jobs() {  # end the deploy's pause (a pause also ends by itself after 20 minutes)
     if [[ $PAUSED_BY_US -eq 1 ]]; then
-        if console_post /api/jobs/resume '{"reason": "deploy finished"}' | grep -q '"resumed"'; then
+        local ok=0
+        for _ in $(seq 1 12); do  # the Console can take a while to come back after the restart: try for up to a minute
+            if console_post /api/jobs/resume '{"reason": "deploy finished"}' | grep -q '"resumed"'; then ok=1; break; fi
+            sleep 5
+        done
+        if [[ $ok -eq 1 ]]; then
             echo "Jobs resumed: paused work continues where it stopped"
         else
             echo "NOTE: could not resume jobs; the deploy pause ends by itself within 20 minutes"
