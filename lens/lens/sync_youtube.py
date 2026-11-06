@@ -104,7 +104,15 @@ def take_readings(conn, yt, ycfg, channels, pool_start, ts, log, check, flush_ra
     with ThreadPoolExecutor(READ_WORKERS) as pool:  # API calls in parallel; database writes stay on this thread
         for c in range(0, len(batches), READ_WORKERS * 2):
             check()
-            for v in (v for vids in pool.map(yt.videos, batches[c:c + READ_WORKERS * 2]) for v in vids):
+            chunk = batches[c:c + READ_WORKERS * 2]
+            got = [v for vids in pool.map(yt.videos, chunk) for v in vids]
+            back = {v["id"] for v in got}
+            from . import freshness
+            for vid in (x for b in chunk for x in b if x not in back):  # removed or private: nothing to read
+                row = conn.execute("SELECT id FROM platform_item WHERE platform='youtube' AND platform_id=?", (vid,)).fetchone()
+                if row:
+                    freshness.mark(conn, row["id"], "views", "gone", ts)
+            for v in got:
                 item = conn.execute("SELECT id, title FROM platform_item WHERE platform='youtube' AND platform_id=?",
                                     (v["id"],)).fetchone()
                 if not item:

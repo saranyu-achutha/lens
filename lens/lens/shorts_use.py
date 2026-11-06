@@ -157,7 +157,9 @@ def due(conn, cfg, today):
           AND p.review_state IN ('auto','approved','song') AND p.channel IN ({",".join("?" * len(channels))})
           AND NOT EXISTS (SELECT 1 FROM sound_use u WHERE u.platform_item_id=p.id AND u.day=?)
           AND coalesce((SELECT value FROM state WHERE key='shorts_nosound:' || p.id), '') <= date(?, '-{NO_SOUND_RECHECK_DAYS} day')
-        ORDER BY t.first_published DESC""", (since, until, *OFFICIAL_TYPES, *channels, today, today)).fetchall()
+        -- oldest read first (never read before everything), so a capped run always takes what is closest to 24 hours
+        ORDER BY coalesce((SELECT max(u.captured_at) FROM sound_use u WHERE u.platform_item_id=p.id), '') ASC,
+                 t.first_published DESC""", (since, until, *OFFICIAL_TYPES, *channels, today, today)).fetchall()
 
 
 def no_sound_count(conn, today):

@@ -221,12 +221,18 @@
 
   <section class="page" id="page-missed">
     <div class="page-head"><div><h1>Missed readings</h1><p id="ms-sub">Songs not read within 24 hours on a platform they are linked to.</p></div>
-      <span class="spacer"></span><span class="muted" id="ms-at" style="font-size:12.5px"></span><button class="small" id="ms-refresh">↻ Refresh</button></div>
+      <span class="spacer"></span><span class="muted" id="ms-at" style="font-size:12.5px"></span>
+      <button class="small primary" id="ms-retry-all">Retry all now</button><button class="small" id="ms-refresh">↻ Refresh</button></div>
+    <div class="muted" id="ms-msg" style="font-size:12.5px;margin:-6px 0 10px"></div>
     <div class="grid g6" id="ms-kpis"></div>
     <div class="card flush" style="margin-top:16px"><h2>Reading jobs: last run</h2><div class="table-wrap"><table id="ms-runs"></table></div></div>
     <div class="card flush" style="margin-top:16px"><div class="card-head"><h2 id="ms-title">Not read within 24 hours</h2><span class="spacer"></span>
       <select id="ms-platform" style="width:auto;min-width:220px"></select></div>
       <div class="table-wrap" style="max-height:640px"><table id="ms-table"></table></div></div>
+    <div class="card flush" style="margin-top:16px"><h2 id="ms-marked-title">Could not be read (last 7 days)</h2>
+      <p class="muted" style="padding:0 16px;font-size:12.5px">Removed or private videos, Spotify pages gone, ISRCs Deezer no longer has (found by the jobs, which keep trying every day),
+        and items marked unavailable here (not shown as missed for 7 days, then checked again). Clear a mark to show the item as missed again.</p>
+      <div class="table-wrap" style="max-height:420px"><table id="ms-marked"></table></div></div>
   </section>
 
   <!-- CATALOGUE -->

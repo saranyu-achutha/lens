@@ -2229,7 +2229,9 @@ async function loadMissed() {
   $("#ms-at").textContent = `updated ${istTime(d.at)}`;
   $("#ms-kpis").innerHTML = plats.map((p) => { const c = d.counts[p] || { total: 0, missed: 0 };
     return `<div class="card kpi click" data-p="${p}" style="--kpi-c:${c.missed ? "var(--bad, #e5484d)" : "var(--good, #30a46c)"}"><div class="label">${esc(d.names[p])}</div>
-      <div class="value">${fmt(c.missed)}</div><div class="sub">missed of ${fmt(c.total)} items${d.stuck?.[p] != null ? ' · <b>stuck: its job does not read them</b>' : ""}</div></div>`; }).join("");
+      <div class="value">${fmt(c.missed)}</div><div class="sub">missed of ${fmt(c.total)} items${d.stuck?.[p] != null ? ' · <b>stuck: its job does not read them</b>' : ""}</div>
+      ${c.missed ? `<button class="small ms-retry" data-p="${p}" style="margin-top:8px">Retry now</button>` : ""}</div>`; }).join("");
+  document.querySelectorAll(".ms-retry").forEach((b) => (b.onclick = (e) => { e.stopPropagation(); msRetry(b.dataset.p); }));
   document.querySelectorAll("#ms-kpis .kpi").forEach((k) => (k.onclick = () => { MS_PLAT = MS_PLAT === k.dataset.p ? "" : k.dataset.p; $("#ms-platform").value = MS_PLAT; loadMissed(); }));
   $("#ms-runs").innerHTML = `<thead><tr><th>Platform</th><th>Job</th><th>Last run</th><th>Status</th><th>Finished</th><th>Error / stop reason</th></tr></thead><tbody>` +
     plats.map((p) => { const r = d.runs[p]; return `<tr><td>${esc(d.names[p])}</td><td>${esc(r?.job || "")}</td><td>${istTime(r?.started_at)}</td>
@@ -2241,14 +2243,34 @@ async function loadMissed() {
   sel.value = MS_PLAT;
   sel.onchange = () => { MS_PLAT = sel.value; loadMissed(); };
   $("#ms-title").textContent = `Not read within ${s.hours} hours: ${fmt(d.missed_total)}${d.missed_total > d.missed.length ? ` (first ${fmt(d.missed.length)} shown)` : ""}`;
-  $("#ms-table").innerHTML = d.missed.length ? `<thead><tr><th>Song</th><th>First upload</th><th>Label</th><th>Platform</th><th>Item</th><th>Last read</th><th class="num">Hours since</th></tr></thead><tbody>` +
+  $("#ms-table").innerHTML = d.missed.length ? `<thead><tr><th>Song</th><th>First upload</th><th>Label</th><th>Platform</th><th>Item</th><th>Last read</th><th class="num">Hours since</th><th></th></tr></thead><tbody>` +
     d.missed.map((r) => `<tr class="click" data-id="${r.song_id}"><td>${esc(r.song)}</td><td>${esc(r.first_upload)}</td><td>${esc(r.label)}</td>
       <td>${esc(d.names[r.platform])}</td><td style="font-size:12.5px">${esc(r.item || "")}</td><td>${r.last_read ? istTime(r.last_read) : '<span class="pill warn">never</span>'}</td>
-      <td class="num">${r.hours_since == null ? "–" : fmt(r.hours_since)}</td></tr>`).join("") + "</tbody>"
+      <td class="num">${r.hours_since == null ? "–" : fmt(r.hours_since)}</td>
+      <td><button class="small ms-mark" data-id="${r.item_id}" data-p="${r.platform}" title="Cannot be read (e.g. removed): not shown as missed for 7 days">Mark unavailable</button></td></tr>`).join("") + "</tbody>"
     : `<tbody><tr><td class="muted" style="padding:16px">Every item was read within ${s.hours} hours.</td></tr></tbody>`;
   document.querySelectorAll("#ms-table tr.click").forEach((tr) => (tr.onclick = () => openTrack(tr.dataset.id)));
+  document.querySelectorAll(".ms-mark").forEach((b) => (b.onclick = async (e) => {
+    e.stopPropagation(); b.disabled = true;
+    await api("/api/freshness/mark", { item_id: +b.dataset.id, platform: b.dataset.p }); loadMissed(); }));
+  const why = { gone: "not found (removed, private or gone)", unavailable: "marked unavailable here" };
+  $("#ms-marked-title").textContent = `Could not be read (last 7 days): ${fmt(d.marked.length)}`;
+  $("#ms-marked").innerHTML = d.marked.length ? `<thead><tr><th>Song</th><th>First upload</th><th>Label</th><th>Platform</th><th>Item</th><th>Why</th><th>When</th><th></th></tr></thead><tbody>` +
+    d.marked.map((r) => `<tr><td>${esc(r.song)}</td><td>${esc(r.first_upload)}</td><td>${esc(r.label)}</td><td>${esc(d.names[r.platform] || r.platform)}</td>
+      <td style="font-size:12.5px">${esc(r.item || "")}</td><td>${esc(why[r.outcome] || r.outcome)}</td><td>${istTime(r.at)}</td>
+      <td><button class="small ms-clear" data-id="${r.item_id}" data-m="${r.metric}">Clear</button></td></tr>`).join("") + "</tbody>"
+    : `<tbody><tr><td class="muted" style="padding:16px">Nothing.</td></tr></tbody>`;
+  document.querySelectorAll(".ms-clear").forEach((b) => (b.onclick = async () => {
+    b.disabled = true; await api("/api/freshness/mark", { item_id: +b.dataset.id, metric: b.dataset.m, clear: true }); loadMissed(); }));
   const total = Object.values(d.counts).reduce((a, c) => a + c.missed, 0), b = $("#nav-missed");
   if (b) { b.textContent = fmt(total); b.style.display = total ? "" : "none"; }
   msTimer = setTimeout(() => { if (location.hash.startsWith("#missed")) loadMissed(); }, 60000);
 }
 $("#ms-refresh").onclick = () => loadMissed();
+async function msRetry(platform) {
+  const r = await api("/api/freshness/retry", platform ? { platform } : {});
+  const st = r.started.map((x) => x.job).join(", "), busy = r.busy.map((x) => x.job).join(", ");
+  $("#ms-msg").textContent = (st ? `Started: ${st}. ` : "") + (busy ? `Busy, the watchdog starts it when its lane is free: ${busy}.` : "") || "Nothing missed to retry.";
+  setTimeout(loadMissed, 3000);
+}
+$("#ms-retry-all").onclick = () => msRetry("");

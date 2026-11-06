@@ -978,7 +978,37 @@ def api_freshness(conn, qs):
     rows = freshness.missed(conn, cfg, plat or None)
     return {"settings": freshness.settings(cfg), "counts": freshness.counts(conn, cfg), "names": freshness.NAMES,
             "runs": freshness.last_runs(conn), "stuck": freshness.stuck(), "missed": rows[:3000], "missed_total": len(rows),
+            "marked": freshness.marked(conn, cfg),
             "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+
+
+def post_freshness_retry(conn, body):
+    """Missed readings page: start the reading job of a platform (or of every platform with missed items) now."""
+    from . import freshness
+    plats = [body["platform"]] if body.get("platform") else \
+        [p for p, c in freshness.counts(conn, config.load()).items() if c["missed"]]
+    started, busy = [], []
+    for p in plats:
+        if p not in freshness.PLATFORMS:
+            raise ValueError("unknown platform")
+        job = freshness.PLATFORMS[p][1]
+        if job in [x["job"] for x in started]:
+            continue
+        mgr = BROWSER if job in jobs.BROWSER_JOBS else MANAGER
+        try:
+            started.append({"platform": p, "job": job, "run_id": mgr.start(job, trigger="manual")})
+        except RuntimeError as e:  # its lane is busy (or the job is paused): the watchdog starts it when the lane is free
+            busy.append({"platform": p, "job": job, "why": str(e)})
+    return {"started": started, "busy": busy}
+
+
+def post_freshness_mark(conn, body):
+    from . import freshness
+    if body.get("clear"):
+        freshness.clear_mark(conn, body["item_id"], body["metric"])
+    else:
+        freshness.mark_unavailable(conn, body["item_id"], body["platform"])
+    return {"ok": True}
 
 
 def api_live(conn, qs):
@@ -2065,7 +2095,7 @@ POST = {"/api/config": post_config, "/api/secrets": post_secrets, "/api/test/spo
         # Live Claude endpoints (lens/ai.py) are switched off until the API integration: add
         # "/api/ai/explain": post_ai_explain, "/api/ai/ask": post_ai_ask here to enable them.
         "/api/merge/apply": post_merge_apply, "/api/merge/reject": post_merge_reject, "/api/review/undo": post_undo,
-        "/api/jobs/pause": post_jobs_pause, "/api/jobs/resume": post_jobs_resume}
+        "/api/jobs/pause": post_jobs_pause, "/api/freshness/retry": post_freshness_retry, "/api/freshness/mark": post_freshness_mark, "/api/jobs/resume": post_jobs_resume}
 
 
 # Keep the Console out of search engines: robots.txt (no crawling), plus a noindex header on every response.

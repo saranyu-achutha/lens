@@ -1,4 +1,4 @@
-"""Readings within 24 hours (user rule, 2026-11-06): every song first uploaded from freshness.since (2026-09-17) on, not
+"""Readings within 24 hours (user rule, 2026-11-06): every song of the period (from 2026-07-01, or freshness.since), not
 released before the period, is read on every platform it is linked to at least once in any 24 hours: YouTube views,
 likes and comments, Spotify plays, JioSaavn plays, YouTube Music plays, Deezer rank, Shorts and Reels counts.
 
@@ -36,6 +36,8 @@ PLATFORMS = {
 }
 _HIST = {}  # platform -> (missed items when the watchdog last started its job, runs in a row that did not reduce them)
 STUCK_AFTER, STUCK_MINUTES = 3, 180  # after 3 runs that read none of them, try every 3 hours instead of every 30 minutes
+HOLD_DAYS = 7      # "Mark unavailable" on the page: not shown as missed for 7 days (then checked again)
+NOSOUND_DAYS = 7   # shorts_use.NO_SOUND_RECHECK_DAYS
 NAMES = {"youtube": "YouTube (views, likes, comments)", "spotify": "Spotify plays", "jiosaavn": "JioSaavn plays",
          "ytmusic": "YouTube Music plays", "deezer": "Deezer rank", "shorts": "YouTube Shorts", "instagram": "Instagram Reels"}
 
@@ -45,8 +47,9 @@ def ensure(conn):
 
 
 def settings(cfg=None):
-    f = (cfg or config.load()).get("freshness") or {}
-    return {"since": f.get("since", "2026-09-17"), "hours": float(f.get("hours", 24)),
+    f = (cfg or config.load()).get("freshness") or {}  # since: the period start (2026-07-01) unless set here
+    cfg = cfg or config.load()
+    return {"since": f.get("since") or config.window(cfg)[0], "hours": float(f.get("hours", 24)),
             "retry_minutes": float(f.get("retry_minutes", 30)), "watchdog": f.get("watchdog", True)}
 
 
@@ -61,7 +64,8 @@ def mark(conn, item_id, metric, outcome, at=None):
 def _items_sql():
     """Every item to read of the songs in scope, with its last read: a reading, or a read that gave no number (read_mark,
     JioSaavn's hidden counts, Deezer's ISRC not found, an upload without a sound page)."""
-    mk = lambda metric: f"coalesce((SELECT m.read_at FROM read_mark m WHERE m.platform_item_id=p.id AND m.metric='{metric}'), '')"
+    mk = lambda metric: f"""coalesce((SELECT CASE WHEN m.outcome='unavailable' THEN strftime('%Y-%m-%dT%H:%M:%S+00:00', m.read_at, '+{HOLD_DAYS} days')
+                                                   ELSE m.read_at END FROM read_mark m WHERE m.platform_item_id=p.id AND m.metric='{metric}'), '')"""
     snap = lambda metric: f"coalesce((SELECT max(s.captured_at) FROM snapshot s WHERE s.platform_item_id=p.id AND s.metric='{metric}'), '')"
     day = lambda key: f"coalesce((SELECT value || 'T00:00:00+00:00' FROM state WHERE key={key}), '')"
     parts = [
@@ -80,12 +84,13 @@ def _items_sql():
             GROUP BY p.track_id""",
         # Shorts: label uploads whose official sound has been counted before (an upload without a sound page counts as read)
         f"""SELECT 'shorts', p.id, p.track_id, p.title, p.first_seen_at,
-                   max(coalesce((SELECT max(u.captured_at) FROM sound_use u WHERE u.platform_item_id=p.id AND u.platform='youtube'), ''),
-                       {day("'shorts_nosound:' || p.id")})
+                   max(coalesce((SELECT max(u.captured_at) FROM sound_use u WHERE u.platform_item_id=p.id AND u.platform='youtube'), ''), {mk('shorts')})
             FROM platform_item p WHERE p.platform='youtube' AND p.review_state IN ('auto','approved','song')
-              AND EXISTS (SELECT 1 FROM sound_use u WHERE u.platform_item_id=p.id AND u.platform='youtube' AND u.official=1)""",
-        """SELECT 'instagram', p.id, p.track_id, p.title, p.first_seen_at,
-                  coalesce((SELECT max(u.captured_at) FROM sound_use u WHERE u.platform_item_id=p.id AND u.platform='instagram'), '')
+              AND EXISTS (SELECT 1 FROM sound_use u WHERE u.platform_item_id=p.id AND u.platform='youtube' AND u.official=1)
+              -- no sound page found: nothing to count until the Shorts job's weekly recheck
+              AND coalesce((SELECT value FROM state WHERE key='shorts_nosound:' || p.id), '') <= date('now', '-{NOSOUND_DAYS} day')""",
+        f"""SELECT 'instagram', p.id, p.track_id, p.title, p.first_seen_at,
+                  max(coalesce((SELECT max(u.captured_at) FROM sound_use u WHERE u.platform_item_id=p.id AND u.platform='instagram'), ''), {mk('reels')})
            FROM platform_item p WHERE p.platform='instagram' AND p.track_id IS NOT NULL"""]
     return " UNION ALL ".join(parts)
 
@@ -182,3 +187,38 @@ def watchdog_job(conn, cfg, tried, paused, browser=True, api=True):
 def stuck():
     """Platforms whose watchdog runs have not reduced the missed items (STUCK_AFTER runs in a row)."""
     return {p: n for p, (n, k) in _HIST.items() if k >= STUCK_AFTER}
+
+
+def marked(conn, cfg=None):
+    """Items read without a number in the last week because they could not be read: removed or private videos, Spotify
+    pages gone, Deezer ISRCs gone, items marked unavailable on the page."""
+    ensure(conn)
+    s = settings(cfg)
+    labels = config.channel_labels(cfg or config.load())
+    rows = conn.execute("""
+        SELECT m.platform_item_id, m.metric, m.read_at, m.outcome, p.platform, p.title, p.track_id, coalesce(t.yt_title, t.title) song,
+               substr(t.first_published,1,10) first_upload,
+               (SELECT channel FROM platform_item y WHERE y.track_id=t.id AND y.platform='youtube' ORDER BY published_at LIMIT 1) ch
+        FROM read_mark m JOIN platform_item p ON p.id=m.platform_item_id JOIN track t ON t.id=p.track_id
+        WHERE m.outcome IN ('gone', 'unavailable') AND m.read_at >= strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now', '-7 days')
+          AND t.source='youtube' AND t.first_published >= ? AND t.old_release IS NULL
+          AND NOT EXISTS (SELECT 1 FROM snapshot s WHERE s.platform_item_id=p.id AND s.metric=m.metric AND s.captured_at > m.read_at)
+        ORDER BY m.read_at DESC LIMIT 1000""", (s["since"],)).fetchall()
+    plat = {"views": "youtube", "plays": None, "rank": "deezer", "shorts": "shorts", "reels": "instagram"}
+    return [{"item_id": r["platform_item_id"], "platform": plat.get(r["metric"]) or r["platform"], "metric": r["metric"],
+             "outcome": r["outcome"], "at": r["read_at"], "item": r["title"], "song_id": r["track_id"], "song": r["song"],
+             "first_upload": r["first_upload"], "label": labels.get(r["ch"], "")} for r in rows]
+
+
+def mark_unavailable(conn, item_id, platform):
+    """From the page: this item cannot be read (e.g. a removed video); not shown as missed for HOLD_DAYS."""
+    if platform not in PLATFORMS:
+        raise ValueError("unknown platform")
+    mark(conn, int(item_id), PLATFORMS[platform][0], "unavailable")
+    conn.commit()
+
+
+def clear_mark(conn, item_id, metric):
+    ensure(conn)
+    conn.execute("DELETE FROM read_mark WHERE platform_item_id=? AND metric=?", (int(item_id), metric))
+    conn.commit()
