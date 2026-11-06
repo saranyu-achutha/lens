@@ -30,7 +30,7 @@ def _todo(conn, cfg, limit):
     return conn.execute(f"""
         SELECT p.id, p.track_id, p.description FROM platform_item p JOIN track t ON t.id=p.track_id
         WHERE p.platform='youtube' AND p.review_state IN ('song','auto','approved') AND coalesce(p.description,'') != ''
-          AND p.channel IN ({",".join("?" * len(channels))}) AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?
+          AND p.channel IN ({",".join("?" * len(channels))}) AND t.first_published >= ? AND t.old_release IS NULL AND substr(t.first_published,1,10) <= ?
           AND NOT EXISTS (SELECT 1 FROM state s WHERE s.key='desc_links:' || p.id)
         ORDER BY t.first_published DESC LIMIT ?""", (*channels, since, until, limit)).fetchall()
 

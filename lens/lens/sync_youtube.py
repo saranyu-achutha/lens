@@ -91,7 +91,7 @@ def take_readings(conn, yt, ycfg, channels, pool_start, ts, log, check, flush_ra
              AND pi.channel IN (SELECT value FROM json_each(?))
              -- a new upload of a song first released before the period: read once (for grouping), then no more
              AND (pi.snippet_at IS NULL OR pi.track_id IS NULL
-                  OR (SELECT t.first_published FROM track t WHERE t.id=pi.track_id) >= ?)
+                  OR (SELECT t.first_published FROM track t WHERE t.id=pi.track_id AND t.old_release IS NULL) >= ?)
              AND (pi.snippet_at IS NULL
                   OR NOT EXISTS (SELECT 1 FROM reading r WHERE r.platform_item_id=pi.id AND r.metric='views'
                                  AND r.captured_at >= CASE WHEN pi.published_at >= ? THEN ? ELSE ? END))""",

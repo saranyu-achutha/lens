@@ -164,10 +164,10 @@ def sync(conn):
     since = "0" if not have else conn.execute("SELECT date(?, '-2 day')", (have,)).fetchone()[0]
     conn.execute("DELETE FROM crawl_readings WHERE day >= ?", (since,))
     tracked = dict(conn.execute("""SELECT p.platform, count(*) FROM platform_item p JOIN track t ON t.id=p.track_id
-                                   WHERE t.first_published >= ? AND p.review_state IN ('auto','approved','song') GROUP BY 1""", (window_start,)).fetchall())
+                                   WHERE t.first_published >= ? AND t.old_release IS NULL AND p.review_state IN ('auto','approved','song') GROUP BY 1""", (window_start,)).fetchall())
     for day, plat, n in conn.execute("""SELECT s.capture_date, p.platform, count(*) FROM snapshot s JOIN platform_item p ON p.id=s.platform_item_id
                                         JOIN track t ON t.id=p.track_id
-                                        WHERE s.capture_date >= ? AND t.first_published >= ? AND p.review_state IN ('auto','approved','song')
+                                        WHERE s.capture_date >= ? AND t.first_published >= ? AND t.old_release IS NULL AND p.review_state IN ('auto','approved','song')
                                           AND s.metric IN ('views', 'plays', 'rank') GROUP BY 1, 2""", (since, window_start)).fetchall():
         conn.execute("INSERT OR REPLACE INTO crawl_readings (day, platform, readings, items) VALUES (?,?,?,?)", (day, plat, n, tracked.get(plat)))
     conn.commit()

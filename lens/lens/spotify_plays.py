@@ -45,7 +45,7 @@ def export_ids(conn, since=None):
     since = since or config.window(config.load())[0]
     return [r[0] for r in conn.execute(
         """SELECT DISTINCT p.platform_id FROM platform_item p JOIN track t ON t.id=p.track_id
-           WHERE p.platform='spotify' AND p.review_state IN ('auto','approved') AND t.first_published >= ?
+           WHERE p.platform='spotify' AND p.review_state IN ('auto','approved') AND t.first_published >= ? AND t.old_release IS NULL
            ORDER BY p.platform_id""", (since,))]
 
 

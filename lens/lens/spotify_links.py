@@ -101,7 +101,7 @@ def due(conn, since, until, today=None, limit=None, need_mb=False):
         f"""SELECT t.id, coalesce(t.yt_title, t.title) title, coalesce(t.release_check, '') = 'old' old,
                   (SELECT value FROM song_meta m WHERE m.track_id=t.id AND m.field='singer' ORDER BY position LIMIT 1) singer,
                   (SELECT value FROM state WHERE key='spotify_links:' || t.id) st FROM track t
-           WHERE t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?
+           WHERE t.source='youtube' AND t.first_published >= ? AND t.old_release IS NULL AND substr(t.first_published,1,10) <= ?
              AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='spotify')
              {"AND EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='musicbrainz')" if need_mb else ""}
            ORDER BY old, t.first_published DESC""", (since, until)).fetchall()

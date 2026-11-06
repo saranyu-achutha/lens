@@ -97,6 +97,7 @@ def _new_links(conn, day):
                substr(coalesce(r.release_date, p.published_at),1,10) AS spotify_release,
                CASE WHEN substr(coalesce(r.release_date, p.published_at),1,10) < date(substr(t.first_published,1,10), '-30 day')
                     THEN 'older release' ELSE 'new release' END AS release_type,
+               CASE WHEN t.old_release IS NOT NULL THEN 'stored only (released before the period)' ELSE 'crawled daily' END AS crawl,
                CASE WHEN p.match_detail LIKE '%"via": "browser_search%' THEN 'browser search (no API)'
                     WHEN p.match_detail LIKE '%"via": "label_sweep"%' THEN 'label sweep'
                     WHEN p.match_detail LIKE '%"via": "artist_albums"%' THEN 'artist-first'
@@ -138,7 +139,7 @@ def _datasets():
         "songs": {"name": "Songs", "what": "every song in the window with its uploads, links, latest numbers and metadata", "rows": _songs},
         "song_metadata": {"name": "Song metadata", "what": "one row per song, field and value (credits, language, category)",
                           "rows": _sql("""SELECT m.track_id AS song_id, t.title AS song, m.field, m.value, m.value_key, m.source FROM song_meta m
-                                          JOIN track t ON t.id=m.track_id WHERE t.first_published >= ? AND substr(t.first_published,1,10) <= ?
+                                          JOIN track t ON t.id=m.track_id WHERE t.first_published >= ? AND t.old_release IS NULL AND substr(t.first_published,1,10) <= ?
                                           ORDER BY m.track_id, m.field, m.position""", _window)},
         "youtube_videos": {"name": "YouTube videos", "what": "every stored upload with its match and latest views, likes and comments", "rows": _sql(YT_EXPORT_SQL)},
         "spotify_label_crawl": {"name": "Spotify label crawl", "what": "tracks from the manual Spotify label crawl", "rows": _sql(EXPORT_SQL)},

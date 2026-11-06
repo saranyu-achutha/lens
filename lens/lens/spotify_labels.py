@@ -216,7 +216,7 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
     for t in conn.execute("""SELECT t.id, coalesce(t.yt_title, t.title) title,
                                     EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='spotify'
                                             AND p.review_state IN ('auto','approved')) linked
-                             FROM track t WHERE t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?""",
+                             FROM track t WHERE t.source='youtube' AND t.first_published >= ? AND t.old_release IS NULL AND substr(t.first_published,1,10) <= ?""",
                           (since, until)):
         vids = conn.execute("""SELECT title, description, published_at, duration_ms, channel FROM platform_item
                                WHERE track_id=? AND platform='youtube' AND review_state IN ('auto','approved','song')

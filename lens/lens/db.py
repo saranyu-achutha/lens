@@ -223,7 +223,8 @@ def _migrate(conn):
     for col, typ in (("source", "TEXT"), ("song_key", "TEXT"), ("yt_title", "TEXT"), ("first_published", "TEXT"),
                      ("release_status", "TEXT"), ("spotify_checked_at", "TEXT"),
                      # release-year check (lens/release_year.py)
-                     ("orig_release", "TEXT"), ("orig_release_source", "TEXT"), ("release_check", "TEXT"), ("release_checked_at", "TEXT")):
+                     ("orig_release", "TEXT"), ("orig_release_source", "TEXT"), ("release_check", "TEXT"), ("release_checked_at", "TEXT"),
+                     ("old_release", "TEXT")):  # released before the period start (Spotify first): stored, never crawled
         if col not in t_cols:
             conn.execute(f"ALTER TABLE track ADD COLUMN {col} {typ}")
     conn.execute("CREATE INDEX IF NOT EXISTS track_song_key ON track(song_key)")

@@ -152,7 +152,7 @@ def due(conn, cfg, today):
     channels = list(config.channel_labels(cfg))
     return conn.execute(f"""
         SELECT p.id, p.platform_id, p.track_id FROM platform_item p JOIN track t ON t.id=p.track_id
-        WHERE t.first_published >= ? AND substr(t.first_published,1,10) <= ?
+        WHERE t.first_published >= ? AND t.old_release IS NULL AND substr(t.first_published,1,10) <= ?
           AND p.platform='youtube' AND p.asset_type IN ({",".join("?" * len(OFFICIAL_TYPES))})
           AND p.review_state IN ('auto','approved','song') AND p.channel IN ({",".join("?" * len(channels))})
           AND NOT EXISTS (SELECT 1 FROM sound_use u WHERE u.platform_item_id=p.id AND u.day=?)

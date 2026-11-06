@@ -46,7 +46,7 @@ def song_facts(conn, cfg=None):
     songs = {r["id"]: dict(r) for r in conn.execute(
         """SELECT t.id, t.title, t.first_published, t.release_status, r.release_date, r.title release_title
            FROM track t LEFT JOIN release r ON r.id=t.release_id
-           WHERE t.first_published >= ? AND substr(t.first_published,1,10) <= ?""", (since, until))}
+           WHERE t.first_published >= ? AND t.old_release IS NULL AND substr(t.first_published,1,10) <= ?""", (since, until))}
     if not songs:
         return [], {"since": since, "until": until, "songs": 0}
     ids = list(songs)

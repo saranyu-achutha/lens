@@ -67,7 +67,7 @@ def run(conn, cfg, since, until, ts, log, check):
     ids = cfg["songs"].get("spotify_playlists") or list(PLAYLISTS)
     songs = conn.execute(
         """SELECT t.id, coalesce(t.yt_title, t.title) title FROM track t
-           WHERE t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?
+           WHERE t.source='youtube' AND t.first_published >= ? AND t.old_release IS NULL AND substr(t.first_published,1,10) <= ?
              AND coalesce(t.release_check, 'unknown') != 'old' AND coalesce(t.release_status, '') != 'catalogue'
              AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='spotify')""", (since, until)).fetchall()
     if not songs or not ids:

@@ -1053,7 +1053,7 @@ def api_matching(conn, qs):
     since = config.load()["discovery"]["since"]
     until = config.window(config.load())[1]
     # Spotify links of the songs the Console shows: in the period, and older releases only with "All songs" on
-    sp_window = "t.first_published >= ? AND substr(t.first_published,1,10) <= ?" + focus(qs).replace("release_status", "t.release_status")
+    sp_window = "t.first_published >= ? AND t.old_release IS NULL AND substr(t.first_published,1,10) <= ?" + focus(qs).replace("release_status", "t.release_status")
     if state == "unmatched_tracks":
         base = TRACKS_SQL + " WHERE yt_videos = 0 AND song_date >= ? AND (title LIKE ? OR artists LIKE ? OR release_title LIKE ?)"
         args = tracks_args() + [since, like, like, like]
@@ -1387,7 +1387,7 @@ def post_ai_ask(conn, body):
 def api_coverage(conn, _):
     """How much of each kind of data the window's songs have (Sources -> Data coverage & gaps)."""
     since, until = config.window(config.load())
-    W = "t.first_published >= ? AND substr(t.first_published,1,10) <= ?"
+    W = "t.first_published >= ? AND t.old_release IS NULL AND substr(t.first_published,1,10) <= ?"
     n = conn.execute(f"SELECT count(*) FROM track t WHERE {W}", (since, until)).fetchone()[0]
 
     def songs_with(cond):
@@ -1573,7 +1573,7 @@ def api_search(conn, qs):
     if len(raw) < 2:
         return {"q": raw, "total": 0, "results": []}
     since, until = config.window(config.load())
-    W = f"t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?{focus(qs)}"
+    W = f"t.source='youtube' AND t.first_published >= ? AND t.old_release IS NULL AND substr(t.first_published,1,10) <= ?{focus(qs)}"
     low, hits = raw.lower(), {}
 
     def add(rows, how):
@@ -1638,7 +1638,7 @@ REACH = (("youtube", "YouTube views", "yt_views"), ("ytmusic", "YouTube Music pl
 
 def _song_set(qs):
     since, until = config.window(config.load())
-    return since, until, (f"SELECT id FROM track WHERE source='youtube' AND first_published >= ? "
+    return since, until, (f"SELECT id FROM track WHERE source='youtube' AND first_published >= ? AND old_release IS NULL "
                           f"AND substr(first_published,1,10) <= ?{focus(qs)}")
 
 
@@ -1752,7 +1752,7 @@ def api_shorts(conn, qs):
                                       d.yt_shorts_gain gain,
                                       (SELECT channel FROM platform_item x WHERE x.track_id=t.id AND x.platform='youtube' ORDER BY published_at LIMIT 1) yt_channel
                                   FROM {src} d JOIN track t ON t.id=d.song_id
-                                  WHERE d.{per}=? AND d.yt_shorts IS NOT NULL AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?
+                                  WHERE d.{per}=? AND d.yt_shorts IS NOT NULL AND t.first_published >= ? AND t.old_release IS NULL AND substr(t.first_published,1,10) <= ?
                                   ORDER BY d.yt_shorts DESC LIMIT ?""", (latest, since, until, int(qs.get("limit") or 50))))
     return {"period": period, "latest": latest, "rows": rows}
 

@@ -54,7 +54,7 @@ def _todo(conn, since, until, today, limit):
                      AND s.capture_date=(SELECT max(capture_date) FROM snapshot x WHERE x.platform_item_id=p.id AND x.metric='views')
                    WHERE p.track_id=t.id AND p.platform='youtube') views
            FROM track t
-           WHERE t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?
+           WHERE t.source='youtube' AND t.first_published >= ? AND t.old_release IS NULL AND substr(t.first_published,1,10) <= ?
              AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='jiosaavn')
              AND coalesce((SELECT value FROM state WHERE key='js_lookup:' || t.id), '') < ?
            ORDER BY views DESC NULLS LAST LIMIT ?""", (since, until, recheck, limit)).fetchall()
@@ -210,7 +210,7 @@ def drop_older_recordings(conn, log=print):
 
 # Tracks of the period's songs without today's play count (args: since, today, fresh-from, today). A track whose count
 # JioSaavn hides (too few plays) is done for the day once seen hidden.
-UNREAD = """p.platform='jiosaavn' AND t.first_published >= ?
+UNREAD = """p.platform='jiosaavn' AND t.first_published >= ? AND t.old_release IS NULL
             AND NOT EXISTS (SELECT 1 FROM snapshot s WHERE s.platform_item_id=p.id AND s.metric='plays' AND s.capture_date=? AND s.captured_at >= ?)
             AND coalesce((SELECT value FROM state WHERE key='js_hidden:' || p.id), '') != ?"""
 

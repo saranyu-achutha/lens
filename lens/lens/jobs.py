@@ -274,7 +274,7 @@ def _due_work(cfg, tried, browser=True, api=True, paused=None):
     today = datetime.now().date().isoformat()
     now = time.time()
     ago = lambda job: -1 if pause.covers(paused, job) else now - tried.get(job, 0)  # a paused job is never due
-    in_window = "t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?"
+    in_window = "t.source='youtube' AND t.first_published >= ? AND t.old_release IS NULL AND substr(t.first_published,1,10) <= ?"
     # 1. Instagram audio pages: linked audios without today's Reels count, at most every 3 hours. Checked before the
     #    Spotify plays so a long plays backlog can't keep it waiting all day (a run is under an hour).
     if browser and ago("instagram") > 3 * 3600:
@@ -373,7 +373,7 @@ def _due_work(cfg, tried, browser=True, api=True, paused=None):
     if ago("songs") > 1800 and hours_since("songs") >= 0.5:
         pending = _count(f"""SELECT count(*) FROM track t WHERE {in_window} AND (t.release_status IS NULL OR t.release_status='unchecked')""", (since, until))
         dz = _count(f"""SELECT count(*) FROM track t LEFT JOIN release r ON r.id=t.release_id
-                        WHERE t.source='youtube' AND t.first_published >= :since AND {songs.DEEZER_DUE}""", {"since": since, "today": today})
+                        WHERE t.source='youtube' AND t.first_published >= :since AND t.old_release IS NULL AND {songs.DEEZER_DUE}""", {"since": since, "today": today})
         from . import spotify_links
         c2 = db.connect(str(config.DB_FILE))
         unlinked = len(spotify_links.due(c2, since, until, today, limit=1))

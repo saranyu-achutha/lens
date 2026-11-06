@@ -28,7 +28,33 @@ PLATFORMS = ("musicbrainz", "apple", "deezer", "jiosaavn")
 P_YEAR = re.compile(r"(?:℗|\(P\)|©|\(C\))\s*((?:19|20)\d{2})")
 RELEASED = re.compile(r"(?:released?\s*(?:on|date)?|release date)\s*[:\-]?\s*((?:19|20)\d{2})(?:-(\d{2})-(\d{2}))?", re.I)
 
-SCHEMA_COLS = (("orig_release", "TEXT"), ("orig_release_source", "TEXT"), ("release_check", "TEXT"), ("release_checked_at", "TEXT"))
+SCHEMA_COLS = (("orig_release", "TEXT"), ("orig_release_source", "TEXT"), ("release_check", "TEXT"), ("release_checked_at", "TEXT"),
+               ("old_release", "TEXT"))
+# Released before the period start (user rule, 2026-11-06: "before 2026-07-01 just store them, don't waste crawl or search
+# budget"): the release date from the check above (Spotify's alone when the song is linked; else the platforms', earliest
+# wins), only when it is properly known: not a conflict, not only the YouTube descriptions or the JioSaavn-plays guess, and
+# a date given as a year or a month counts only when that year or month is itself before the period start.
+OLD_SQL = """orig_release IS NOT NULL AND coalesce(release_check, '') NOT IN ('conflict', 'unknown')
+             AND coalesce(orig_release_source, '') NOT IN ('', 'youtube', 'jiosaavn plays')
+             AND CASE WHEN length(orig_release) >= 10 THEN substr(orig_release, 1, 10) < :since
+                      WHEN length(orig_release) = 7 THEN orig_release < substr(:since, 1, 7)
+                      WHEN length(orig_release) = 4 THEN orig_release < substr(:since, 1, 4)
+                      ELSE 0 END"""
+
+
+def mark_old(conn, since, log=print):
+    """Set track.old_release (the release date) on the songs of the period released before it, clear it on the others.
+    Those songs are stored with their links but every crawl and search skips them, as for songs first uploaded before it."""
+    ensure(conn)
+    before = conn.execute("SELECT count(*) FROM track WHERE old_release IS NOT NULL").fetchone()[0]
+    conn.execute(f"""UPDATE track SET old_release = CASE WHEN {OLD_SQL} THEN substr(orig_release, 1, 10) END
+                     WHERE source='youtube' AND first_published >= :since""", {"since": since})
+    conn.execute("UPDATE track SET old_release=NULL WHERE source='youtube' AND first_published < :since AND old_release IS NOT NULL",
+                 {"since": since})
+    n = conn.execute("SELECT count(*) FROM track WHERE old_release IS NOT NULL").fetchone()[0]
+    conn.commit()
+    log(f"Released before {since}: {n:,} songs of the period (stored, not crawled){'' if n == before else f'; was {before:,}'}")
+    return n
 
 
 def ensure(conn):
@@ -131,4 +157,5 @@ def check_all(conn, since, until, log=print):
     conn.commit()
     log(f"release-year check: {len(rows):,} songs, new {counts['new']:,}, older {counts['old']:,}, "
         f"conflicting sources {counts['conflict']:,}, no evidence yet {counts['unknown']:,}")
+    counts["released_before_period"] = mark_old(conn, since, log)
     return counts

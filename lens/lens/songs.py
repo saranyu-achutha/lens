@@ -392,7 +392,7 @@ def spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until="999
     else:
         todo = conn.execute(
         f"""SELECT t.id, t.title, t.song_key, t.isrc FROM track t
-           WHERE t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?
+           WHERE t.source='youtube' AND t.first_published >= ? AND t.old_release IS NULL AND substr(t.first_published,1,10) <= ?
              AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='spotify')
              AND (t.spotify_checked_at IS NULL OR t.spotify_checked_at < ?)
              AND coalesce((SELECT value FROM state WHERE key='spotify_search_day:' || t.id), '') < ?
@@ -406,7 +406,7 @@ def spotify_lookup(conn, cfg, secrets, since, ts, log, check, run_id, until="999
                      AND (t.isrc IS NOT NULL OR EXISTS (SELECT 1 FROM state WHERE key='mb_lookup:' || t.id) OR EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='musicbrainz')))
            ORDER BY t.isrc IS NOT NULL DESC, t.release_check IN ('new', 'conflict') DESC, t.first_published DESC LIMIT ?""",
             (since, until, recheck_before, searched_day(), scfg["spotify_searches_per_run"])).fetchall()
-    skipped = conn.execute("""SELECT count(*) FROM track t WHERE t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?
+    skipped = conn.execute("""SELECT count(*) FROM track t WHERE t.source='youtube' AND t.first_published >= ? AND t.old_release IS NULL AND substr(t.first_published,1,10) <= ?
                               AND t.release_check='old' AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='spotify')""",
                            (since, until)).fetchone()[0]
     if skipped and not catchup:
@@ -543,7 +543,7 @@ def rediscover_due(conn, cfg, limit, account):
     since, until = config.window(cfg)  # the period's songs only: older ones are archived and cost no calls
     return conn.execute(
         """SELECT t.id, t.title, t.song_key, t.isrc FROM track t
-           WHERE t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?
+           WHERE t.source='youtube' AND t.first_published >= ? AND t.old_release IS NULL AND substr(t.first_published,1,10) <= ?
              AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='spotify')
              AND coalesce((SELECT value FROM state WHERE key=? || t.id), '') < ?
              AND coalesce(t.spotify_checked_at, '') < ?
@@ -585,7 +585,7 @@ def musicbrainz_lookup(conn, cfg, since, until, ts, log, check, run_id):
         """SELECT t.id, t.title,
                   (SELECT value FROM song_meta m WHERE m.track_id=t.id AND m.field='singer' ORDER BY position LIMIT 1) singer
            FROM track t
-           WHERE t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ? AND t.isrc IS NULL
+           WHERE t.source='youtube' AND t.first_published >= ? AND t.old_release IS NULL AND substr(t.first_published,1,10) <= ? AND t.isrc IS NULL
              AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='musicbrainz')
              AND coalesce((SELECT value FROM state WHERE key='mb_lookup:' || t.id), '') < ?
            ORDER BY t.first_published DESC""", (since, until, recheck)).fetchall()
@@ -684,7 +684,7 @@ def itunes_lookup(conn, cfg, since, until, ts, log, check, run_id):
                   (SELECT value FROM song_meta m WHERE m.track_id=t.id AND m.field='singer' ORDER BY position LIMIT 1) singer,
                   (SELECT value FROM song_meta m WHERE m.track_id=t.id AND m.field='music_director' ORDER BY position LIMIT 1) composer
            FROM track t
-           WHERE t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?
+           WHERE t.source='youtube' AND t.first_published >= ? AND t.old_release IS NULL AND substr(t.first_published,1,10) <= ?
              AND t.release_id IS NULL
              AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform IN ('spotify','apple'))
              AND coalesce((SELECT value FROM state WHERE key='itunes_lookup:' || t.id), '') < ?
@@ -770,7 +770,7 @@ def deezer_readings(conn, cfg, since, ts, log, check, run_id):
     today = ts[:10]
     rows = conn.execute(
         f"""SELECT t.id, t.isrc FROM track t LEFT JOIN release r ON r.id=t.release_id
-           WHERE t.source='youtube' AND t.first_published >= :since AND {DEEZER_DUE}""",
+           WHERE t.source='youtube' AND t.first_published >= :since AND t.old_release IS NULL AND {DEEZER_DUE}""",
         {"since": since, "today": today}).fetchall()
     ok = miss = 0
     for r in rows:
@@ -843,14 +843,14 @@ def archive_old_songs(conn, cfg, log=print):
     conn.executescript(ARCHIVE_SCHEMA)
     labels = config.channel_labels(cfg)
     rows = conn.execute("""
-        SELECT t.id, coalesce(t.yt_title, t.title) title, substr(t.first_published, 1, 10) first_upload, t.isrc,
+        SELECT t.id, coalesce(t.yt_title, t.title) title, substr(t.first_published, 1, 10) first_upload, t.isrc, t.old_release,
                (SELECT channel FROM platform_item p WHERE p.track_id=t.id AND p.platform='youtube' ORDER BY published_at LIMIT 1) channel,
                (SELECT count(*) FROM platform_item p WHERE p.track_id=t.id AND p.platform='youtube'
                   AND p.review_state IN ('auto','approved','song')) yt,
                (SELECT count(*) FROM platform_item p WHERE p.track_id=t.id AND p.platform='spotify'
                   AND p.review_state IN ('auto','approved')) sp,
                (SELECT max(day) FROM song_daily d WHERE d.song_id=t.id) last_day
-        FROM track t WHERE t.source='youtube' AND t.first_published < ?""", (since,)).fetchall()
+        FROM track t WHERE t.source='youtube' AND (t.first_published < ? OR t.old_release IS NOT NULL)""", (since,)).fetchall()
     now = db.now_iso()
     for r in rows:
         views = conn.execute("SELECT yt_views FROM song_daily WHERE song_id=? AND day=?", (r["id"], r["last_day"])).fetchone() \
@@ -864,11 +864,12 @@ def archive_old_songs(conn, cfg, log=print):
                           reason=excluded.reason""",
                      (r["id"], r["title"], r["first_upload"], labels.get(r["channel"], config.FIRST_LABEL) if r["channel"] else "",
                       r["channel"], r["isrc"], r["yt"], r["sp"], r["last_day"], views[0] if views else None,
-                      f"first YouTube upload before {since}", now))
+                      f"first YouTube upload before {since}" if r["first_upload"] < since[:10] else
+                      f"released {r['old_release']} (before {since})", now))
     gone = conn.execute("""DELETE FROM song_archive WHERE track_id NOT IN
-                           (SELECT id FROM track WHERE source='youtube' AND first_published < ?)""", (since,)).rowcount
+                           (SELECT id FROM track WHERE source='youtube' AND (first_published < ? OR old_release IS NOT NULL))""", (since,)).rowcount
     conn.commit()
-    log(f"Archive: {len(rows):,} songs first uploaded before {since} (no crawl calls spent on them)"
+    log(f"Archive: {len(rows):,} songs first uploaded or released before {since} (no crawl calls spent on them)"
         + (f"; {gone} moved back into the period" if gone else ""))
     return {"songs_archived": len(rows)}
 
@@ -911,7 +912,7 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
     stats.update(deezer_readings(conn, cfg, since, ts, log, check, run_id))
     s = conn.execute("""SELECT count(*) n, sum(release_status='new') new, sum(release_status='catalogue') cat,
                                sum(release_status='not_on_spotify') missing, sum(release_status='pending') pending
-                        FROM track t WHERE t.first_published >= ? AND substr(t.first_published,1,10) <= ?""",
+                        FROM track t WHERE t.first_published >= ? AND t.old_release IS NULL AND substr(t.first_published,1,10) <= ?""",
                      (since, until)).fetchone()
     log(f"songs {since} .. {until}: {s['n']} (new releases {s['new'] or 0}, re-uploads/catalogue {s['cat'] or 0}, "
         f"not on Spotify {s['missing'] or 0}, Spotify match awaiting review {s['pending'] or 0})")
@@ -956,7 +957,7 @@ SELECT t.id AS song_id, substr(t.first_published,1,10) AS first_youtube_upload, 
        (SELECT count(*) FROM sp WHERE sp.track_id=t.id) AS spotify_versions,
        (SELECT group_concat(platform_id, ' ') FROM sp WHERE sp.track_id=t.id) AS all_spotify_track_ids
 FROM track t LEFT JOIN release r ON r.id=t.release_id
-WHERE t.first_published >= ? AND substr(t.first_published,1,10) <= ?
+WHERE t.first_published >= ? AND t.old_release IS NULL AND substr(t.first_published,1,10) <= ?
 ORDER BY t.first_published DESC
 """
 

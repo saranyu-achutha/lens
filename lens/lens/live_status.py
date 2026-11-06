@@ -54,10 +54,10 @@ def compute(conn, manager, browser, quota):
                   "quota": {"used": quota["units_today"], "limit": quota["units_limit"], "unit": "units", "note": f"{quota['keys']} keys, shared with YouTube Music; resets {quota['resets']}"},
                   "extra": [("New uploads found today", yt_runs.get("new_videos", 0))], "last": yt_last})
     # YouTube Music
-    ytm_total = _n(conn, "SELECT count(*) FROM platform_item p JOIN track t ON t.id=p.track_id WHERE p.platform='ytmusic' AND t.first_published >= ?", (since,))
+    ytm_total = _n(conn, "SELECT count(*) FROM platform_item p JOIN track t ON t.id=p.track_id WHERE p.platform='ytmusic' AND t.first_published >= ? AND t.old_release IS NULL", (since,))
     ytm_runs, ytm_last = _runs_today(conn, ("ytmusic", "pipeline"), today)
     ytm_todo = len(youtube_music._todo(conn, since, until, today, 100000))
-    ytm_missing = _n(conn, """SELECT count(*) FROM track t WHERE t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?
+    ytm_missing = _n(conn, """SELECT count(*) FROM track t WHERE t.source='youtube' AND t.first_published >= ? AND t.old_release IS NULL AND substr(t.first_published,1,10) <= ?
                               AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='ytmusic')""", (since, until))
     cards.append({"key": "ytmusic", "icon": "ytmusic", "name": "YouTube Music", "what": "plays of the songs' audio tracks",
                   "read": read_today("ytmusic", "plays"), "total": ytm_total, "unit": "tracks",
@@ -70,7 +70,7 @@ def compute(conn, manager, browser, quota):
     sp_total_ids = spotify_plays.export_ids(conn)
     sp_due = spotify_plays.due_ids(conn)
     last_check = health.last_check(conn) or {}
-    unlinked = _n(conn, """SELECT count(*) FROM track t WHERE t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?
+    unlinked = _n(conn, """SELECT count(*) FROM track t WHERE t.source='youtube' AND t.first_published >= ? AND t.old_release IS NULL AND substr(t.first_published,1,10) <= ?
                            AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='spotify')""", (since, until))
     linked_today = _n(conn, "SELECT count(DISTINCT track_id) FROM platform_item WHERE platform='spotify' AND first_seen_at >= ?", (today,))
     cards.append({"key": "spotify_api", "icon": "spotify", "name": "Spotify links", "what": "finding each song's Spotify ID (official search API and free routes)",
@@ -83,9 +83,9 @@ def compute(conn, manager, browser, quota):
     cards.append({"key": "spotify_plays", "icon": "spotify", "name": "Spotify plays", "what": "play counts from the public track pages (browser)",
                   "read": len(sp_total_ids) - len(sp_due), "total": len(sp_total_ids), "unit": "tracks", "last": pl_last})
     # JioSaavn
-    js_total = _n(conn, "SELECT count(*) FROM platform_item p JOIN track t ON t.id=p.track_id WHERE p.platform='jiosaavn' AND t.first_published >= ?", (since,))
+    js_total = _n(conn, "SELECT count(*) FROM platform_item p JOIN track t ON t.id=p.track_id WHERE p.platform='jiosaavn' AND t.first_published >= ? AND t.old_release IS NULL", (since,))
     js_runs, js_last = _runs_today(conn, ("jiosaavn",), today)
-    js_unsearched = _n(conn, f"""SELECT count(*) FROM track t WHERE t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?
+    js_unsearched = _n(conn, f"""SELECT count(*) FROM track t WHERE t.source='youtube' AND t.first_published >= ? AND t.old_release IS NULL AND substr(t.first_published,1,10) <= ?
                                  AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='jiosaavn')""", (since, until))
     js_hidden = _n(conn, "SELECT count(*) FROM state WHERE key LIKE 'js_hidden:%' AND value=?", (today,))
     cards.append({"key": "jiosaavn", "icon": "jiosaavn", "name": "JioSaavn", "what": "play counts (no quota)", "read": read_today("jiosaavn", "plays") + js_hidden,
@@ -93,7 +93,7 @@ def compute(conn, manager, browser, quota):
                   "extra": [("Count hidden by JioSaavn today (too few plays)", js_hidden)], "last": js_last})
     # Deezer
     dz_due = _n(conn, f"""SELECT count(*) FROM track t LEFT JOIN release r ON r.id=t.release_id
-                          WHERE (t.first_published >= :since OR r.release_date >= :since) AND {songs.DEEZER_DUE}""", {"since": since, "today": today})
+                          WHERE (t.first_published >= :since AND t.old_release IS NULL OR r.release_date >= :since) AND {songs.DEEZER_DUE}""", {"since": since, "today": today})
     dz_read = read_today("deezer", "rank")
     cards.append({"key": "deezer", "icon": "deezer", "name": "Deezer", "what": "rank by ISRC (no quota)", "read": dz_read, "total": dz_read + dz_due, "unit": "tracks", "last": sp_last})
     # Shorts and Instagram

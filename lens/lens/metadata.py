@@ -335,7 +335,7 @@ def build(conn, cfg, since, until, log=print, track_ids=None):
     labels = config.channel_labels(cfg)
     if track_ids is None:
         track_ids = [r[0] for r in conn.execute(
-            "SELECT id FROM track WHERE first_published >= ? AND substr(first_published,1,10) <= ?", (since, until))]
+            "SELECT id FROM track WHERE first_published >= ? AND old_release IS NULL AND substr(first_published,1,10) <= ?", (since, until))]
     n = 0
     for tid in track_ids:
         t = conn.execute("""SELECT t.*, r.title release_title, r.album_type, r.release_date, r.label release_label

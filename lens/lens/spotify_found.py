@@ -76,7 +76,7 @@ def import_file(conn, path, log=print):
                       (SELECT channel FROM platform_item p WHERE p.track_id=t.id AND p.platform='youtube' ORDER BY published_at LIMIT 1) ch,
                       EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='spotify'
                               AND p.review_state IN ('auto','approved')) linked
-               FROM track t WHERE t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?""",
+               FROM track t WHERE t.source='youtube' AND t.first_published >= ? AND t.old_release IS NULL AND substr(t.first_published,1,10) <= ?""",
             (since, until)):
         songs_by.setdefault((r["title"].strip(), r["d"]), []).append((r["id"], r["ch"] or "", r["linked"]))
     n, counts, unmapped = 0, {}, []

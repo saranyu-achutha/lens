@@ -69,7 +69,7 @@ def _todo(conn, since, until, today, limit):
                      AND s.capture_date=(SELECT max(capture_date) FROM snapshot x WHERE x.platform_item_id=p.id AND x.metric='views')
                    WHERE p.track_id=t.id AND p.platform='youtube') views
            FROM track t
-           WHERE t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?
+           WHERE t.source='youtube' AND t.first_published >= ? AND t.old_release IS NULL AND substr(t.first_published,1,10) <= ?
              AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='ytmusic')
            ORDER BY views DESC NULLS LAST""", (since, until)).fetchall()
     d = date.fromisoformat(today)
@@ -196,7 +196,7 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
     # Daily play counts of every known track of the period.
     due = [r[0] for r in conn.execute(
         """SELECT p.platform_id FROM platform_item p JOIN track t ON t.id=p.track_id
-           WHERE p.platform='ytmusic' AND t.first_published >= ?
+           WHERE p.platform='ytmusic' AND t.first_published >= ? AND t.old_release IS NULL
              AND NOT EXISTS (SELECT 1 FROM snapshot s WHERE s.platform_item_id=p.id AND s.metric='plays' AND s.capture_date=?)""",
         (since, today))]
     read = 0
@@ -264,7 +264,7 @@ def web_links(conn, yt, since, until, today, ts, log, should_stop, budget, pace)
     from . import spotify_links
     rows = conn.execute("""SELECT t.id, coalesce(t.yt_title, t.title) title, coalesce(t.release_status,'') = 'catalogue' old,
                                   (SELECT value FROM state WHERE key='ytm_web:' || t.id) st FROM track t
-                           WHERE t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?
+                           WHERE t.source='youtube' AND t.first_published >= ? AND t.old_release IS NULL AND substr(t.first_published,1,10) <= ?
                              AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='ytmusic')
                            ORDER BY old, t.first_published DESC""", (since, until)).fetchall()
     d = date.fromisoformat(today)
@@ -340,7 +340,7 @@ def _attach(conn, s, vid, sn, method, score, ts):
 def scan_channels(conn, yt, cfg, since, until, today, ts, labels, log, should_stop):
     """Find missing songs in the Topic channels of their artists and in album playlists the labels link (cheap lists)."""
     rows = conn.execute("""SELECT t.id, coalesce(t.yt_title, t.title) title FROM track t
-                           WHERE t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?
+                           WHERE t.source='youtube' AND t.first_published >= ? AND t.old_release IS NULL AND substr(t.first_published,1,10) <= ?
                              AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='ytmusic')""",
                         (since, until)).fetchall()
     songs = []

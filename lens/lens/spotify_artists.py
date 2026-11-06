@@ -30,7 +30,7 @@ def run(conn, cfg, secrets, since, until, ts, log, check, run_id, budget=700):
                      AND m.field IN ('singer','music_director')) people,
                   (SELECT group_concat(value, '|') FROM song_meta m WHERE m.track_id=t.id AND m.field='film') films
            FROM track t
-           WHERE t.source='youtube' AND t.first_published >= ? AND substr(t.first_published,1,10) <= ?
+           WHERE t.source='youtube' AND t.first_published >= ? AND t.old_release IS NULL AND substr(t.first_published,1,10) <= ?
              AND t.release_id IS NULL
              AND NOT EXISTS (SELECT 1 FROM platform_item p WHERE p.track_id=t.id AND p.platform='spotify')
              AND coalesce((SELECT value FROM state WHERE key='sp_artist_lookup:' || t.id), '') < ?""",
