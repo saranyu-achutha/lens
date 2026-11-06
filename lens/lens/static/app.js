@@ -4,6 +4,11 @@ const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const fmt = (n) => (n == null ? "–" : Number(n).toLocaleString("en-IN"));
 const compact = (n) => n == null ? "–" : Math.abs(n) >= 1e9 ? `${(n / 1e9).toFixed(2)}B` : Math.abs(n) >= 1e7 ? `${(n / 1e6).toFixed(0)}M` : Math.abs(n) >= 1e6 ? `${(n / 1e6).toFixed(1)}M`
   : Math.abs(n) >= 1e4 ? `${(n / 1e3).toFixed(0)}K` : Math.abs(n) >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : String(Math.round(n));
+// Spotify and YouTube Music figures: always one decimal (1.2K, 12.3M, 1.0B)
+const compact1 = (n) => n == null ? "–" : Math.abs(n) >= 1e9 ? `${(n / 1e9).toFixed(1)}B` : Math.abs(n) >= 1e6 ? `${(n / 1e6).toFixed(1)}M`
+  : Math.abs(n) >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : String(Math.round(n));
+const ONE_DEC = new Set(["spotify", "ytmusic", "sp_plays", "ytm_plays"]);
+const pcompact = (platform, n) => (ONE_DEC.has(platform) ? compact1 : compact)(n);
 const dur = (ms) => { if (!ms) return "–"; const t = Math.round(ms / 1000); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`; };
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const monthLabel = (ym) => (ym && ym.length >= 7 ? `${MONTHS[+ym.slice(5, 7) - 1]} ${ym.slice(2, 4)}` : ym || "?");
@@ -285,6 +290,12 @@ async function loadOverview() {
       ov.channels.filter((c) => c.label && c.label === l.label).map((c) => `<tr class="ch-row" data-ch="${esc(c.channel)}" style="cursor:pointer"><td>${esc(c.channel)}</td>${nums(c)}</tr>`).join("")).join("") + "</tbody>";
   const tbl = (rows, extra) => `<thead><tr><th>Play</th><th>Song</th><th>First upload</th><th>Spotify</th>${extra ? "<th class='num'>Views gained</th>" : ""}<th class="num">YouTube views</th></tr></thead><tbody>` +
     rows.map((r) => `<tr class="click" data-id="${r.id}">${playBtns(r)}${trackCell(r)}<td class="muted">${esc(r.song_date)}</td><td>${statusChip(r.release_status)}</td>${extra ? `<td class="num delta-up">+${compact(r.yt_delta)}</td>` : ""}${viewsCell(r.yt_views)}</tr>`).join("") + "</tbody>";
+  api("/api/client").then((cd) => {
+    const render = () => { $("#ov-pf-kpis").innerHTML = platformTiles(cd); wireRatio($("#ov-pf-kpis"), render); };
+    render();
+    $("#ov-pf-asof").textContent = `gains on the last completed day, ${cd.as_of || "–"}`;
+    platformTrend($("#ov-pf-trend"), $("#ov-pf-legend"), cd);
+  }).catch(() => {});
   $("#ov-top").innerHTML = ov.top.length ? tbl(ov.top) : `<tbody><tr><td class="empty">No readings yet. Run the pipeline.</td></tr></tbody>`;
   $("#ov-risers").innerHTML = ov.risers.length ? tbl(ov.risers, true) :
     `<tbody><tr><td class="empty">Needs readings on two different days. Day-on-day gains appear after tomorrow's sync.</td></tr></tbody>`;
@@ -325,6 +336,47 @@ async function loadPlatform() {
 document.querySelectorAll("#pf-tabs .tab").forEach((b) => (b.onclick = () => { PF.p = b.dataset.pf; loadPlatform(); }));
 $("#pf-table").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-id]"); if (tr && tr.dataset.id !== "null") openTrack(tr.dataset.id); });
 
+/* ---------- Platform numbers shared by the Dashboard and the Overview: YouTube views and audio streams apart ---------- */
+const RATIO_KEY = "ml_ratio";
+const ratioPick = () => { try { const r = JSON.parse(localStorage.getItem(RATIO_KEY) || "null"); if (r && r.num && r.den) return r; } catch (e) {} return { num: "spotify", den: "youtube" }; };
+const ratioSave = (r) => { try { localStorage.setItem(RATIO_KEY, JSON.stringify(r)); } catch (e) {} };
+function ratioOptions(d) {  // every platform with a number, plus all audio streams together
+  const o = d.platforms.filter((p) => p.total != null).map((p) => ({ key: p.platform, name: p.name.replace(/ (views|plays)$/, ""), total: p.total, gain: p.gain }));
+  o.push({ key: "audio", name: "All audio streams", total: d.audio, gain: d.audio_gain });
+  return o;
+}
+function ratioTile(d, id) {
+  const opts = ratioOptions(d), r = ratioPick();
+  const num = opts.find((o) => o.key === r.num) || opts.find((o) => o.key === "spotify") || opts[0];
+  const den = opts.find((o) => o.key === r.den) || opts.find((o) => o.key === "youtube") || opts[0];
+  const v = den && den.total ? num.total / den.total : null, vg = den && den.gain ? (num.gain || 0) / den.gain : null;
+  const f = (x) => x == null ? "–" : x >= 10 ? x.toFixed(1) : x.toFixed(2);
+  const sel = (which, cur) => `<select class="ratio-sel" data-w="${which}" style="width:auto;padding:2px 4px;font-size:12px">${opts.map((o) =>
+    `<option value="${o.key}"${o.key === cur.key ? " selected" : ""}>${esc(o.name)}</option>`).join("")}</select>`;
+  return `<div class="card kpi" id="${id}"><div class="label">${sel("num", num)} to ${sel("den", den)}</div>
+    <div class="value">${f(v)} : 1</div><div class="sub">${v == null ? "no data" : `${f(v * 100)} ${esc(num.name)} per 100 ${esc(den.name)}`}${vg != null ? ` · last day ${f(vg)} : 1` : ""}</div></div>`;
+}
+function wireRatio(root, rerender) {
+  root.querySelectorAll(".ratio-sel").forEach((x) => (x.onchange = () => {
+    const r = ratioPick(); r[x.dataset.w] = x.value; ratioSave(r); rerender(); }));
+}
+function platformTiles(d) {
+  const pf = Object.fromEntries(d.platforms.map((p) => [p.platform, p]));
+  const day = d.as_of ? ` on ${d.as_of}` : "";
+  const t = (label, platform, total, gain, sub) => `<div class="card kpi" style="--kpi-c:${PCOLOR[platform] || "var(--accent)"}"><div class="label">${label}</div>
+    <div class="value">${pcompact(platform, total)}</div><div class="sub">${gain ? `+${pcompact(platform, gain)} gained${day}` : `no gain${day}`}${sub ? " · " + sub : ""}</div></div>`;
+  return t("YouTube views", "youtube", d.yt_views, d.yt_gain, `${fmt(pf.youtube?.songs || 0)} songs`) +
+    t("Audio streams", "spotify", d.audio, d.audio_gain, "Spotify + YouTube Music + JioSaavn") +
+    t("Spotify plays", "spotify", pf.spotify?.total, pf.spotify?.gain, `${fmt(pf.spotify?.songs || 0)} songs`) +
+    t("YouTube Music plays", "ytmusic", pf.ytmusic?.total, pf.ytmusic?.gain, `${fmt(pf.ytmusic?.songs || 0)} songs`) +
+    t("JioSaavn plays", "jiosaavn", pf.jiosaavn?.total, pf.jiosaavn?.gain, `${fmt(pf.jiosaavn?.songs || 0)} songs`) + ratioTile(d, "ratio-" + Math.random().toString(36).slice(2, 6));
+}
+function platformTrend(el, legendEl, d) {
+  const lines = d.trend.map((l) => ({ name: l.name, color: PCOLOR[l.platform], axis: l.axis, points: l.points }));
+  multiLine(el, lines.filter((l) => l.points.length), { height: 330 });
+  legendEl.innerHTML = legendHtml(d.trend) + '<span class="muted">YouTube on the left axis, audio platforms on the right</span>';
+}
+
 /* ---------- Dashboard (client home): reach and growth in plain terms ---------- */
 const legendHtml = (lines) => lines.map((l) => `<span><span style="display:inline-block;width:12px;height:3px;background:${PCOLOR[l.platform]};vertical-align:middle;margin-right:5px"></span>${esc(l.name)}</span>`).join("");
 const playOne = (r) => `<td class="play-cell">${r.yt_video_id ? `<button class="pbtn yt" data-play="youtube" data-pid="${esc(r.yt_video_id)}" data-ptitle="${esc(r.title)}" title="Play on YouTube">▶</button>` : `<span class="pbtn yt off">▶</span>`}</td>`;
@@ -332,31 +384,29 @@ const songRow = (r, i, extra) => `<tr class="click" data-id="${r.id}"><td class=
 async function loadClient() {
   const d = await api("/api/client");
   $("#cl-window").textContent = `How the releases first uploaded ${d.since} → ${d.until} are performing across platforms`;
-  $("#cl-asof").innerHTML = `<span class="dot"></span>Data as of ${esc(d.as_of || "–")}`;
+  $("#cl-asof").innerHTML = `<span class="dot"></span>Last completed day ${esc(d.as_of || "–")}`;
   const pct = (n, t) => (t ? Math.round((100 * n) / t) : 0);
-  const pf = Object.fromEntries(d.platforms.map((p) => [p.platform, p]));
   const lead = d.labels[0];
-  const tiles = [["Songs released", fmt(d.songs), `${fmt(d.new)} confirmed new releases on Spotify`],
-    ["Total reach", compact(d.reach), "views and plays across 4 platforms"],
-    ["Gained in the last day", d.gain ? `+${compact(d.gain)}` : "–", `${fmt(d.growing)} songs growing`],
-    ["Hit songs", fmt(d.hits), `1M+ reach · ${pct(d.hits, d.songs)}% of songs`],
-    ["Biggest platform", (d.platforms.filter((p) => p.total != null).sort((a, b) => b.total - a.total)[0] || {}).name?.replace(/ (views|plays)$/, "") || "–",
-      `${pct(Math.max(...d.platforms.filter((p) => p.total != null).map((p) => p.total)), d.reach)}% of all reach`],
-    ["Top label", lead ? lead.label : "–", lead ? `${pct(lead.reach, d.reach)}% of reach · ${fmt(lead.songs)} songs` : ""]];
-  $("#cl-kpis").innerHTML = tiles.map(([l, v, x]) => `<div class="card kpi${/^[+\d.,]+[KMB]?$/.test(v) || v === "–" ? "" : " kpi-text"}" title="${esc(v)}"><div class="label">${l}</div><div class="value">${esc(v)}</div><div class="sub">${esc(x)}</div></div>`).join("");
-  const lines = d.trend.map((l) => ({ name: l.name, color: PCOLOR[l.platform], points: l.points }));
-  multiLine($("#cl-trend"), lines.filter((l) => l.points.length), { height: 330 });
-  $("#cl-legend").innerHTML = legendHtml(d.trend);
+  const head = [["Songs released", fmt(d.songs), `${fmt(d.new)} confirmed new releases on Spotify`],
+    ["Hit songs", fmt(d.hits), `${fmt(d.hits_yt)} with 1M+ YouTube views · ${fmt(d.hits_audio)} with 1M+ streams`],
+    ["Songs growing", fmt(d.growing), `gained views or streams on ${d.as_of || "the last day"}`],
+    ["Top label", lead ? lead.label : "–", lead ? `${pct(lead.yt_views, d.yt_views)}% of YouTube views · ${fmt(lead.songs)} songs` : ""]];
+  const render = () => {
+    $("#cl-kpis").innerHTML = platformTiles(d) + head.map(([l, v, x]) => `<div class="card kpi${/^[+\d.,]+[KMB]?$/.test(v) || v === "–" ? "" : " kpi-text"}" title="${esc(v)}"><div class="label">${l}</div><div class="value">${esc(v)}</div><div class="sub">${esc(x)}</div></div>`).join("");
+    wireRatio($("#cl-kpis"), render);
+  };
+  render();
+  platformTrend($("#cl-trend"), $("#cl-legend"), d);
   $("#cl-presence").innerHTML = d.platforms.map((p) => `<div class="bar-row"><span class="bar-name">${esc(p.name.replace(/ (views|plays)$/, ""))}</span>
       <span class="bar-track"><span class="bar-fill" style="width:${pct(p.songs, d.songs)}%;background:${PCOLOR[p.platform] || "var(--accent)"}"></span></span>
       <span class="bar-val">${pct(p.songs, d.songs)}% <span class="muted">${fmt(p.songs)}</span></span></div>`).join("") +
-    `<table style="margin-top:14px"><thead><tr><th>Platform</th><th class="num">Total</th><th class="num">Last day</th></tr></thead><tbody>` +
-    d.platforms.filter((p) => p.total != null).map((p) => `<tr><td>${esc(p.name)}</td><td class="num">${compact(p.total)}</td><td class="num ${p.gain > 0 ? "delta-up" : ""}">${p.gain ? "+" + compact(p.gain) : "–"}</td></tr>`).join("") + "</tbody></table>";
-  const per = (r) => ["yt_views", "ytm_plays", "sp_plays", "js_plays"].map((k) => viewsCell(r[k])).join("");
-  $("#cl-top").innerHTML = `<thead><tr><th>#</th><th></th><th>Song</th><th class="num">Reach</th><th class="num">YouTube</th><th class="num">YT Music</th><th class="num">Spotify</th><th class="num">JioSaavn</th></tr></thead><tbody>` +
-    d.top.map((r, i) => songRow(r, i, (r) => `<td class="num"><b>${compact(r.reach)}</b></td>${per(r)}`)).join("") + "</tbody>";
-  $("#cl-risers").innerHTML = d.risers.length ? `<thead><tr><th>#</th><th></th><th>Song</th><th class="num">Gained</th><th class="num">Reach</th></tr></thead><tbody>` +
-    d.risers.map((r, i) => songRow(r, i, (r) => `<td class="num delta-up">+${compact(r.gain)}</td><td class="num">${compact(r.reach)}</td>`)).join("") + "</tbody>"
+    `<table style="margin-top:14px"><thead><tr><th>Platform</th><th class="num">Total</th><th class="num">Gained ${esc(d.as_of || "")}</th></tr></thead><tbody>` +
+    d.platforms.filter((p) => p.total != null).map((p) => `<tr><td>${esc(p.name)}</td><td class="num">${pcompact(p.platform, p.total)}</td><td class="num ${p.gain > 0 ? "delta-up" : ""}">${p.gain ? "+" + pcompact(p.platform, p.gain) : "–"}</td></tr>`).join("") + "</tbody></table>";
+  const per = (r) => `${viewsCell(r.yt_views)}<td class="num">${compact1(r.ytm_plays)}</td><td class="num">${compact1(r.sp_plays)}</td>${viewsCell(r.js_plays)}`;
+  $("#cl-top").innerHTML = `<thead><tr><th>#</th><th></th><th>Song</th><th class="num">YouTube views</th><th class="num">YT Music</th><th class="num">Spotify</th><th class="num">JioSaavn</th></tr></thead><tbody>` +
+    d.top.map((r, i) => songRow(r, i, per)).join("") + "</tbody>";
+  $("#cl-risers").innerHTML = d.risers.length ? `<thead><tr><th>#</th><th></th><th>Song</th><th class="num">Views gained</th><th class="num">Streams gained</th><th class="num">YouTube views</th></tr></thead><tbody>` +
+    d.risers.map((r, i) => songRow(r, i, (r) => `<td class="num delta-up">+${compact(r.yt_gain)}</td><td class="num ${r.audio_gain > 0 ? "delta-up" : "muted"}">${r.audio_gain ? "+" + compact(r.audio_gain) : "–"}</td><td class="num">${compact(r.yt_views)}</td>`)).join("") + "</tbody>"
     : `<tbody><tr><td class="empty">Growth appears after two days of readings.</td></tr></tbody>`;
   [["shorts", "#cl-shorts", "Shorts"], ["reels", "#cl-reels", "Reels"]].forEach(([k, el, what]) => {
     const sh = d[k];
@@ -368,9 +418,10 @@ async function loadClient() {
         <td class="num ${r.gain > 0 ? "delta-up" : ""}">${r.gain ? "+" + compact(r.gain) : "–"}</td></tr>`).join("") + "</tbody>"
       : `<tbody><tr><td class="empty">None made with the songs' official audio yet.</td></tr></tbody>`;
   });
-  $("#cl-labels").innerHTML = `<thead><tr><th>Label</th><th class="num">Songs</th><th class="num">New releases</th><th class="num">Hit songs</th><th class="num">Reach</th><th class="num">Share</th><th class="num">Gained, last day</th></tr></thead><tbody>` +
+  $("#cl-labels").innerHTML = `<thead><tr><th>Label</th><th class="num">Songs</th><th class="num">New releases</th><th class="num">Hit songs</th><th class="num">YouTube views</th><th class="num">Share of views</th><th class="num">Audio streams</th><th class="num">Views gained</th><th class="num">Streams gained</th></tr></thead><tbody>` +
     d.labels.map((l) => `<tr class="label-row" data-label="${esc(l.label)}" style="cursor:pointer"><td>${labelTag(l.label)}</td><td class="num">${fmt(l.songs)}</td><td class="num">${fmt(l.new)}</td><td class="num">${fmt(l.hits)}</td>
-      <td class="num">${compact(l.reach)}</td><td class="num">${pct(l.reach, d.reach)}%</td><td class="num ${l.gain > 0 ? "delta-up" : ""}">${l.gain ? "+" + compact(l.gain) : "–"}</td></tr>`).join("") + "</tbody>";
+      <td class="num">${compact(l.yt_views)}</td><td class="num">${pct(l.yt_views, d.yt_views)}%</td><td class="num">${compact(l.audio)}</td>
+      <td class="num ${l.yt_gain > 0 ? "delta-up" : ""}">${l.yt_gain ? "+" + compact(l.yt_gain) : "–"}</td><td class="num ${l.audio_gain > 0 ? "delta-up" : ""}">${l.audio_gain ? "+" + compact(l.audio_gain) : "–"}</td></tr>`).join("") + "</tbody>";
 }
 ["#cl-top", "#cl-risers", "#cl-shorts", "#cl-reels"].forEach((t) => $(t).addEventListener("click", (e) => { if (e.target.closest("[data-play]")) return; const tr = e.target.closest("tr[data-id]"); if (tr) openTrack(tr.dataset.id); }));
 $("#cl-labels").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-label]"); if (!tr || tr.dataset.label === "Other") return;
@@ -819,25 +870,37 @@ function multiLine(el, series, { height = 220 } = {}) {  // series: [{name, colo
   const xs = [...new Set(series.flatMap((s) => s.points.map((p) => p.x)))].sort();
   const ys = series.flatMap((s) => s.points.map((p) => p.y));
   if (!xs.length || !ys.length) { el.innerHTML = `<div class="empty">Daily gains appear after two consecutive days of readings.</div>`; return; }
-  const yMax = niceMax(Math.max(...ys, 1)), yMin = Math.min(0, ...ys);
-  const W = el.clientWidth || 600, H = height, m = { t: 12, r: 14, b: 26, l: 52 }, iw = W - m.l - m.r, ih = H - m.t - m.b;
+  const dual = series.some((s) => s.axis === "right") && series.some((s) => s.axis !== "right");
+  const ysL = series.filter((s) => !dual || s.axis !== "right").flatMap((s) => s.points.map((p) => p.y));
+  const ysR = dual ? series.filter((s) => s.axis === "right").flatMap((s) => s.points.map((p) => p.y)) : [];
+  const yMax = niceMax(Math.max(...ysL, 1)), yMin = Math.min(0, ...ysL);
+  const yMax2 = dual ? niceMax(Math.max(...ysR, 1)) : 0, yMin2 = dual ? Math.min(0, ...ysR) : 0;
+  const W = el.clientWidth || 600, H = height, m = { t: 12, r: dual ? 56 : 14, b: 26, l: 52 }, iw = W - m.l - m.r, ih = H - m.t - m.b;
   const X = (x) => m.l + (xs.length === 1 ? iw / 2 : (iw * xs.indexOf(x)) / (xs.length - 1)), Y = (y) => m.t + ih - (ih * (y - yMin)) / (yMax - yMin || 1);
+  const Y2 = (y) => m.t + ih - (ih * (y - yMin2)) / (yMax2 - yMin2 || 1);
   const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, height: H, role: "img", "aria-label": "Daily gain by platform" }, el);
   const g = svgEl("g", { class: "grid" }, svg), ax = svgEl("g", { class: "axis" }, svg);
   for (let i = 0; i <= 4; i++) { const v = yMin + ((yMax - yMin) * i) / 4, y = Y(v);
-    svgEl("line", { x1: m.l, x2: W - m.r, y1: y, y2: y }, g); svgEl("text", { x: m.l - 8, y: y + 4, "text-anchor": "end" }, ax).textContent = compact(v); }
+    svgEl("line", { x1: m.l, x2: W - m.r, y1: y, y2: y }, g); svgEl("text", { x: m.l - 8, y: y + 4, "text-anchor": "end" }, ax).textContent = compact(v);
+    if (dual) { const v2 = yMin2 + ((yMax2 - yMin2) * i) / 4; svgEl("text", { x: W - m.r + 8, y: y + 4, "text-anchor": "start" }, ax).textContent = compact(v2); } }
+  if (dual) {
+    const nm = (f) => series.filter(f).map((s) => s.name.replace(/ (views|plays)$/, "")).join(", ");
+    svgEl("text", { x: m.l - 8, y: m.t - 2, "text-anchor": "end", style: "font-size:10px" }, ax).textContent = "◀ " + nm((s) => s.axis !== "right");
+    svgEl("text", { x: W - m.r + 8, y: m.t - 2, "text-anchor": "start", style: "font-size:10px" }, ax).textContent = "▶";
+  }
   const step = Math.max(1, Math.ceil(xs.length / 8));
   xs.forEach((x, i) => { if (i % step === 0) svgEl("text", { x: X(x), y: H - 8, "text-anchor": "middle" }, ax).textContent = x.slice(5); });
   const uid = Math.random().toString(36).slice(2, 7);
   series.forEach((s, si) => {
+    const Ys = dual && s.axis === "right" ? Y2 : Y, lo = dual && s.axis === "right" ? yMin2 : yMin;
     const pts = s.points.filter((p) => p.y != null);
-    const d = pts.map((p, i) => `${i ? "L" : "M"}${X(p.x)},${Y(p.y)}`).join(" "), base = Y(Math.max(yMin, 0));
+    const d = pts.map((p, i) => `${i ? "L" : "M"}${X(p.x)},${Ys(p.y)}`).join(" "), base = Ys(Math.max(lo, 0));
     if (pts.length > 1) {
       gradient(svg, `ml-${uid}-${si}`, s.color, series.length > 2 ? 0.12 : 0.22, 0);
       svgEl("path", { d: `${d} L${X(pts[pts.length - 1].x)},${base} L${X(pts[0].x)},${base} Z`, fill: `url(#ml-${uid}-${si})`, class: "area" }, svg);
       svgEl("path", { d, fill: "none", stroke: s.color, "stroke-width": 2.5, "stroke-linejoin": "round", "stroke-linecap": "round", pathLength: 1, class: "line" }, svg);
     }
-    pts.forEach((p) => { const c = svgEl("circle", { cx: X(p.x), cy: Y(p.y), r: 3.5, fill: s.color, stroke: "var(--surface-1)", "stroke-width": 1.5 }, svg); svgEl("title", {}, c).textContent = `${s.name} ${p.x}: ${p.y > 0 ? "+" : ""}${fmt(p.y)}`; });
+    pts.forEach((p) => { const c = svgEl("circle", { cx: X(p.x), cy: Ys(p.y), r: 3.5, fill: s.color, stroke: "var(--surface-1)", "stroke-width": 1.5 }, svg); svgEl("title", {}, c).textContent = `${s.name} ${p.x}: ${p.y > 0 ? "+" : ""}${fmt(p.y)}`; });
   });
 }
 async function loadCompare(song) {

@@ -1683,12 +1683,18 @@ def _song_set(qs):
                           f"AND substr(first_published,1,10) <= ?{focus(qs)}")
 
 
+AUDIO = ("ytm_plays", "sp_plays", "js_plays")  # audio streams: kept apart from YouTube views (never one "reach" number)
+
+
 def api_client(conn, qs):
-    """Dashboard: each song's latest known total and day-on-day gain per platform (newest of the last 3 days of
-    song_daily, so a platform not yet read today still counts), totals, top songs, risers, labels and a 30-day trend."""
+    """Dashboard: each song's total and day-on-day gain per platform on the latest completed reporting day (the last
+    finished server day: today is still being read), YouTube views and audio streams kept apart; totals, top songs,
+    risers, labels and a 30-day trend (YouTube on its own axis)."""
     since, until, S = _song_set(qs)
     song_daily.ensure(conn)
-    last = conn.execute(f"SELECT max(day) FROM song_daily WHERE song_id IN ({S})", (since, until)).fetchone()[0]
+    today = date.today().isoformat()
+    last = conn.execute(f"SELECT max(day) FROM song_daily WHERE day < ? AND song_id IN ({S})", (today, since, until)).fetchone()[0] \
+        or conn.execute(f"SELECT max(day) FROM song_daily WHERE song_id IN ({S})", (since, until)).fetchone()[0]
     songs = {r["id"]: dict(r, **{f: None for _, _, c in REACH for f in (c, c + "_gain")}) for r in conn.execute(
         f"""SELECT t.id, coalesce(t.yt_title, t.title) title, t.release_status, substr(t.first_published,1,10) first_upload,
                    (SELECT channel FROM platform_item p WHERE p.track_id=t.id AND p.platform='youtube' ORDER BY published_at LIMIT 1) channel,
@@ -1697,12 +1703,18 @@ def api_client(conn, qs):
             FROM track t WHERE t.id IN ({S})""", (since, until))}
     cols = [c for _, _, c in REACH]
     if last:
-        for r in conn.execute(f"""SELECT song_id, {', '.join(cols + [c + '_gain' for c in cols])} FROM song_daily
-                                  WHERE day > date(?, '-3 day') AND song_id IN ({S}) ORDER BY day DESC""", (last, since, until)):
+        # totals: each song's value on the reporting day, or its newest of the 3 days before (a platform not read that day);
+        # gains: the reporting day's own gain only
+        for r in conn.execute(f"""SELECT song_id, day, {', '.join(cols + [c + '_gain' for c in cols])} FROM song_daily
+                                  WHERE day > date(?, '-3 day') AND day <= ? AND song_id IN ({S}) ORDER BY day DESC""", (last, last, since, until)):
             s = songs.get(r["song_id"])
-            for f in r.keys()[1:]:
-                if s and s[f] is None and r[f] is not None:
-                    s[f] = r[f]
+            if not s:
+                continue
+            for c in cols:
+                if s[c] is None and r[c] is not None:
+                    s[c] = r[c]
+                if r["day"] == last and r[c + "_gain"] is not None:
+                    s[c + "_gain"] = r[c + "_gain"]
     labels_of = config.channel_labels(config.load())
     on = {r[0]: r[1] for r in conn.execute(f"""SELECT platform, count(DISTINCT track_id) FROM platform_item
                                                WHERE track_id IN ({S}) AND review_state IN ('auto','approved','song')
@@ -1710,31 +1722,42 @@ def api_client(conn, qs):
     labels, rows = {}, list(songs.values())
     for s in rows:
         s["label"] = labels_of.get(s["channel"], config.FIRST_LABEL) if s["channel"] else ""
-        s["reach"] = sum(s[c] or 0 for c in cols)
-        s["gain"] = sum(s[c + "_gain"] or 0 for c in cols)
-        t = labels.setdefault(s["label"] or "Other", {"label": s["label"] or "Other", "songs": 0, "new": 0, "reach": 0, "gain": 0, "hits": 0})
+        s["audio"] = sum(s[c] or 0 for c in AUDIO)
+        s["audio_gain"] = sum(s[c + "_gain"] or 0 for c in AUDIO)
+        s["yt_gain"] = s["yt_views_gain"] or 0
+        s["hit"] = (s["yt_views"] or 0) >= 1_000_000 or s["audio"] >= 1_000_000
+        t = labels.setdefault(s["label"] or "Other", {"label": s["label"] or "Other", "songs": 0, "new": 0, "yt_views": 0, "audio": 0,
+                                                      "yt_gain": 0, "audio_gain": 0, "hits": 0})
         t["songs"] += 1
         t["new"] += s["release_status"] == "new"
-        t["reach"] += s["reach"]
-        t["gain"] += s["gain"]
-        t["hits"] += s["reach"] >= 1_000_000
+        t["yt_views"] += s["yt_views"] or 0
+        t["audio"] += s["audio"]
+        t["yt_gain"] += s["yt_gain"]
+        t["audio_gain"] += s["audio_gain"]
+        t["hits"] += s["hit"]
     total = {c: sum(s[c] or 0 for s in rows) for c in cols}
     gain = {c: sum(s[c + "_gain"] or 0 for s in rows) for c in cols}
-    keep = ("id", "title", "label", "first_upload", "release_status", "yt_video_id", "reach", "gain") + tuple(cols)
+    keep = ("id", "title", "label", "first_upload", "release_status", "yt_video_id", "audio", "audio_gain", "yt_gain") + tuple(cols)
     pick = lambda xs: [{k: s[k] for k in keep} for s in xs]
     trend = []
     if last:
         days = q(conn, f"""SELECT day, {', '.join(f'sum({c}_gain) {c}' for c in cols)} FROM song_daily
-                           WHERE day > date(?, '-30 day') AND song_id IN ({S}) GROUP BY day ORDER BY day""", (last, since, until))
-        trend = [{"platform": p, "name": n, "points": [{"x": d["day"], "y": d[c]} for d in days if d[c] is not None]} for p, n, c in REACH]
-    return {"since": since, "until": until, "as_of": last, "songs": len(rows),
-            "new": sum(s["release_status"] == "new" for s in rows), "hits": sum(s["reach"] >= 1_000_000 for s in rows),
-            "reach": sum(total.values()), "gain": sum(gain.values()), "growing": sum(s["gain"] > 0 for s in rows),
+                           WHERE day > date(?, '-30 day') AND day <= ? AND song_id IN ({S}) GROUP BY day ORDER BY day""", (last, last, since, until))
+        trend = [{"platform": p, "name": n, "axis": "left" if p == "youtube" else "right",
+                  "points": [{"x": d["day"], "y": d[c]} for d in days if d[c] is not None]} for p, n, c in REACH]
+    return {"since": since, "until": until, "as_of": last, "today": today, "songs": len(rows),
+            "new": sum(s["release_status"] == "new" for s in rows), "hits": sum(s["hit"] for s in rows),
+            "hits_yt": sum((s["yt_views"] or 0) >= 1_000_000 for s in rows), "hits_audio": sum(s["audio"] >= 1_000_000 for s in rows),
+            "yt_views": total["yt_views"], "yt_gain": gain["yt_views"],
+            "audio": sum(total[c] for c in AUDIO), "audio_gain": sum(gain[c] for c in AUDIO),
+            "growing": sum(s["yt_gain"] > 0 or s["audio_gain"] > 0 for s in rows),
             "platforms": [{"platform": p, "name": n, "total": total[c], "gain": gain[c], "songs": on.get(p, 0)} for p, n, c in REACH]
                          + [{"platform": p, "name": n, "songs": on.get(p, 0)} for p, n in (("apple", "Apple Music"), ("deezer", "Deezer"))],
-            "top": pick(sorted(rows, key=lambda s: -s["reach"])[:15]),
-            "risers": pick(sorted((s for s in rows if s["gain"] > 0), key=lambda s: -s["gain"])[:10]),
-            "labels": sorted(labels.values(), key=lambda t: -t["reach"]), "trend": trend, "shorts": shorts_summary(conn, S, (since, until), last),
+            "top": pick(sorted(rows, key=lambda s: -(s["yt_views"] or 0))[:15]),
+            "top_audio": pick(sorted((s for s in rows if s["audio"]), key=lambda s: -s["audio"])[:15]),
+            "risers": pick(sorted((s for s in rows if s["yt_gain"] > 0), key=lambda s: -s["yt_gain"])[:10]),
+            "risers_audio": pick(sorted((s for s in rows if s["audio_gain"] > 0), key=lambda s: -s["audio_gain"])[:10]),
+            "labels": sorted(labels.values(), key=lambda t: -t["yt_views"]), "trend": trend, "shorts": shorts_summary(conn, S, (since, until), last),
             "reels": shorts_summary(conn, S, (since, until), last, "ig_reels")}
 
 

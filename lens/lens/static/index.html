@@ -93,6 +93,10 @@
     </div>
     <div id="ov-body">
       <div class="grid g6" id="ov-kpis"></div>
+      <div class="card-head" style="margin:18px 2px 8px"><h2>Platforms</h2><span class="spacer"></span><span class="muted" style="font-size:12px" id="ov-pf-asof"></span></div>
+      <div class="grid g6" id="ov-pf-kpis"></div>
+      <div class="card" style="margin-top:16px"><div class="card-head"><h2>Daily growth by platform</h2><span class="spacer"></span><span class="muted" style="font-size:12px">views / plays gained each day, last 30 days</span></div>
+        <div class="chart" id="ov-pf-trend"></div><div id="ov-pf-legend" class="row" style="gap:14px;flex-wrap:wrap;margin-top:6px;font-size:12px"></div></div>
       <div class="grid g2" style="margin-top:16px">
         <div class="card"><div class="card-head"><h2>Songs released each day</h2><span class="pill" id="ov-total" style="margin-left:8px"></span><span class="spacer"></span><span class="muted" style="font-size:12px">click a bar to list that day's songs</span></div><div class="chart" id="ov-month"></div></div>
         <div class="card flush"><h2>Songs by label and channel</h2><div class="table-wrap" style="max-height:300px"><table id="ov-labels"></table></div></div>
@@ -120,13 +124,13 @@
 <path d="M293,112 l7,7" stroke="url(#hA-grad)" stroke-width="7" fill="none"/><path d="M300,119 l20,18" stroke="url(#hA-grad)" stroke-width="11" stroke-linecap="round" fill="none"/></svg><div><h1>Dashboard</h1><p id="cl-window">How the period's releases are performing across platforms</p></div><span class="spacer"></span><span class="pill" id="cl-asof"></span></div>
     <div class="grid g6" id="cl-kpis"></div>
     <div class="grid g2" style="margin-top:16px">
-      <div class="card"><div class="card-head"><h2>Daily growth by platform</h2><span class="spacer"></span><span class="muted" style="font-size:12px">plays / views gained each day, last 30 days</span></div>
+      <div class="card"><div class="card-head"><h2>Daily growth by platform</h2><span class="spacer"></span><span class="muted" style="font-size:12px">views / plays gained each day, last 30 days</span></div>
         <div class="chart" id="cl-trend"></div><div id="cl-legend" class="row" style="gap:14px;flex-wrap:wrap;margin-top:6px;font-size:12px"></div></div>
       <div class="card"><div class="card-head"><h2>Where the songs are</h2><span class="spacer"></span><span class="muted" style="font-size:12px">share of the period's songs on each platform</span></div><div id="cl-presence"></div></div>
     </div>
     <div class="grid g2" style="margin-top:16px">
-      <div class="card flush"><h2>Top songs by total reach</h2><div class="table-wrap" style="max-height:460px"><table id="cl-top"></table></div></div>
-      <div class="card flush"><h2>Fastest growing today</h2><div class="table-wrap" style="max-height:460px"><table id="cl-risers"></table></div></div>
+      <div class="card flush"><h2>Top songs by YouTube views</h2><div class="table-wrap" style="max-height:460px"><table id="cl-top"></table></div></div>
+      <div class="card flush"><h2>Fastest growing (YouTube views, last completed day)</h2><div class="table-wrap" style="max-height:460px"><table id="cl-risers"></table></div></div>
     </div>
     <div class="grid g2" style="margin-top:16px">
       <div class="card flush" id="cl-shorts-card" style="display:none"><h2>Most used in YouTube Shorts</h2>
@@ -135,7 +139,7 @@
         <div class="muted" style="font-size:12px;margin:-4px 16px 8px" id="cl-reels-sub"></div><div class="table-wrap" style="max-height:420px"><table id="cl-reels"></table></div></div>
     </div>
     <div class="card flush" style="margin-top:16px"><h2>Labels</h2><div class="table-wrap"><table id="cl-labels"></table></div></div>
-    <p class="muted" style="font-size:12px;margin-top:10px">Reach = YouTube views + YouTube Music plays + Spotify plays + JioSaavn plays, each song's latest reading. Growth = the change since the previous day's reading.</p>
+    <p class="muted" style="font-size:12px;margin-top:10px">YouTube views and audio streams (Spotify + YouTube Music + JioSaavn plays) are counted apart, never added together. Totals and gains are for the last completed day (today is still being read); a gain is the change since the previous day's reading. Spotify and YouTube Music to one decimal. The ratio tile compares any two platforms (Spotify to YouTube by default; your choice is remembered in this browser).</p>
   </section>
 
   <!-- DEVELOPER DASHBOARD -->
