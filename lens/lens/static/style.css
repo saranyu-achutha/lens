@@ -1087,3 +1087,13 @@ header.top .bell-wrap { flex: none; }
 .howto { font-size: 12.5px; color: var(--text-secondary); line-height: 1.6; }
 .howto b { color: var(--text-primary); }
 .th-group { text-align: center !important; border-bottom: 2px solid var(--pc, var(--accent)) !important; }
+
+/* Market share page */
+.share-list { display: flex; flex-direction: column; gap: 14px; }
+.share-line .sl-top { display: flex; justify-content: space-between; align-items: center; }
+.share-line .sl-pct { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.share-line .share-track { height: 10px; border-radius: 5px; margin-top: 6px; }
+.share-line .share-track > span { border-radius: 5px; }
+.share-line .sl-meta { color: var(--text-muted); font-size: 12px; margin-top: 4px; }
+.share-line.focus { padding: 10px 12px; margin: -4px -12px; border-radius: 12px; background: color-mix(in srgb, var(--lc) 10%, transparent); }
+tr.focus-row td { background: color-mix(in srgb, var(--accent-2) 8%, transparent); }

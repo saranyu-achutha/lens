@@ -39,7 +39,7 @@ PASSWORD = None  # client login: any username with STUDIO_PASSWORD
 DEV_LOGIN = (None, None)  # developer login: DEVELOPER_USERNAME + DEVELOPER_PASSWORD (.env)
 # What the client login may read: its dashboard, platforms, reports, daily data and songs. Everything else
 # (developer pages, raw data, review, runs, settings, docs) and every change (POST) is for the developer login only.
-CLIENT_GET = {"/api/status", "/api/client", "/api/platform", "/api/report", "/api/report.csv", "/api/labels/report", "/api/labels/report.csv", "/api/daily", "/api/daily.csv", "/api/shorts",
+CLIENT_GET = {"/api/status", "/api/client", "/api/platform", "/api/report", "/api/report.csv", "/api/labels/report", "/api/labels/report.csv", "/api/market_share", "/api/daily", "/api/daily.csv", "/api/shorts",
               "/api/song/compare", "/api/tracks", "/api/track", "/api/search", "/api/insights/song", "/api/meta/detail", "/api/export.csv"}
 
 SORTS = {"song_date": "song_date", "release_date": "release_date", "title": "title", "artists": "artists",
@@ -1026,6 +1026,31 @@ def api_label_report(conn, qs):
     if month:
         date.fromisoformat(month + "-01")  # ValueError -> 400
     return label_report.daily(conn, month, by)
+
+
+def api_market_share(conn, qs):
+    """Market share page: ?days=N (default market_share.days), ?month=YYYY-MM or ?since=&until= (songs released then)."""
+    from . import market_share
+    days = int(qs["days"]) if (qs.get("days") or "").isdigit() else None
+    since, until = qs.get("since") or None, qs.get("until") or None
+    if qs.get("month"):
+        m = qs["month"]
+        first = date.fromisoformat(m + "-01")
+        since, until = first.isoformat(), ((first.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)).isoformat()
+    for x in (since, until):
+        if x:
+            date.fromisoformat(x)
+    d = market_share.compute(conn, days, since, until)
+    if d.get("months") is None:  # the month list always covers the whole period
+        d["months"] = sorted({r[0] for r in conn.execute(
+            "SELECT DISTINCT substr(first_published,1,7) FROM track WHERE source='youtube' AND first_published >= ? AND old_release IS NULL",
+            (d["period"][0],))}, reverse=True)
+    return d
+
+
+def post_market_share_settings(conn, body):
+    from . import market_share
+    return market_share.save_days(body.get("days"))
 
 
 def api_live(conn, qs):
@@ -2121,7 +2146,7 @@ def fmt_n(n):
 GET = {"/api/coverage": api_coverage, "/api/insights": api_insights, "/api/insights/song": api_insights_song, "/api/ai/status": api_ai_status, "/api/ai/assist": api_ai_assist,
        "/api/meta/top": api_meta_top, "/api/meta/detail": api_meta_detail,
        "/api/merge/suggestions": api_merge_suggestions, "/api/status": api_status, "/api/overview": api_overview, "/api/crawl": api_crawl, "/api/client": api_client, "/api/search": api_search, "/api/dev": api_dev, "/api/tracks": api_tracks,
-       "/api/track": api_track, "/api/platform": api_platform, "/api/report": api_report, "/api/daily": api_daily, "/api/shorts": api_shorts, "/api/system": lambda conn, qs: sysstats.api(conn), "/api/alerts": api_alerts, "/api/live": api_live, "/api/labels/report": api_label_report, "/api/freshness": api_freshness, "/api/charts": lambda conn, qs: alerts.charts_status(conn),
+       "/api/track": api_track, "/api/platform": api_platform, "/api/report": api_report, "/api/daily": api_daily, "/api/shorts": api_shorts, "/api/system": lambda conn, qs: sysstats.api(conn), "/api/alerts": api_alerts, "/api/live": api_live, "/api/market_share": api_market_share, "/api/labels/report": api_label_report, "/api/freshness": api_freshness, "/api/charts": lambda conn, qs: alerts.charts_status(conn),
        "/api/collection": lambda conn, qs: collection.estimate(conn, overrides={k: qs[k] for k in collection.CHOICES if qs.get(k)}), "/api/items": api_items, "/api/song/compare": api_song_compare, "/api/items/history": api_item_history, "/api/runs": api_runs, "/api/seeds": api_seeds,
        "/api/artist_search": api_artist_search, "/api/health": api_health, "/api/datasets": api_datasets,
        "/api/datasets/view": api_dataset_view, "/api/raw": api_raw, "/api/raw/item": api_raw_item,
@@ -2135,7 +2160,7 @@ POST = {"/api/config": post_config, "/api/secrets": post_secrets, "/api/test/spo
         # Live Claude endpoints (lens/ai.py) are switched off until the API integration: add
         # "/api/ai/explain": post_ai_explain, "/api/ai/ask": post_ai_ask here to enable them.
         "/api/merge/apply": post_merge_apply, "/api/merge/reject": post_merge_reject, "/api/review/undo": post_undo,
-        "/api/jobs/pause": post_jobs_pause, "/api/freshness/retry": post_freshness_retry, "/api/freshness/mark": post_freshness_mark, "/api/jobs/resume": post_jobs_resume}
+        "/api/jobs/pause": post_jobs_pause, "/api/freshness/retry": post_freshness_retry, "/api/market_share/settings": post_market_share_settings, "/api/freshness/mark": post_freshness_mark, "/api/jobs/resume": post_jobs_resume}
 
 
 # Keep the Console out of search engines: robots.txt (no crawling), plus a noindex header on every response.

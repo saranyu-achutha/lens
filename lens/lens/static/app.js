@@ -37,9 +37,9 @@ function toast(msg, bad = false) {
 let STATUS = null;
 
 /* ---------- Router ---------- */
-const PAGES = ["overview", "dashboard", "dev", "status", "missed", "crawl", "apis", "charts", "schedule", "platforms", "reports", "daily", "pdata", "catalogue", "explore", "insights", "review", "runs", "outputs", "sources", "settings"];
+const PAGES = ["overview", "dashboard", "share", "dev", "status", "missed", "crawl", "apis", "charts", "schedule", "platforms", "reports", "daily", "pdata", "catalogue", "explore", "insights", "review", "runs", "outputs", "sources", "settings"];
 // The client login sees only these pages (the server refuses everything else for it).
-const CLIENT_PAGES = ["dashboard", "platforms", "reports", "daily", "catalogue"];
+const CLIENT_PAGES = ["dashboard", "share", "platforms", "reports", "daily", "catalogue"];
 // A developer can switch to "Client view" to see exactly what the client sees (menu, pages, header); not remembered.
 let CLIENT_VIEW = false;
 const isClient = () => STATUS?.role === "client" || CLIENT_VIEW;
@@ -51,7 +51,7 @@ function route() {
   const sec = p === "apis" ? "crawl" : p;  // Crawl stats and API stats share one page layout
   document.querySelectorAll("section.page").forEach((s) => s.classList.toggle("active", s.id === `page-${sec}`));
   document.querySelectorAll("a.nav").forEach((a) => a.classList.toggle("active", a.getAttribute("href") === `#${p}`));
-  ({ overview: loadOverview, dashboard: loadClient, dev: loadDev, crawl: loadCrawl, apis: loadCrawl, charts: loadCharts, schedule: loadSchedule, status: loadStatus, missed: loadMissed, platforms: loadPlatform, reports: loadReport, daily: loadDaily, pdata: loadPData, catalogue: loadCatalogue, explore: loadExplore, insights: loadInsights, review: loadReview, runs: loadRuns, outputs: loadOutputs, sources: loadSources, settings: loadSettings })[p]();
+  ({ overview: loadOverview, dashboard: loadClient, dev: loadDev, crawl: loadCrawl, apis: loadCrawl, charts: loadCharts, schedule: loadSchedule, status: loadStatus, missed: loadMissed, share: loadShare, platforms: loadPlatform, reports: loadReport, daily: loadDaily, pdata: loadPData, catalogue: loadCatalogue, explore: loadExplore, insights: loadInsights, review: loadReview, runs: loadRuns, outputs: loadOutputs, sources: loadSources, settings: loadSettings })[p]();
   const track = new URLSearchParams(location.hash.split("?")[1] || "").get("track");
   if (track) openTrack(track);
   const meta = new URLSearchParams(location.hash.split("?")[1] || "").get("meta");  // e.g. #explore?meta=singer:arijit singh
@@ -986,7 +986,7 @@ $("#sh-body").addEventListener("click", async (e) => {
 /* ---------- Cross-platform comparison of one song ---------- */
 // Platform colours come from the theme (style.css --c-*), so charts and chips follow light / dark.
 const PCOLOR = { instagram: "var(--c-instagram)", youtube: "var(--c-youtube)", ytmusic: "var(--c-ytmusic)", spotify: "var(--c-spotify)", jiosaavn: "var(--c-jiosaavn)", deezer: "var(--c-deezer)", apple: "var(--c-apple)" };
-function multiLine(el, series, { height = 220 } = {}) {  // series: [{name, color, points:[{x, y}]}], shared x (days)
+function multiLine(el, series, { height = 220, xfmt = (x) => x.slice(5), tipx = (x) => x } = {}) {  // series: [{name, color, points:[{x, y}]}], shared x (days)
   el.innerHTML = "";
   const xs = [...new Set(series.flatMap((s) => s.points.map((p) => p.x)))].sort();
   const ys = series.flatMap((s) => s.points.map((p) => p.y));
@@ -1010,7 +1010,7 @@ function multiLine(el, series, { height = 220 } = {}) {  // series: [{name, colo
     svgEl("text", { x: W - m.r + 8, y: m.t - 2, "text-anchor": "start", style: "font-size:10px" }, ax).textContent = "▶";
   }
   const step = Math.max(1, Math.ceil(xs.length / 8));
-  xs.forEach((x, i) => { if (i % step === 0) svgEl("text", { x: X(x), y: H - 8, "text-anchor": "middle" }, ax).textContent = x.slice(5); });
+  xs.forEach((x, i) => { if (i % step === 0) svgEl("text", { x: X(x), y: H - 8, "text-anchor": "middle" }, ax).textContent = xfmt(x); });
   const uid = Math.random().toString(36).slice(2, 7);
   series.forEach((s, si) => {
     const Ys = dual && s.axis === "right" ? Y2 : Y, lo = dual && s.axis === "right" ? yMin2 : yMin;
@@ -1021,7 +1021,7 @@ function multiLine(el, series, { height = 220 } = {}) {  // series: [{name, colo
       svgEl("path", { d: `${d} L${X(pts[pts.length - 1].x)},${base} L${X(pts[0].x)},${base} Z`, fill: `url(#ml-${uid}-${si})`, class: "area" }, svg);
       svgEl("path", { d, fill: "none", stroke: s.color, "stroke-width": 2.5, "stroke-linejoin": "round", "stroke-linecap": "round", pathLength: 1, class: "line" }, svg);
     }
-    pts.forEach((p) => { const c = svgEl("circle", { cx: X(p.x), cy: Ys(p.y), r: 3.5, fill: s.color, stroke: "var(--surface-1)", "stroke-width": 1.5 }, svg); svgEl("title", {}, c).textContent = `${s.name} ${p.x}: ${p.y > 0 ? "+" : ""}${fmt(p.y)}`; });
+    pts.forEach((p) => { const c = svgEl("circle", { cx: X(p.x), cy: Ys(p.y), r: 3.5, fill: s.color, stroke: "var(--surface-1)", "stroke-width": 1.5 }, svg); svgEl("title", {}, c).textContent = `${s.name} ${tipx(p.x)}: ${p.y > 0 && !s.total ? "+" : ""}${fmt(p.y)}`; });
   });
 }
 async function loadCompare(song) {
@@ -2458,3 +2458,74 @@ async function msRetry(platform) {
   setTimeout(loadMissed, 3000);
 }
 $("#ms-retry-all").onclick = () => msRetry("");
+
+
+/* ---------- Market share: each song's performance by day N of its life, shared out by label ---------- */
+const MS = { days: null, month: "", measure: "yt", label: "" };
+const LABEL_COLORS = ["#6366f1", "#ef4444", "#10b981", "#f59e0b", "#06b6d4", "#ec4899", "#8b5cf6", "#84cc16", "#f97316"];
+const shareNum = (k, v) => v == null ? "–" : (k === "sp" || k === "ytm" || k === "audio" ? compact1 : compact)(v);
+async function loadShare() {
+  const q = new URLSearchParams({ ...(MS.days ? { days: MS.days } : {}), ...(MS.month ? { month: MS.month } : {}) });
+  const d = await api(`/api/market_share?${q}`);
+  MS.days = d.days;
+  const N = d.days, lcolor = Object.fromEntries(d.labels.map((l, i) => [l.label, LABEL_COLORS[i % LABEL_COLORS.length]]));
+  $("#sh-asof").innerHTML = `<span class="dot"></span>Figures for ${dayLabel(d.report_day)} (last completed day)`;
+  $("#sh-presets").innerHTML = d.presets.map((n) => `<button class="small${n === N ? " on" : ""}" data-n="${n}">${n} days</button>`).join("");
+  $("#sh-presets").querySelectorAll("button").forEach((b) => (b.onclick = () => { MS.days = +b.dataset.n; loadShare(); }));
+  $("#sh-days").value = N;
+  $("#sh-default").textContent = `Default: ${d.default_days} days`;
+  $("#sh-save").style.display = isClient() || N === d.default_days ? "none" : "";
+  $("#sh-month").innerHTML = `<option value="">All songs since ${esc(d.period[0])}</option>` + (d.months || []).map((m) => `<option value="${m}"${m === MS.month ? " selected" : ""}>Released in ${monthName(m)}</option>`).join("");
+  $("#sh-measure").innerHTML = d.measures.map((m) => `<option value="${m.key}"${m.key === MS.measure ? " selected" : ""}>${esc(m.name)}</option>`).join("");
+  const c = d.counts, by = (k) => d.labels.slice().sort((a, b) => (b[k] || 0) - (a[k] || 0)), focus = d.labels.find((l) => l.label === d.focus_label);
+  const leadYt = by("yt")[0], leadAu = by("audio")[0];
+  $("#sh-kpis").innerHTML = `
+    <div class="card kpi"><div class="label">Songs measured</div><div class="value">${fmt(c.final + c.provisional)}</div>
+      <div class="gainline"><span class="gain-chip">${fmt(c.final)} final at day ${N}</span> <span class="gain-chip none">${fmt(c.provisional)} provisional</span></div>
+      <div class="explain">${fmt(c.not_measurable)} older songs not measurable (no reading by their day ${N}).</div></div>
+    <div class="card kpi" style="--kpi-c:${PCOLOR.youtube}"><div class="label">Leader, YouTube views</div><div class="value">${leadYt?.yt_share ?? "–"}%</div>
+      <div class="gainline">${leadYt ? labelTag(leadYt.label) : ""}</div><div class="explain">Share of all views the measured songs had by day ${N}.</div></div>
+    <div class="card kpi" style="--kpi-c:${PCOLOR.spotify}"><div class="label">Leader, audio streams</div><div class="value">${leadAu?.audio_share ?? "–"}%</div>
+      <div class="gainline">${leadAu ? labelTag(leadAu.label) : ""}</div><div class="explain">Spotify + YouTube Music + JioSaavn, by day ${N}.</div></div>
+    <div class="card kpi" style="--kpi-c:var(--accent-2)"><div class="label">${esc(d.focus_label)}</div><div class="value">${focus?.yt_share ?? "–"}%</div>
+      <div class="gainline"><span class="gain-chip none">${focus?.audio_share ?? "–"}% of audio streams</span></div>
+      <div class="explain">Share of YouTube views · rank ${focus?.yt_rank ?? "–"} of ${d.labels.length} on views, ${focus?.audio_rank ?? "–"} on streams.</div></div>`;
+  const bars = (k) => by(k).map((l) => `<div class="share-line${l.label === d.focus_label ? " focus" : ""}" style="--lc:${lcolor[l.label]}">
+      <div class="sl-top"><span>${labelTag(l.label)}</span><span class="sl-pct">${l[k + "_share"] ?? 0}%</span></div>
+      <div class="share-track"><span style="width:${l[k + "_share"] || 0}%;background:${lcolor[l.label]}"></span></div>
+      <div class="sl-meta">${shareNum(k, l[k])} · ${fmt(l[k + "_songs"])} songs</div></div>`).join("");
+  $("#sh-yt").innerHTML = bars("yt");
+  $("#sh-au").innerHTML = bars("audio");
+  $("#sh-yt-title").textContent = `Share of YouTube views by day ${N}`;
+  $("#sh-au-title").textContent = `Share of audio streams by day ${N}`;
+  const ks = ["yt", "audio", "sp", "ytm", "js"], names = Object.fromEntries(d.measures.map((m) => [m.key, m.name]));
+  $("#sh-matrix").innerHTML = `<thead><tr><th>Label</th><th class="num">Songs</th>${ks.map((k) => `<th class="num">${esc(names[k])}</th>`).join("")}</tr></thead><tbody>` +
+    by("yt").map((l) => `<tr class="${l.label === d.focus_label ? "focus-row" : ""}"><td>${labelTag(l.label)}</td><td class="num">${fmt(l.songs)}<div class="muted" style="font-size:11px">${fmt(l.final)} final · ${fmt(l.provisional)} prov.</div></td>` +
+      ks.map((k) => `<td class="num"><b>${l[k + "_share"] ?? "–"}%</b><div class="muted" style="font-size:11px">#${l[k + "_rank"]} · ${shareNum(k, l[k])} · ${fmt(l[k + "_songs"])} songs</div></td>`).join("") + "</tr>").join("") +
+    `<tr><td><b>All labels</b></td><td class="num">${fmt(c.final + c.provisional)}</td>${ks.map((k) => `<td class="num"><b>100%</b><div class="muted" style="font-size:11px">${shareNum(k, d.total[k])} · ${fmt(d.total_songs[k])} songs</div></td>`).join("")}</tr></tbody>`;
+  const cur = d.curves[MS.measure] || {};
+  const pad = (n) => "D" + String(n).padStart(4, "0");
+  const series = Object.entries(cur).map(([lab, pts]) => ({ name: lab, color: lcolor[lab], total: true, points: pts.map((p) => ({ x: pad(p.x), y: p.y })) }))
+    .filter((x) => x.points.length).sort((a, b) => (a.name === d.focus_label) - (b.name === d.focus_label));
+  multiLine($("#sh-curve"), series, { height: 300, xfmt: (x) => "day " + (+x.slice(1)), tipx: (x) => "day " + (+x.slice(1)) });
+  $("#sh-curve-title").textContent = `Average song by day of life: ${names[MS.measure]}, days 1–${N}`;
+  $("#sh-curve-legend").innerHTML = series.map((x) => `<span><span style="display:inline-block;width:12px;height:3px;background:${x.color};vertical-align:middle;margin-right:5px"></span>${esc(x.name)}</span>`).join("");
+  $("#sh-label").innerHTML = `<option value="">All labels</option>` + d.labels.map((l) => `<option${l.label === MS.label ? " selected" : ""}>${esc(l.label)}</option>`).join("");
+  const st = (r) => r.status === "final" ? `<span class="gain-chip">final · day ${N}</span>` : r.status === "provisional" ? `<span class="gain-chip none">provisional · day ${r.day}</span>` : `<span class="gain-chip none" style="opacity:.6">not measurable</span>`;
+  const rows = d.songs.filter((r) => !MS.label || r.label === MS.label).slice(0, 100);
+  $("#sh-songs").innerHTML = `<thead><tr><th>Song</th><th>Released</th><th>Status</th><th class="num">YouTube views</th><th class="num">Audio streams</th><th class="num">Spotify</th><th class="num">YT Music</th><th class="num">JioSaavn</th></tr></thead><tbody>` +
+    rows.map((r) => `<tr class="click" data-id="${r.id}"><td><div class="t1">${esc(r.title)}${labelTag(r.label)}</div></td><td class="muted">${esc(r.release)}</td><td>${st(r)}</td>
+      ${["yt", "audio", "sp", "ytm", "js"].map((k) => `<td class="num">${shareNum(k, r[k])}</td>`).join("")}</tr>`).join("") + "</tbody>";
+  $("#sh-formula").innerHTML = `<b>How it's calculated.</b> Day 1 of a song is its first YouTube upload; day <i>n</i> = upload date + (<i>n</i> − 1).
+    <b>P(song, platform, n)</b> = the song's views or plays on that platform at the end of day <i>n</i>: a song starts at zero, so this is its growth over its first <i>n</i> days.
+    No reading that day (e.g. Spotify read a day late) → interpolated between the readings before and after.
+    <b>Final</b> = P at day ${N} once the song has reached it; <b>provisional</b> = P at the song's latest completed day while it is younger (it turns final on day ${N});
+    <b>not measurable</b> = the song's first reading came after its day ${N}, so it is left out.
+    <b>Share(label, platform)</b> = Σ P over the label's songs ÷ Σ P over all songs in the selection. YouTube views and audio streams get separate shares.
+    The song counts show how many songs each share rests on (Spotify readings began later for some labels).`;
+}
+$("#sh-days").addEventListener("change", (e) => { const n = Math.max(1, Math.min(365, +e.target.value || 30)); MS.days = n; loadShare(); });
+$("#sh-month").addEventListener("change", (e) => { MS.month = e.target.value; loadShare(); });
+$("#sh-measure").addEventListener("change", (e) => { MS.measure = e.target.value; loadShare(); });
+$("#sh-label").addEventListener("change", (e) => { MS.label = e.target.value; loadShare(); });
+$("#sh-save").onclick = async () => { await api("/api/market_share/settings", { days: MS.days }); loadShare(); };
