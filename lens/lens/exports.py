@@ -86,6 +86,37 @@ def _browser_found(conn, day):
     return [d[0] for d in cur.description], (tuple(r) for r in cur)
 
 
+def _new_links(conn, day):
+    """Songs of the period that got their Spotify track in the last 7 days (linked, or approved in Review)."""
+    labels = config.channel_labels(config.load())
+    cur = conn.execute("""
+        SELECT substr(p.first_seen_at,1,10) AS linked_on, coalesce(t.yt_title, t.title) AS song, substr(t.first_published,1,10) AS first_upload,
+               (SELECT channel FROM platform_item y WHERE y.track_id=t.id AND y.platform='youtube' ORDER BY published_at LIMIT 1) AS channel,
+               p.title AS spotify_title,
+               (SELECT group_concat(a.name, ', ') FROM track_artist ta JOIN artist a ON a.id=ta.artist_id WHERE ta.track_id=t.id) AS artists,
+               substr(coalesce(r.release_date, p.published_at),1,10) AS spotify_release,
+               CASE WHEN substr(coalesce(r.release_date, p.published_at),1,10) < date(substr(t.first_published,1,10), '-30 day')
+                    THEN 'older release' ELSE 'new release' END AS release_type,
+               CASE WHEN p.match_detail LIKE '%"via": "browser_search%' THEN 'browser search (no API)'
+                    WHEN p.match_detail LIKE '%"via": "label_sweep"%' THEN 'label sweep'
+                    WHEN p.match_detail LIKE '%"via": "artist_albums"%' THEN 'artist-first'
+                    ELSE 'API search' END AS found_by,
+               CASE WHEN p.review_state='approved' THEN 'approved in Review' ELSE 'automatic' END AS decision,
+               round(p.match_score, 2) AS score, t.isrc,
+               (SELECT value FROM snapshot s WHERE s.platform_item_id=p.id AND s.metric='plays' ORDER BY capture_date DESC LIMIT 1) AS spotify_plays,
+               (SELECT max(capture_date) FROM snapshot s WHERE s.platform_item_id=p.id AND s.metric='plays') AS plays_day
+        FROM platform_item p JOIN track t ON t.id=p.track_id LEFT JOIN release r ON r.id=t.release_id
+        WHERE p.platform='spotify' AND p.review_state IN ('auto','approved') AND t.source='youtube'
+          AND t.first_published >= ? AND (p.first_seen_at >= date('now', '-7 day')
+               OR EXISTS (SELECT 1 FROM review_decision d WHERE d.item_id=p.id AND d.action='approve' AND d.undone_at IS NULL
+                          AND d.decided_at >= date('now', '-7 day')))
+        ORDER BY p.first_seen_at DESC, t.first_published DESC""", (config.window(config.load())[0],))
+    cols = [d[0] for d in cur.description]
+    i = cols.index("channel")
+    out = cols[:i + 1] + ["label"] + cols[i + 1:]
+    return out, (tuple(r)[:i + 1] + (labels.get(r[i], ""),) + tuple(r)[i + 1:] for r in cur)
+
+
 def _window(day):
     return config.window(config.load())
 
@@ -116,6 +147,8 @@ def _datasets():
                                         "and the YouTube song it matched (filled by the label sweep, growing daily)", "rows": _label_tracks},
         "archived_songs": {"name": "Archived songs", "what": "songs first uploaded before the period start: kept for reference, not crawled",
                            "rows": _archived},
+        "spotify_new_links": {"name": "New Spotify links", "what": "songs of the period that got their Spotify track in the last 7 days: "
+                              "how it was found, the decision, new or older release, latest Spotify plays", "rows": _new_links},
         "spotify_browser_found": {"name": "Spotify browser search", "what": "Spotify tracks found by the logged-out browser search (laptop list and the "
                                   "daily spotify_browser_search job) for songs the API had not found: new releases are checked and linked (or sent to Review); older releases are "
                                   "kept here for reference only and cost no crawl", "rows": _browser_found},
