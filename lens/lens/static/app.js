@@ -271,9 +271,6 @@ async function loadOverview() {
   const tiles = [["Total songs", fmt(k.songs), [["youtube", "YouTube"], ["ytmusic", "YouTube Music"], ["spotify", "Spotify"], ["jiosaavn", "JioSaavn"], ["apple", "Apple Music"], ["deezer", "Deezer"]]
       .map(([p, l]) => `${l} ${fmt(on[p] || 0)}`).join(" · ")],
     ["Fastest riser", rise ? rise.title : "–", rise ? `+${compact(rise.yt_delta)} views in the last day${rise.music_label ? ` · ${rise.music_label}` : ""}` : "shown after the next daily reading"],
-    ["Total YouTube views", compact(k.views), `about ${compact(k.songs ? k.views / k.songs : 0)} per song`],
-    ["Views in the last day", k.views_delta ? `+${compact(k.views_delta)}` : "–",
-      k.views_delta ? `${fmt(k.growing)} songs still growing` : "shown after the next daily reading"],
     ["Songs with 1M+ views", fmt(k.hits), `${pct(k.hits, k.songs)}% of all songs`],
     ["Top label", lead ? lead.label : "–", lead ? `${pct(lead.views, k.views)}% of all views · ${fmt(lead.songs)} songs` : ""]];
   $("#ov-kpis").innerHTML = tiles.map(([l, v, x], i) => `<div class="card kpi${l === "Fastest riser" && rise ? " kpi-song click" : ""}"${l === "Fastest riser" && rise ? ` data-id="${rise.id}" title="Play ${esc(rise.title)}"` : ""}><div class="label">${l}</div><div class="value">${esc(v)}</div><div class="sub">${esc(x)}</div></div>`).join("");

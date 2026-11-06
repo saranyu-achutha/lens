@@ -101,13 +101,17 @@ def focus_on(qs):
     return (qs or {}).get("focus") != "all" and config.load().get("focus", {}).get("new_releases_only", True)
 
 
+# songs released before the period start are stored only: never on the dashboards, reports or song lists (2026-11-06)
+PERIOD_ONLY = " AND id NOT IN (SELECT id FROM track WHERE old_release IS NOT NULL)"
+
+
 def focus(qs):
     return FOCUS_SQL if focus_on(qs) else ""
 
 
 def api_overview(conn, qs):
     since, until = config.window(config.load())
-    W = f"SELECT * FROM ({TRACKS_SQL}) WHERE song_date >= ? AND song_date <= ?{focus(qs)}"
+    W = f"SELECT * FROM ({TRACKS_SQL}) WHERE song_date >= ? AND song_date <= ?{PERIOD_ONLY}{focus(qs)}"
     a = tracks_args() + [since, until]
     kpi = q(conn, f"""SELECT count(*) songs, sum(release_status='new') new, sum(release_status='catalogue') catalogue,
                              sum(release_status='not_on_spotify') not_on_spotify, sum(release_status='pending') spotify_pending, sum(release_status='unchecked') unchecked,
@@ -148,7 +152,7 @@ def api_platform(conn, qs):
     {kpis: [[label, value, sub]], chart: {title, bars: [{label, value}]}, table: {title, cols, rows}}."""
     p = (qs.get("p") or "youtube").lower()
     since, until = config.window(config.load())
-    W = f"SELECT * FROM ({TRACKS_SQL}) WHERE song_date >= ? AND song_date <= ?{focus(qs)}"
+    W = f"SELECT * FROM ({TRACKS_SQL}) WHERE song_date >= ? AND song_date <= ?{PERIOD_ONLY}{focus(qs)}"
     a = tracks_args() + [since, until]
     songs = q(conn, f"SELECT count(*) n FROM ({W})", a)[0]["n"] or 0
     pct = lambda n: f"{round(100 * (n or 0) / songs) if songs else 0}% of {songs:,} songs"
@@ -406,7 +410,7 @@ def report_data(conn, qs):
         return {"days": [], "rows": [], "totals": {}, "metrics": [], "capture": []}
     to = qs.get("to") or days[-1]
     frm = qs.get("from") or (days[-2] if len(days) > 1 else days[-1])
-    W = f"SELECT * FROM ({TRACKS_SQL}) WHERE song_date >= ? AND song_date <= ?{focus(qs)}"
+    W = f"SELECT * FROM ({TRACKS_SQL}) WHERE song_date >= ? AND song_date <= ?{PERIOD_ONLY}{focus(qs)}"
     songs = {r["id"]: r for r in tag_labels(q(conn, f"SELECT id, title, yt_channel, song_date FROM ({W})", tracks_args() + [since, until]))}
     items = q(conn, """SELECT id, track_id, platform FROM platform_item WHERE track_id IS NOT NULL
                        AND ((platform='youtube' AND review_state IN ('auto','approved','song')) OR (platform='spotify' AND review_state IN ('auto','approved'))
@@ -1319,7 +1323,7 @@ def api_meta_top(conn, qs):
     if field not in metadata.FIELDS:
         raise ValueError("unknown field")
     since, until = _meta_window(qs)
-    W = f"SELECT * FROM ({TRACKS_SQL}) WHERE song_date >= ? AND song_date <= ?{focus(qs)}"
+    W = f"SELECT * FROM ({TRACKS_SQL}) WHERE song_date >= ? AND song_date <= ?{PERIOD_ONLY}{focus(qs)}"
     args = tracks_args() + [since, until, field]
     extra = ""
     if qs.get("label"):
@@ -1360,7 +1364,7 @@ def api_meta_detail(conn, qs):
     if field not in metadata.FIELDS or not key:
         raise ValueError("field and key are required")
     since, until = _meta_window(qs)
-    W = f"SELECT * FROM ({TRACKS_SQL}) WHERE song_date >= ? AND song_date <= ?{focus(qs)}"
+    W = f"SELECT * FROM ({TRACKS_SQL}) WHERE song_date >= ? AND song_date <= ?{PERIOD_ONLY}{focus(qs)}"
     a = tracks_args() + [since, until]
     ids_sql = "SELECT track_id FROM song_meta WHERE field=? AND value_key=?"
     songs_ = tag_labels(q(conn, f"{W} AND id IN ({ids_sql}) ORDER BY yt_views DESC NULLS LAST", a + [field, key]))
