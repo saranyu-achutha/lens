@@ -94,9 +94,13 @@
     <div id="ov-body">
       <div class="grid g6" id="ov-kpis"></div>
       <div class="card-head" style="margin:18px 2px 8px"><h2>Platforms</h2><span class="spacer"></span><span class="muted" style="font-size:12px" id="ov-pf-asof"></span></div>
-      <div class="grid g6" id="ov-pf-kpis"></div>
-      <div class="card" style="margin-top:16px"><div class="card-head"><h2>Daily growth by platform</h2><span class="spacer"></span><span class="muted" style="font-size:12px">views / plays gained each day, last 30 days</span></div>
-        <div class="chart" id="ov-pf-trend"></div><div id="ov-pf-legend" class="row" style="gap:14px;flex-wrap:wrap;margin-top:6px;font-size:12px"></div></div>
+      <div class="grid g3 glance" id="ov-pf-kpis"></div>
+      <div class="grid g3" id="ov-pf-audio" style="margin-top:16px"></div>
+      <div class="grid g2" style="margin-top:16px">
+        <div class="card"><div class="card-head"><h2>YouTube views gained</h2><span class="spacer"></span><span class="muted" style="font-size:12px">each day, last 30 days</span></div><div class="chart" id="ov-pf-trend-yt"></div></div>
+        <div class="card"><div class="card-head"><h2>Audio streams gained</h2><span class="spacer"></span><span class="muted" style="font-size:12px">each day, last 30 days</span></div><div class="chart" id="ov-pf-trend-au"></div>
+          <div id="ov-pf-legend" class="row" style="gap:14px;flex-wrap:wrap;margin-top:6px;font-size:12px"></div></div>
+      </div>
       <div class="grid g2" style="margin-top:16px">
         <div class="card"><div class="card-head"><h2>Songs released each day</h2><span class="pill" id="ov-total" style="margin-left:8px"></span><span class="spacer"></span><span class="muted" style="font-size:12px">click a bar to list that day's songs</span></div><div class="chart" id="ov-month"></div></div>
         <div class="card flush"><h2>Songs by label and channel</h2><div class="table-wrap" style="max-height:300px"><table id="ov-labels"></table></div></div>
@@ -121,16 +125,29 @@
 <path class="hl-trend" d="M212,92 L236,72 L254,82 L286,46"/><path class="hl-trend" d="M272,45 L287,45 L287,60"/>
 <circle cx="250" cy="70" r="56" fill="none" stroke="url(#hA-grad)" stroke-width="6"/>
 <path class="hl-sheen" d="M210,52 A44 44 0 0 1 238,28"/>
-<path d="M293,112 l7,7" stroke="url(#hA-grad)" stroke-width="7" fill="none"/><path d="M300,119 l20,18" stroke="url(#hA-grad)" stroke-width="11" stroke-linecap="round" fill="none"/></svg><div><h1>Dashboard</h1><p id="cl-window">How the period's releases are performing across platforms</p></div><span class="spacer"></span><span class="pill" id="cl-asof"></span></div>
-    <div class="grid g6" id="cl-kpis"></div>
-    <div class="grid g2" style="margin-top:16px">
-      <div class="card"><div class="card-head"><h2>Daily growth by platform</h2><span class="spacer"></span><span class="muted" style="font-size:12px">views / plays gained each day, last 30 days</span></div>
-        <div class="chart" id="cl-trend"></div><div id="cl-legend" class="row" style="gap:14px;flex-wrap:wrap;margin-top:6px;font-size:12px"></div></div>
-      <div class="card"><div class="card-head"><h2>Where the songs are</h2><span class="spacer"></span><span class="muted" style="font-size:12px">share of the period's songs on each platform</span></div><div id="cl-presence"></div></div>
+<path d="M293,112 l7,7" stroke="url(#hA-grad)" stroke-width="7" fill="none"/><path d="M300,119 l20,18" stroke="url(#hA-grad)" stroke-width="11" stroke-linecap="round" fill="none"/></svg><div><h1>Dashboard</h1><p id="cl-window">How the period's releases are performing across platforms</p></div><span class="spacer"></span><span class="pill ok" id="cl-asof"></span></div>
+    <div class="sec-title"><h2>At a glance</h2><span class="muted">YouTube views and audio streams are counted apart</span></div>
+    <div class="grid g4 glance" id="cl-kpis"></div>
+    <div class="sec-title"><h2>Audio streams by platform</h2></div>
+    <div class="grid g3" id="cl-audio"></div>
+    <div class="sec-title"><h2>Daily growth</h2><span class="muted">gained each day, last 30 days</span></div>
+    <div class="grid g2">
+      <div class="card"><div class="card-head"><h2>YouTube views gained</h2></div><div class="chart" id="cl-trend-yt"></div></div>
+      <div class="card"><div class="card-head"><h2>Audio streams gained</h2></div><div class="chart" id="cl-trend-au"></div>
+        <div id="cl-legend" class="row" style="gap:14px;flex-wrap:wrap;margin-top:6px;font-size:12px"></div></div>
+    </div>
+    <div class="sec-title"><h2>Songs</h2></div>
+    <div class="grid g2">
+      <div class="card flush"><div class="card-head" style="padding:16px 16px 0"><h2>Top songs</h2><span class="spacer"></span>
+        <div class="seg song-mode" data-k="top"><button class="small" data-m="yt">YouTube views</button><button class="small" data-m="audio">Audio streams</button></div></div>
+        <div class="table-wrap" style="max-height:460px"><table id="cl-top"></table></div></div>
+      <div class="card flush"><div class="card-head" style="padding:16px 16px 0"><h2 id="cl-risers-title">Fastest growing</h2><span class="spacer"></span>
+        <div class="seg song-mode" data-k="rise"><button class="small" data-m="yt">YouTube views</button><button class="small" data-m="audio">Audio streams</button></div></div>
+        <div class="table-wrap" style="max-height:460px"><table id="cl-risers"></table></div></div>
     </div>
     <div class="grid g2" style="margin-top:16px">
-      <div class="card flush"><h2>Top songs by YouTube views</h2><div class="table-wrap" style="max-height:460px"><table id="cl-top"></table></div></div>
-      <div class="card flush"><h2>Fastest growing (YouTube views, last completed day)</h2><div class="table-wrap" style="max-height:460px"><table id="cl-risers"></table></div></div>
+      <div class="card"><div class="card-head"><h2>Highlights</h2></div><div id="cl-highlights"></div></div>
+      <div class="card"><div class="card-head"><h2>Where the songs are</h2><span class="spacer"></span><span class="muted" style="font-size:12px">share of the songs on each platform</span></div><div id="cl-presence"></div></div>
     </div>
     <div class="grid g2" style="margin-top:16px">
       <div class="card flush" id="cl-shorts-card" style="display:none"><h2>Most used in YouTube Shorts</h2>
@@ -138,8 +155,11 @@
       <div class="card flush" id="cl-reels-card" style="display:none"><h2>Most used in Instagram Reels</h2>
         <div class="muted" style="font-size:12px;margin:-4px 16px 8px" id="cl-reels-sub"></div><div class="table-wrap" style="max-height:420px"><table id="cl-reels"></table></div></div>
     </div>
-    <div class="card flush" style="margin-top:16px"><h2>Labels</h2><div class="table-wrap"><table id="cl-labels"></table></div></div>
-    <p class="muted" style="font-size:12px;margin-top:10px">YouTube views and audio streams (Spotify + YouTube Music + JioSaavn plays) are counted apart, never added together. Totals and gains are for the last completed day (today is still being read); a gain is the change since the previous day's reading. Spotify and YouTube Music to one decimal. The ratio tile compares any two platforms (Spotify to YouTube by default; your choice is remembered in this browser).</p>
+    <div class="sec-title"><h2>Labels</h2><span class="muted">click a label to see its songs</span></div>
+    <div class="card flush"><div class="table-wrap"><table id="cl-labels"></table></div></div>
+    <div class="card howto" style="margin-top:16px"><b>How to read this.</b> <b>YouTube views</b> are every upload's views; <b>audio streams</b> are Spotify, YouTube Music and JioSaavn plays. The two are never added together.
+      All figures are for the <b>last completed day</b> (today is still being collected); a <b>gain</b> is the change since the day before.
+      Spotify and YouTube Music show one decimal. The ratio tile compares any two platforms (Spotify per 100 YouTube views by default); your choice is remembered in this browser.</div>
   </section>
 
   <!-- DEVELOPER DASHBOARD -->

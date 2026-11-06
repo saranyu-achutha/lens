@@ -7,7 +7,7 @@ const compact = (n) => n == null ? "–" : Math.abs(n) >= 1e9 ? `${(n / 1e9).toF
 // Spotify and YouTube Music figures: always one decimal (1.2K, 12.3M, 1.0B)
 const compact1 = (n) => n == null ? "–" : Math.abs(n) >= 1e9 ? `${(n / 1e9).toFixed(1)}B` : Math.abs(n) >= 1e6 ? `${(n / 1e6).toFixed(1)}M`
   : Math.abs(n) >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : String(Math.round(n));
-const ONE_DEC = new Set(["spotify", "ytmusic", "sp_plays", "ytm_plays"]);
+const ONE_DEC = new Set(["spotify", "ytmusic", "sp_plays", "ytm_plays", "audio"]);
 const pcompact = (platform, n) => (ONE_DEC.has(platform) ? compact1 : compact)(n);
 const dur = (ms) => { if (!ms) return "–"; const t = Math.round(ms / 1000); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`; };
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -288,10 +288,11 @@ async function loadOverview() {
   const tbl = (rows, extra) => `<thead><tr><th>Play</th><th>Song</th><th>First upload</th><th>Spotify</th>${extra ? "<th class='num'>Views gained</th>" : ""}<th class="num">YouTube views</th></tr></thead><tbody>` +
     rows.map((r) => `<tr class="click" data-id="${r.id}">${playBtns(r)}${trackCell(r)}<td class="muted">${esc(r.song_date)}</td><td>${statusChip(r.release_status)}</td>${extra ? `<td class="num delta-up">+${compact(r.yt_delta)}</td>` : ""}${viewsCell(r.yt_views)}</tr>`).join("") + "</tbody>";
   api("/api/client").then((cd) => {
-    const render = () => { $("#ov-pf-kpis").innerHTML = platformTiles(cd); wireRatio($("#ov-pf-kpis"), render); };
+    const render = () => { $("#ov-pf-kpis").innerHTML = glanceTiles(cd, false); wireRatio($("#ov-pf-kpis"), render); };
     render();
-    $("#ov-pf-asof").textContent = `gains on the last completed day, ${cd.as_of || "–"}`;
-    platformTrend($("#ov-pf-trend"), $("#ov-pf-legend"), cd);
+    $("#ov-pf-asof").textContent = `figures for ${dayLabel(cd.as_of)}, the last completed day`;
+    $("#ov-pf-audio").innerHTML = audioCards(cd);
+    growthCharts($("#ov-pf-trend-yt"), $("#ov-pf-trend-au"), $("#ov-pf-legend"), cd);
     // gains on the last completed day, as on the Dashboard: Fastest riser tile and the gainers table
     const r0 = cd.risers[0], tile = [...document.querySelectorAll("#ov-kpis .kpi")].find((x) => x.querySelector(".label")?.textContent === "Fastest riser");
     if (tile && r0) {
@@ -354,36 +355,84 @@ function ratioOptions(d) {  // every platform with a number, plus all audio stre
   o.push({ key: "audio", name: "All audio streams", total: d.audio, gain: d.audio_gain });
   return o;
 }
-function ratioTile(d, id) {
+const dayLabel = (d) => d ? new Date(d + "T00:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" }) : "the last day";
+const gainChip = (platform, g, d) => g ? `<span class="gain-chip">+${pcompact(platform, g)} on ${dayLabel(d.as_of)}</span>` : `<span class="gain-chip none">no gain on ${dayLabel(d.as_of)}</span>`;
+function ratioTile(d) {
   const opts = ratioOptions(d), r = ratioPick();
   const num = opts.find((o) => o.key === r.num) || opts.find((o) => o.key === "spotify") || opts[0];
   const den = opts.find((o) => o.key === r.den) || opts.find((o) => o.key === "youtube") || opts[0];
   const v = den && den.total ? num.total / den.total : null, vg = den && den.gain ? (num.gain || 0) / den.gain : null;
   const f = (x) => x == null ? "–" : x >= 10 ? x.toFixed(1) : x.toFixed(2);
-  const sel = (which, cur) => `<select class="ratio-sel" data-w="${which}" style="width:auto;padding:2px 4px;font-size:12px">${opts.map((o) =>
+  const sel = (which, cur) => `<select class="ratio-sel" data-w="${which}">${opts.map((o) =>
     `<option value="${o.key}"${o.key === cur.key ? " selected" : ""}>${esc(o.name)}</option>`).join("")}</select>`;
-  return `<div class="card kpi" id="${id}"><div class="label">${sel("num", num)} to ${sel("den", den)}</div>
-    <div class="value">${f(v)} : 1</div><div class="sub">${v == null ? "no data" : `${f(v * 100)} ${esc(num.name)} per 100 ${esc(den.name)}`}${vg != null ? ` · last day ${f(vg)} : 1` : ""}</div></div>`;
+  return `<div class="card kpi" style="--kpi-c:var(--accent-2)"><div class="label">${esc(num.name)} per 100 ${esc(den.name)}</div>
+    <div class="value">${v == null ? "–" : f(v * 100)}</div>
+    <div class="gainline">${vg == null ? "" : `<span class="gain-chip none">${f(vg * 100)} on ${dayLabel(d.as_of)}</span>`}</div>
+    <div class="explain">Ratio ${f(v)} : 1 over all songs. Compare any two:</div>
+    <div class="ratio-row">${sel("num", num)} per 100 ${sel("den", den)}</div></div>`;
 }
 function wireRatio(root, rerender) {
   root.querySelectorAll(".ratio-sel").forEach((x) => (x.onchange = () => {
     const r = ratioPick(); r[x.dataset.w] = x.value; ratioSave(r); rerender(); }));
 }
-function platformTiles(d) {
+// At a glance: YouTube views, audio streams, the ratio and (Dashboard) songs released
+function glanceTiles(d, withSongs = true) {
   const pf = Object.fromEntries(d.platforms.map((p) => [p.platform, p]));
-  const day = d.as_of ? ` on ${d.as_of}` : "";
-  const t = (label, platform, total, gain, sub) => `<div class="card kpi" style="--kpi-c:${PCOLOR[platform] || "var(--accent)"}"><div class="label">${label}</div>
-    <div class="value">${pcompact(platform, total)}</div><div class="sub">${gain ? `+${pcompact(platform, gain)} gained${day}` : `no gain${day}`}${sub ? " · " + sub : ""}</div></div>`;
-  return t("YouTube views", "youtube", d.yt_views, d.yt_gain, `${fmt(pf.youtube?.songs || 0)} songs`) +
-    t("Audio streams", "spotify", d.audio, d.audio_gain, "Spotify + YouTube Music + JioSaavn") +
-    t("Spotify plays", "spotify", pf.spotify?.total, pf.spotify?.gain, `${fmt(pf.spotify?.songs || 0)} songs`) +
-    t("YouTube Music plays", "ytmusic", pf.ytmusic?.total, pf.ytmusic?.gain, `${fmt(pf.ytmusic?.songs || 0)} songs`) +
-    t("JioSaavn plays", "jiosaavn", pf.jiosaavn?.total, pf.jiosaavn?.gain, `${fmt(pf.jiosaavn?.songs || 0)} songs`) + ratioTile(d, "ratio-" + Math.random().toString(36).slice(2, 6));
+  const t = (label, platform, color, total, gain, explain) => `<div class="card kpi" style="--kpi-c:${color}"><div class="label">${label}</div>
+    <div class="value">${pcompact(platform, total)}</div><div class="gainline">${gainChip(platform, gain, d)}</div><div class="explain">${explain}</div></div>`;
+  return t("YouTube views", "youtube", PCOLOR.youtube, d.yt_views, d.yt_gain, `All uploads of ${fmt(pf.youtube?.songs || 0)} songs: videos, lyric, audio and Shorts.`) +
+    t("Audio streams", "audio", PCOLOR.spotify, d.audio, d.audio_gain, "Spotify + YouTube Music + JioSaavn plays. Counted apart from YouTube views.") +
+    ratioTile(d) +
+    (withSongs ? `<div class="card kpi"><div class="label">Songs released</div><div class="value">${fmt(d.songs)}</div>
+      <div class="gainline"><span class="gain-chip none">${fmt(d.new)} confirmed new on Spotify</span></div>
+      <div class="explain">First uploaded on the labels' YouTube channels from ${esc(d.since)}.</div></div>` : "");
 }
+// Audio streams by platform: total, the day's gain, songs and share of all streams
+function audioCards(d) {
+  return d.platforms.filter((p) => ["spotify", "ytmusic", "jiosaavn"].includes(p.platform)).map((p) => {
+    const share = d.audio ? Math.round((100 * (p.total || 0)) / d.audio) : 0;
+    return `<div class="card pf-card" style="--pc:${PCOLOR[p.platform]}"><div class="pf-name"><span class="pf-dot"></span>${esc(p.name.replace(/ plays$/, ""))}</div>
+      <div class="pf-total">${pcompact(p.platform, p.total)}</div>${gainChip(p.platform, p.gain, d)}
+      <div class="share-track"><span style="width:${share}%"></span></div>
+      <div class="pf-meta">${share}% of audio streams · on ${fmt(p.songs)} songs</div></div>`; }).join("");
+}
+// Daily growth: YouTube and audio on two charts, each with its own axis
+function growthCharts(ytEl, auEl, auLegend, d) {
+  const yt = d.trend.filter((l) => l.platform === "youtube"), au = d.trend.filter((l) => l.platform !== "youtube");
+  multiLine(ytEl, yt.map((l) => ({ name: l.name, color: PCOLOR[l.platform], points: l.points })).filter((l) => l.points.length), { height: 260 });
+  multiLine(auEl, au.map((l) => ({ name: l.name, color: PCOLOR[l.platform], points: l.points })).filter((l) => l.points.length), { height: 260 });
+  auLegend.innerHTML = legendHtml(au);
+}
+// Songs: top and fastest growing, by YouTube views or by audio streams (a switch, not mixed columns)
+const SONG_MODE = { top: "yt", rise: "yt" };
+function songTables(d, topEl, riseEl, riseTitleEl) {
+  const perAudio = (r) => `<td class="num">${compact1(r.sp_plays)}</td><td class="num">${compact1(r.ytm_plays)}</td>${viewsCell(r.js_plays)}`;
+  const top = SONG_MODE.top === "yt" ? d.top : d.top_audio;
+  topEl.innerHTML = SONG_MODE.top === "yt"
+    ? `<thead><tr><th>#</th><th></th><th>Song</th><th class="num">YouTube views</th><th class="num">Gained ${dayLabel(d.as_of)}</th></tr></thead><tbody>` +
+      top.map((r, i) => songRow(r, i, (r) => `<td class="num"><b>${compact(r.yt_views)}</b></td><td class="num ${r.yt_gain > 0 ? "delta-up" : "muted"}">${r.yt_gain ? "+" + compact(r.yt_gain) : "–"}</td>`)).join("") + "</tbody>"
+    : `<thead><tr><th>#</th><th></th><th>Song</th><th class="num">Streams</th><th class="num">Spotify</th><th class="num">YT Music</th><th class="num">JioSaavn</th></tr></thead><tbody>` +
+      top.map((r, i) => songRow(r, i, (r) => `<td class="num"><b>${compact(r.audio)}</b></td>${perAudio(r)}`)).join("") + "</tbody>";
+  const rise = SONG_MODE.rise === "yt" ? d.risers : d.risers_audio;
+  riseTitleEl.textContent = `Fastest growing on ${dayLabel(d.as_of)}`;
+  riseEl.innerHTML = rise.length ? (SONG_MODE.rise === "yt"
+    ? `<thead><tr><th>#</th><th></th><th>Song</th><th class="num">Views gained</th><th class="num">YouTube views</th></tr></thead><tbody>` +
+      rise.map((r, i) => songRow(r, i, (r) => `<td class="num delta-up"><b>+${compact(r.yt_gain)}</b></td><td class="num">${compact(r.yt_views)}</td>`)).join("") + "</tbody>"
+    : `<thead><tr><th>#</th><th></th><th>Song</th><th class="num">Streams gained</th><th class="num">Streams</th></tr></thead><tbody>` +
+      rise.map((r, i) => songRow(r, i, (r) => `<td class="num delta-up"><b>+${compact(r.audio_gain)}</b></td><td class="num">${compact(r.audio)}</td>`)).join("") + "</tbody>")
+    : `<tbody><tr><td class="empty">Growth appears after two days of readings.</td></tr></tbody>`;
+}
+function wireSongSwitch(root, rerender) {
+  root.querySelectorAll(".song-mode").forEach((g) => g.querySelectorAll("button").forEach((b) => {
+    b.classList.toggle("on", SONG_MODE[g.dataset.k] === b.dataset.m);
+    b.onclick = () => { SONG_MODE[g.dataset.k] = b.dataset.m; rerender(); };
+  }));
+}
+function platformTiles(d) { return glanceTiles(d, false); }  // kept for older callers
 function platformTrend(el, legendEl, d) {
   const lines = d.trend.map((l) => ({ name: l.name, color: PCOLOR[l.platform], axis: l.axis, points: l.points }));
   multiLine(el, lines.filter((l) => l.points.length), { height: 330 });
-  legendEl.innerHTML = legendHtml(d.trend) + '<span class="muted">YouTube on the left axis, audio platforms on the right</span>';
+  legendEl.innerHTML = legendHtml(d.trend);
 }
 
 /* ---------- Dashboard (client home): reach and growth in plain terms ---------- */
@@ -392,31 +441,24 @@ const playOne = (r) => `<td class="play-cell">${r.yt_video_id ? `<button class="
 const songRow = (r, i, extra) => `<tr class="click" data-id="${r.id}"><td class="muted num">${i + 1}</td>${playOne(r)}<td><div class="t1">${esc(r.title)}${labelTag(r.label)}</div><div class="t2">${esc(r.first_upload)}</div></td>${extra(r)}</tr>`;
 async function loadClient() {
   const d = await api("/api/client");
-  $("#cl-window").textContent = `How the releases first uploaded ${d.since} → ${d.until} are performing across platforms`;
-  $("#cl-asof").innerHTML = `<span class="dot"></span>Last completed day ${esc(d.as_of || "–")}`;
+  $("#cl-window").textContent = `How the songs first uploaded ${d.since} → ${d.until} are doing, platform by platform`;
+  $("#cl-asof").innerHTML = `<span class="dot"></span>Figures for ${dayLabel(d.as_of)} (last completed day)`;
   const pct = (n, t) => (t ? Math.round((100 * n) / t) : 0);
+  const glance = () => { $("#cl-kpis").innerHTML = glanceTiles(d); wireRatio($("#cl-kpis"), glance); };
+  glance();
+  $("#cl-audio").innerHTML = audioCards(d);
+  growthCharts($("#cl-trend-yt"), $("#cl-trend-au"), $("#cl-legend"), d);
+  const songs = () => { songTables(d, $("#cl-top"), $("#cl-risers"), $("#cl-risers-title")); wireSongSwitch($("#page-dashboard"), songs); };
+  songs();
   const lead = d.labels[0];
-  const head = [["Songs released", fmt(d.songs), `${fmt(d.new)} confirmed new releases on Spotify`],
-    ["Hit songs", fmt(d.hits), `${fmt(d.hits_yt)} with 1M+ YouTube views · ${fmt(d.hits_audio)} with 1M+ streams`],
-    ["Songs growing", fmt(d.growing), `gained views or streams on ${d.as_of || "the last day"}`],
-    ["Top label", lead ? lead.label : "–", lead ? `${pct(lead.yt_views, d.yt_views)}% of YouTube views · ${fmt(lead.songs)} songs` : ""]];
-  const render = () => {
-    $("#cl-kpis").innerHTML = platformTiles(d) + head.map(([l, v, x]) => `<div class="card kpi${/^[+\d.,]+[KMB]?$/.test(v) || v === "–" ? "" : " kpi-text"}" title="${esc(v)}"><div class="label">${l}</div><div class="value">${esc(v)}</div><div class="sub">${esc(x)}</div></div>`).join("");
-    wireRatio($("#cl-kpis"), render);
-  };
-  render();
-  platformTrend($("#cl-trend"), $("#cl-legend"), d);
+  $("#cl-highlights").innerHTML = `<ul class="hl-list">
+    <li><span>Hit songs<div class="muted" style="font-size:12px">${fmt(d.hits_yt)} with 1M+ YouTube views · ${fmt(d.hits_audio)} with 1M+ streams</div></span><b>${fmt(d.hits)}</b></li>
+    <li><span>Songs growing<div class="muted" style="font-size:12px">gained views or streams on ${dayLabel(d.as_of)}</div></span><b>${fmt(d.growing)}</b></li>
+    <li><span>Top label<div class="muted" style="font-size:12px">${lead ? `${pct(lead.yt_views, d.yt_views)}% of YouTube views · ${fmt(lead.songs)} songs` : ""}</div></span><b>${esc(lead ? lead.label : "–")}</b></li>
+    <li><span>New releases<div class="muted" style="font-size:12px">confirmed new on Spotify</div></span><b>${fmt(d.new)}</b></li></ul>`;
   $("#cl-presence").innerHTML = d.platforms.map((p) => `<div class="bar-row"><span class="bar-name">${esc(p.name.replace(/ (views|plays)$/, ""))}</span>
       <span class="bar-track"><span class="bar-fill" style="width:${pct(p.songs, d.songs)}%;background:${PCOLOR[p.platform] || "var(--accent)"}"></span></span>
-      <span class="bar-val">${pct(p.songs, d.songs)}% <span class="muted">${fmt(p.songs)}</span></span></div>`).join("") +
-    `<table style="margin-top:14px"><thead><tr><th>Platform</th><th class="num">Total</th><th class="num">Gained ${esc(d.as_of || "")}</th></tr></thead><tbody>` +
-    d.platforms.filter((p) => p.total != null).map((p) => `<tr><td>${esc(p.name)}</td><td class="num">${pcompact(p.platform, p.total)}</td><td class="num ${p.gain > 0 ? "delta-up" : ""}">${p.gain ? "+" + pcompact(p.platform, p.gain) : "–"}</td></tr>`).join("") + "</tbody></table>";
-  const per = (r) => `${viewsCell(r.yt_views)}<td class="num">${compact1(r.ytm_plays)}</td><td class="num">${compact1(r.sp_plays)}</td>${viewsCell(r.js_plays)}`;
-  $("#cl-top").innerHTML = `<thead><tr><th>#</th><th></th><th>Song</th><th class="num">YouTube views</th><th class="num">YT Music</th><th class="num">Spotify</th><th class="num">JioSaavn</th></tr></thead><tbody>` +
-    d.top.map((r, i) => songRow(r, i, per)).join("") + "</tbody>";
-  $("#cl-risers").innerHTML = d.risers.length ? `<thead><tr><th>#</th><th></th><th>Song</th><th class="num">Views gained</th><th class="num">Streams gained</th><th class="num">YouTube views</th></tr></thead><tbody>` +
-    d.risers.map((r, i) => songRow(r, i, (r) => `<td class="num delta-up">+${compact(r.yt_gain)}</td><td class="num ${r.audio_gain > 0 ? "delta-up" : "muted"}">${r.audio_gain ? "+" + compact(r.audio_gain) : "–"}</td><td class="num">${compact(r.yt_views)}</td>`)).join("") + "</tbody>"
-    : `<tbody><tr><td class="empty">Growth appears after two days of readings.</td></tr></tbody>`;
+      <span class="bar-val">${pct(p.songs, d.songs)}% <span class="muted">${fmt(p.songs)}</span></span></div>`).join("");
   [["shorts", "#cl-shorts", "Shorts"], ["reels", "#cl-reels", "Reels"]].forEach(([k, el, what]) => {
     const sh = d[k];
     $(el + "-card").style.display = sh ? "" : "none";
@@ -427,12 +469,15 @@ async function loadClient() {
         <td class="num ${r.gain > 0 ? "delta-up" : ""}">${r.gain ? "+" + compact(r.gain) : "–"}</td></tr>`).join("") + "</tbody>"
       : `<tbody><tr><td class="empty">None made with the songs' official audio yet.</td></tr></tbody>`;
   });
-  $("#cl-labels").innerHTML = `<thead><tr><th>Label</th><th class="num">Songs</th><th class="num">New releases</th><th class="num">Hit songs</th><th class="num">YouTube views</th><th class="num">Share of views</th><th class="num">Audio streams</th><th class="num">Views gained</th><th class="num">Streams gained</th></tr></thead><tbody>` +
+  const day = dayLabel(d.as_of);
+  $("#cl-labels").innerHTML = `<thead><tr><th rowspan="2">Label</th><th rowspan="2" class="num">Songs</th><th rowspan="2" class="num">New</th><th rowspan="2" class="num">Hits</th>
+      <th colspan="3" class="th-group" style="--pc:${PCOLOR.youtube}">YouTube views</th><th colspan="2" class="th-group" style="--pc:${PCOLOR.spotify}">Audio streams</th></tr>
+      <tr><th class="num">Total</th><th class="num">Share</th><th class="num">Gained ${day}</th><th class="num">Total</th><th class="num">Gained ${day}</th></tr></thead><tbody>` +
     d.labels.map((l) => `<tr class="label-row" data-label="${esc(l.label)}" style="cursor:pointer"><td>${labelTag(l.label)}</td><td class="num">${fmt(l.songs)}</td><td class="num">${fmt(l.new)}</td><td class="num">${fmt(l.hits)}</td>
-      <td class="num">${compact(l.yt_views)}</td><td class="num">${pct(l.yt_views, d.yt_views)}%</td><td class="num">${compact(l.audio)}</td>
-      <td class="num ${l.yt_gain > 0 ? "delta-up" : ""}">${l.yt_gain ? "+" + compact(l.yt_gain) : "–"}</td><td class="num ${l.audio_gain > 0 ? "delta-up" : ""}">${l.audio_gain ? "+" + compact(l.audio_gain) : "–"}</td></tr>`).join("") + "</tbody>";
+      <td class="num"><b>${compact(l.yt_views)}</b></td><td class="num">${pct(l.yt_views, d.yt_views)}%</td><td class="num ${l.yt_gain > 0 ? "delta-up" : ""}">${l.yt_gain ? "+" + compact(l.yt_gain) : "–"}</td>
+      <td class="num"><b>${compact1(l.audio)}</b></td><td class="num ${l.audio_gain > 0 ? "delta-up" : ""}">${l.audio_gain ? "+" + compact1(l.audio_gain) : "–"}</td></tr>`).join("") + "</tbody>";
 }
-["#cl-top", "#cl-risers", "#cl-shorts", "#cl-reels"].forEach((t) => $(t).addEventListener("click", (e) => { if (e.target.closest("[data-play]")) return; const tr = e.target.closest("tr[data-id]"); if (tr) openTrack(tr.dataset.id); }));
+// song rows (tr.click[data-id]) open through the page-wide handler; no second handler here (it opened every song twice)
 $("#cl-labels").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-label]"); if (!tr || tr.dataset.label === "Other") return;
   Object.assign(CAT, { label: tr.dataset.label, channel: "", day: "", status: "", offset: 0 }); location.hash = "#catalogue"; });
 
