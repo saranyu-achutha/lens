@@ -444,6 +444,7 @@ async function loadClient() {
   $("#cl-window").textContent = `How the songs first uploaded ${d.since} → ${d.until} are doing, platform by platform`;
   $("#cl-asof").innerHTML = `<span class="dot"></span>Figures for ${dayLabel(d.as_of)} (last completed day)`;
   const pct = (n, t) => (t ? Math.round((100 * n) / t) : 0);
+  $("#cl-started").innerHTML = d.started ? `<b>Official daily readings started:</b> ${startedLine(d.started)}.` : "";
   const glance = () => { $("#cl-kpis").innerHTML = glanceTiles(d); wireRatio($("#cl-kpis"), glance); };
   glance();
   $("#cl-audio").innerHTML = audioCards(d);
@@ -735,11 +736,13 @@ function showReportTab(t) {
     So when a platform is read late (Spotify play counts often arrive a day later), that day shows little or nothing and the next reading carries it; a month's sum is exact.
     A newly linked track's first reading adds nothing. <b>YouTube views</b> and <b>audio streams</b> (Spotify + YouTube Music + JioSaavn) are counted apart. Releases = songs first uploaded on the labels' YouTube channels that day or month.`;
   $("#rp-how").style.display = t === "songs" ? "none" : "";
+  $("#rp-started").style.display = t === "songs" ? "none" : "";
   if (t === "ldaily") loadLabelDaily(); else if (t === "lmonthly") loadLabelMonthly(); else loadReportSongs();
 }
 document.querySelectorAll("#rp-tabs button").forEach((b) => (b.onclick = () => showReportTab(b.dataset.t)));
 async function loadLabelDaily() {
   const d = await api(`/api/labels/report?view=daily&month=${encodeURIComponent(LR.month)}&by=${LR.by}`);
+  $("#rp-started").innerHTML = `<b>Official daily readings started:</b> ${startedLine(d.started)}. Days before that have no growth figures.`;
   LR.month = d.month;
   $("#ld-month").innerHTML = d.months.map((m) => `<option value="${m}"${m === d.month ? " selected" : ""}>${monthName(m)}${m === d.today.slice(0, 7) ? " (this month)" : ""}</option>`).join("");
   $("#ld-by").innerHTML = Object.entries(d.metrics).map(([k, n]) => `<option value="${k}"${k === d.by ? " selected" : ""}>${esc(n)}</option>`).join("");
@@ -759,6 +762,7 @@ async function loadLabelDaily() {
 }
 async function loadLabelMonthly() {
   const d = await api(`/api/labels/report?view=monthly&by=${LR.mby}`);
+  $("#rp-started").innerHTML = `<b>Official daily readings started:</b> ${startedLine(d.started)}. Months before that show releases only.`;
   $("#lm-by").innerHTML = Object.entries(d.metrics).map(([k, n]) => `<option value="${k}"${k === d.by ? " selected" : ""}>${esc(n)}</option>`).join("");
   $("#lm-csv").href = `/api/labels/report.csv?view=monthly&by=${d.by}`;
   $("#lm-months").innerHTML = d.months.length ? d.months.map((m) => `<div class="card flush" style="margin-bottom:16px"><div class="card-head" style="padding:16px 16px 0"><h2>${monthName(m.month)}</h2><span class="spacer"></span>
@@ -2463,6 +2467,9 @@ $("#ms-retry-all").onclick = () => msRetry("");
 /* ---------- Market share: each song's performance by day N of its life, shared out by label ---------- */
 const MS = { days: null, month: "", measure: "yt", label: "" };
 const LABEL_COLORS = ["#6366f1", "#ef4444", "#10b981", "#f59e0b", "#06b6d4", "#ec4899", "#8b5cf6", "#84cc16", "#f97316"];
+// "Official readings started" notice: removes the doubt when a platform's history is shorter (e.g. Spotify)
+const PNAME = { youtube: "YouTube views", spotify: "Spotify plays", ytmusic: "YouTube Music plays", jiosaavn: "JioSaavn plays" };
+const startedLine = (st) => st ? Object.entries(st).filter(([, d]) => d).map(([p, d]) => `<b>${PNAME[p]}</b> from ${dayLabel(d)} ${d.slice(0, 4)}`).join(" · ") : "";
 const shareNum = (k, v) => v == null ? "–" : (k === "sp" || k === "ytm" || k === "audio" ? compact1 : compact)(v);
 async function loadShare() {
   const q = new URLSearchParams({ ...(MS.days ? { days: MS.days } : {}), ...(MS.month ? { month: MS.month } : {}) });
@@ -2470,6 +2477,9 @@ async function loadShare() {
   MS.days = d.days;
   const N = d.days, lcolor = Object.fromEntries(d.labels.map((l, i) => [l.label, LABEL_COLORS[i % LABEL_COLORS.length]]));
   $("#sh-asof").innerHTML = `<span class="dot"></span>Figures for ${dayLabel(d.report_day)} (last completed day)`;
+  $("#sh-started").innerHTML = `<b>Official daily readings started:</b> ${startedLine(d.started)}. Songs released before then could not be read from their first day,
+    and many labels' Spotify tracks were linked only recently, so the Spotify and audio shares rest on fewer days for those labels for now
+    (see "readings since" in the table). They even out as the songs build up history; YouTube views have the longest history.`;
   $("#sh-presets").innerHTML = d.presets.map((n) => `<button class="small${n === N ? " on" : ""}" data-n="${n}">${n} days</button>`).join("");
   $("#sh-presets").querySelectorAll("button").forEach((b) => (b.onclick = () => { MS.days = +b.dataset.n; loadShare(); }));
   $("#sh-days").value = N;
@@ -2501,7 +2511,7 @@ async function loadShare() {
   const ks = ["yt", "audio", "sp", "ytm", "js"], names = Object.fromEntries(d.measures.map((m) => [m.key, m.name]));
   $("#sh-matrix").innerHTML = `<thead><tr><th>Label</th><th class="num">Songs</th>${ks.map((k) => `<th class="num">${esc(names[k])}</th>`).join("")}</tr></thead><tbody>` +
     by("yt").map((l) => `<tr class="${l.label === d.focus_label ? "focus-row" : ""}"><td>${labelTag(l.label)}</td><td class="num">${fmt(l.songs)}<div class="muted" style="font-size:11px">${fmt(l.final)} final · ${fmt(l.provisional)} prov.</div></td>` +
-      ks.map((k) => `<td class="num"><b>${l[k + "_share"] ?? "–"}%</b><div class="muted" style="font-size:11px">#${l[k + "_rank"]} · ${shareNum(k, l[k])} · ${fmt(l[k + "_songs"])} songs</div></td>`).join("") + "</tr>").join("") +
+      ks.map((k) => `<td class="num"><b>${l[k + "_share"] ?? "–"}%</b><div class="muted" style="font-size:11px">#${l[k + "_rank"]} · ${shareNum(k, l[k])} · ${fmt(l[k + "_songs"])} songs</div>${l[k + "_since"] ? `<div class="muted" style="font-size:11px">readings since ${dayLabel(l[k + "_since"])}</div>` : ""}</td>`).join("") + "</tr>").join("") +
     `<tr><td><b>All labels</b></td><td class="num">${fmt(c.final + c.provisional)}</td>${ks.map((k) => `<td class="num"><b>100%</b><div class="muted" style="font-size:11px">${shareNum(k, d.total[k])} · ${fmt(d.total_songs[k])} songs</div></td>`).join("")}</tr></tbody>`;
   const cur = d.curves[MS.measure] || {};
   const pad = (n) => "D" + String(n).padStart(4, "0");

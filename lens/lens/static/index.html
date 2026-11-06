@@ -127,6 +127,7 @@
 <circle cx="250" cy="70" r="56" fill="none" stroke="url(#hA-grad)" stroke-width="6"/>
 <path class="hl-sheen" d="M210,52 A44 44 0 0 1 238,28"/>
 <path d="M293,112 l7,7" stroke="url(#hA-grad)" stroke-width="7" fill="none"/><path d="M300,119 l20,18" stroke="url(#hA-grad)" stroke-width="11" stroke-linecap="round" fill="none"/></svg><div><h1>Dashboard</h1><p id="cl-window">How the period's releases are performing across platforms</p></div><span class="spacer"></span><span class="pill ok" id="cl-asof"></span></div>
+    <div class="card notice" id="cl-started" style="margin-top:12px"></div>
     <div class="sec-title"><h2>At a glance</h2><span class="muted">YouTube views and audio streams are counted apart</span></div>
     <div class="grid g4 glance" id="cl-kpis"></div>
     <div class="sec-title"><h2>Audio streams by platform</h2></div>
@@ -270,6 +271,7 @@
       <span class="spacer"></span><span class="muted" id="sh-default" style="font-size:12px"></span>
       <button class="small primary" id="sh-save" style="display:none">Save as default</button>
     </div></div>
+    <div class="card notice" id="sh-started" style="margin-top:16px"></div>
     <div class="grid g4 glance" id="sh-kpis" style="margin-top:16px"></div>
     <div class="grid g2" style="margin-top:16px">
       <div class="card"><div class="card-head"><h2 id="sh-yt-title">Share of YouTube views</h2></div><div id="sh-yt" class="share-list"></div></div>
@@ -436,6 +438,7 @@
     <div class="card flush" style="margin-top:16px"><div class="table-wrap"><table id="rp-table"></table></div>
       <div class="pager"><span id="rp-count"></span><span class="spacer"></span><button class="small" id="rp-prev">‹ Prev</button><button class="small" id="rp-next">Next ›</button></div></div>
     </div>
+    <div class="card notice" id="rp-started" style="display:none;margin-bottom:16px"></div>
     <div id="rp-ldaily" style="display:none">
       <div class="card" style="margin-bottom:16px"><div class="row" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
         <label class="field" style="margin:0"><span>Month</span><select id="ld-month"></select></label>

@@ -1787,7 +1787,8 @@ def api_client(conn, qs):
                            WHERE day > date(?, '-30 day') AND day <= ? AND song_id IN ({S}) GROUP BY day ORDER BY day""", (last, last, since, until))
         trend = [{"platform": p, "name": n, "axis": "left" if p == "youtube" else "right",
                   "points": [{"x": d["day"], "y": d[c]} for d in days if d[c] is not None]} for p, n, c in REACH]
-    return {"since": since, "until": until, "as_of": last, "today": today, "songs": len(rows),
+    from .market_share import data_started
+    return {"since": since, "until": until, "as_of": last, "today": today, "songs": len(rows), "started": data_started(conn),
             "new": sum(s["release_status"] == "new" for s in rows), "hits": sum(s["hit"] for s in rows),
             "hits_yt": sum((s["yt_views"] or 0) >= 1_000_000 for s in rows), "hits_audio": sum(s["audio"] >= 1_000_000 for s in rows),
             "yt_views": total["yt_views"], "yt_gain": gain["yt_views"],

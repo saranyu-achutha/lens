@@ -103,7 +103,8 @@ def daily(conn, month=None, by="yt", cfg=None):
         row["all"] = {k: sum(row["labels"][l][k] for l in labels) for k in ("releases", "yt", "sp", "ytm", "js", "audio")}
         by_day.append(row)
     months = sorted({d[:7] for _, d in songs.values()} | {today.strftime("%Y-%m")}, reverse=True)
-    return {"month": month, "by": by, "metrics": METRICS, "labels": labels, "ranking": ranking, "days": by_day,
+    from .market_share import data_started
+    return {"started": data_started(conn), "month": month, "by": by, "metrics": METRICS, "labels": labels, "ranking": ranking, "days": by_day,
             "months": months, "today": today.isoformat(), "since": config.window(cfg)[0]}
 
 
@@ -138,7 +139,8 @@ def monthly(conn, by="yt", cfg=None):
         out.append({"month": m, "ranking": _rank(rows, by if readings else "releases"), "days_with_readings": readings,
                     "ranked_by": by if readings else "releases",
                     "total": {k: sum(r[k] for r in rows) for k in ("releases", "yt", "sp", "ytm", "js", "audio")}})
-    return {"by": by, "metrics": METRICS, "months": out, "today": today.isoformat(), "since": since}
+    from .market_share import data_started
+    return {"started": data_started(conn), "by": by, "metrics": METRICS, "months": out, "today": today.isoformat(), "since": since}
 
 
 def csv_text(conn, view, month=None, by="yt"):

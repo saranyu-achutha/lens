@@ -95,11 +95,16 @@ def compute(conn, days=None, since=None, until=None, cfg=None):
         if final and not any_value:
             rec["status"] = "not measurable"
         rec["audio"] = sum(rec[k] or 0 for k in AUDIO) if any(rec[k] is not None for k in AUDIO) else None
+        rec["first_read"] = {keyof[c]: (pts[sid].get(c) or [[None]])[0][0] for c in cols}
         out_songs.append(rec)
     measured = [r for r in out_songs if r["status"] != "not measurable"]
+    def median(xs):
+        xs = sorted(x for x in xs if x)
+        return xs[len(xs) // 2] if xs else None
     labels = sorted({r["label"] for r in out_songs})
     total = {k: sum(r[k] or 0 for r in measured) for k, _, _ in MEASURES}
     total_songs = {k: sum(1 for r in measured if r[k] is not None) for k, _, _ in MEASURES}
+    started = data_started(conn)
     by_label = []
     for lab in labels:
         rs = [r for r in measured if r["label"] == lab]
@@ -109,6 +114,8 @@ def compute(conn, days=None, since=None, until=None, cfg=None):
         for k, _, _ in MEASURES:
             row[k] = sum(r[k] or 0 for r in rs)
             row[k + "_songs"] = sum(1 for r in rs if r[k] is not None)  # songs with a value on that measure (coverage)
+            if k != "audio":  # when most of the label's songs started being read on that platform
+                row[k + "_since"] = median(r["first_read"].get(k) for r in rs if r[k] is not None)
             row[k + "_share"] = round(100 * row[k] / total[k], 2) if total[k] else None
         by_label.append(row)
     for k, _, _ in MEASURES:  # rank per measure
@@ -124,15 +131,27 @@ def compute(conn, days=None, since=None, until=None, cfg=None):
                 a[p["x"]] += p["y"]
         if a:
             curves.setdefault("audio", {})[lab] = [{"x": n, "y": round(v)} for n, v in sorted(a.items())]
+    for r in out_songs:
+        r.pop("first_read", None)
     out_songs.sort(key=lambda r: -(r["yt"] or 0))
     months = sorted({r["release"][:7] for r in out_songs}, reverse=True) if since == p_since and until == p_until else None
     return {"days": N, "default_days": s["days"], "presets": PRESETS, "focus_label": s["focus_label"],
             "since": since, "until": until, "period": [p_since, p_until], "report_day": report_day,
-            "measures": [{"key": k, "name": n} for k, n, _ in MEASURES], "total": total, "total_songs": total_songs, "labels": by_label,
+            "measures": [{"key": k, "name": n} for k, n, _ in MEASURES], "total": total, "total_songs": total_songs, "labels": by_label, "started": started,
             "counts": {"songs": len(out_songs), "final": sum(r["status"] == "final" for r in out_songs),
                        "provisional": sum(r["status"] == "provisional" for r in out_songs),
                        "not_measurable": sum(r["status"] == "not measurable" for r in out_songs)},
             "curves": curves, "songs": out_songs[:400], "months": months}
+
+
+def data_started(conn):
+    """{platform: first day of official readings} (the first daily reading stored for that platform)."""
+    out = {}
+    for plat, metric in (("youtube", "views"), ("spotify", "plays"), ("ytmusic", "plays"), ("jiosaavn", "plays")):
+        r = conn.execute("""SELECT min(s.capture_date) FROM snapshot s JOIN platform_item p ON p.id=s.platform_item_id
+                            WHERE p.platform=? AND s.metric=?""", (plat, metric)).fetchone()
+        out[plat] = r[0] if r else None
+    return out
 
 
 def save_days(n):

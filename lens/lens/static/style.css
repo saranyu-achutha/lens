@@ -1097,3 +1097,8 @@ header.top .bell-wrap { flex: none; }
 .share-line .sl-meta { color: var(--text-muted); font-size: 12px; margin-top: 4px; }
 .share-line.focus { padding: 10px 12px; margin: -4px -12px; border-radius: 12px; background: color-mix(in srgb, var(--lc) 10%, transparent); }
 tr.focus-row td { background: color-mix(in srgb, var(--accent-2) 8%, transparent); }
+
+.card.notice { padding: 12px 16px; font-size: 12.5px; line-height: 1.55; color: var(--text-secondary);
+  border-left: 4px solid var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--surface-1, transparent)); }
+.card.notice:empty { display: none; }
+.card.notice b { color: var(--text-primary); }
