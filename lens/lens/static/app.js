@@ -2511,7 +2511,10 @@ async function loadShare() {
   $("#sh-curve-title").textContent = `Average song by day of life: ${names[MS.measure]}, days 1–${N}`;
   $("#sh-curve-legend").innerHTML = series.map((x) => `<span><span style="display:inline-block;width:12px;height:3px;background:${x.color};vertical-align:middle;margin-right:5px"></span>${esc(x.name)}</span>`).join("");
   $("#sh-label").innerHTML = `<option value="">All labels</option>` + d.labels.map((l) => `<option${l.label === MS.label ? " selected" : ""}>${esc(l.label)}</option>`).join("");
-  const st = (r) => r.status === "final" ? `<span class="gain-chip">final · day ${N}</span>` : r.status === "provisional" ? `<span class="gain-chip none">provisional · day ${r.day}</span>` : `<span class="gain-chip none" style="opacity:.6">not measurable</span>`;
+  const on = (r) => r.measured_on ? ` · ${dayLabel(r.measured_on)}` : "";
+  const st = (r) => r.status === "final" ? `<span class="gain-chip">final · day ${N}${on(r)}</span>`
+    : r.status === "provisional" ? `<span class="gain-chip none" title="Until day ${N}: the latest day with data">provisional · day ${r.day}${on(r)}</span>`
+    : `<span class="gain-chip none" style="opacity:.6">not measurable</span>`;
   const rows = d.songs.filter((r) => !MS.label || r.label === MS.label).slice(0, 100);
   $("#sh-songs").innerHTML = `<thead><tr><th>Song</th><th>Released</th><th>Status</th><th class="num">YouTube views</th><th class="num">Audio streams</th><th class="num">Spotify</th><th class="num">YT Music</th><th class="num">JioSaavn</th></tr></thead><tbody>` +
     rows.map((r) => `<tr class="click" data-id="${r.id}"><td><div class="t1">${esc(r.title)}${labelTag(r.label)}</div></td><td class="muted">${esc(r.release)}</td><td>${st(r)}</td>

@@ -76,11 +76,14 @@ def compute(conn, days=None, since=None, until=None, cfg=None):
         age = (date.fromisoformat(report_day) - rel).days + 1  # days of life completed
         target = (rel + timedelta(days=N - 1)).isoformat()
         final = age >= N
-        rec = dict(sg, age=age, status="final" if final else "provisional", day=N if final else max(age, 0))
+        rec = dict(sg, age=age, status="final" if final else "provisional", day=N if final else max(age, 0),
+                   measured_on=target if final else None)  # the date the figure is from (provisional: its newest reading)
         any_value = False
         for c in cols:
             p = pts[sid].get(c) or []
             v = _at(p, target) if final else (p[-1][1] if p else None)
+            if not final and p and (rec["measured_on"] or "") < p[-1][0]:
+                rec["measured_on"] = p[-1][0]  # until day N: the highest date with data
             rec[keyof[c]] = round(v) if v is not None else None
             any_value |= v is not None
             for d, val in p:  # the life curve: value on each day of life up to N (readings only)
