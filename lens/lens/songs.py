@@ -622,6 +622,8 @@ def musicbrainz_lookup(conn, cfg, since, until, ts, log, check, run_id):
     log(f"MusicBrainz: looking up {len(todo)} songs without an ISRC (about {len(todo) * 1.2 / 60:.0f} min)")
     for n, song in enumerate(todo, 1):
         check()
+        if conn.in_transaction:  # save the last song before the next network call: never hold the write lock while waiting
+            conn.commit()        # (a miss skipped the old "every 10" commit, so one run held it ~30 min and locked out Instagram)
         vids = conn.execute("""SELECT title, description, published_at, duration_ms FROM platform_item
                                WHERE track_id=? AND platform='youtube' ORDER BY asset_type IN ('audio','lyric') DESC,
                                published_at LIMIT 3""", (song["id"],)).fetchall()
@@ -661,8 +663,6 @@ def musicbrainz_lookup(conn, cfg, since, until, ts, log, check, run_id):
         elif isrcs:
             taken += 1  # this recording is already another song: the same-ISRC merge rule pairs them
         found += 1
-        if n % 10 == 0:
-            conn.commit()  # save often: a stop or restart loses at most 10 songs
         if n % 25 == 0:
             log(f"  {n}/{len(todo)} looked up on MusicBrainz ({found} matched)")
     conn.commit()
@@ -718,6 +718,8 @@ def itunes_lookup(conn, cfg, since, until, ts, log, check, run_id):
     log(f"iTunes metadata: looking up {len(todo)} songs Spotify hasn't reached (about {len(todo) * 3.2 / 60:.0f} min)")
     for n, song in enumerate(todo, 1):
         check()
+        if conn.in_transaction:  # save the last song before the next call (a miss skipped the old "every 25" commit: the
+            conn.commit()        # whole lookup, 6-12 min, held the write lock and Instagram failed every night)
         vids = conn.execute("""SELECT title, description, published_at, duration_ms FROM platform_item
                                WHERE track_id=? AND platform='youtube' ORDER BY asset_type IN ('audio','lyric') DESC,
                                published_at LIMIT 3""", (song["id"],)).fetchall()
@@ -750,7 +752,6 @@ def itunes_lookup(conn, cfg, since, until, ts, log, check, run_id):
         conn.execute("UPDATE track SET duration_ms=COALESCE(duration_ms, ?) WHERE id=?", (c.get("trackTimeMillis"), song["id"]))
         found += 1
         if n % 25 == 0:
-            conn.commit()
             log(f"  {n}/{len(todo)} looked up on iTunes ({found} matched)")
     conn.commit()
     log(f"iTunes metadata: {found} matched (album, release date, artists, genre), {missing} not found or uncertain")
@@ -773,15 +774,28 @@ def deezer_readings(conn, cfg, since, ts, log, check, run_id):
            WHERE t.source='youtube' AND t.first_published >= :since AND t.old_release IS NULL AND {DEEZER_DUE}""",
         {"since": since, "today": today}).fetchall()
     ok = miss = 0
+    fails = 0  # Deezer calls failed in a row
     for r in rows:
         check()
+        if conn.in_transaction:  # save before each call: never hold the write lock while waiting on Deezer
+            conn.commit()
         url = f"https://api.deezer.com/track/isrc:{r['isrc']}"
-        try:
-            with urllib.request.urlopen(url, timeout=20) as resp:
-                body = resp.read().decode()
-        except urllib.error.URLError as e:
-            log(f"Deezer unreachable ({e}); skipping")
-            break
+        body = None
+        for attempt in range(3):  # a slow TLS handshake now and then is not an outage: try again before giving up
+            try:
+                with urllib.request.urlopen(url, timeout=20) as resp:
+                    body = resp.read().decode()
+                break
+            except (urllib.error.URLError, TimeoutError, OSError) as e:
+                err = e
+                time.sleep(5 * (attempt + 1))
+        if body is None:
+            fails += 1
+            if fails >= 5:  # five songs in a row failed three times each: Deezer is really down; the next run continues
+                log(f"Deezer unreachable ({err}); stopping for this run, the next run continues")
+                break
+            continue
+        fails = 0
         if cfg["discovery"]["store_raw"]:
             conn.execute("INSERT INTO raw_capture (run_id, source, url, status, captured_at, body)"
                          " VALUES (?,'deezer',?,200,?,?)", (run_id, url, db.now_iso(), body))

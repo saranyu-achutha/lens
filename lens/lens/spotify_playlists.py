@@ -96,6 +96,8 @@ def run(conn, cfg, since, until, ts, log, check):
     vids, best, seen, read = {}, {}, set(), 0
     for kind, pid in sources:
         check()
+        if conn.in_transaction:  # save the "album read" marks as we go: this loop reads ~470 pages (~10 min) and held
+            conn.commit()        # the write lock for all of it, locking out the other jobs
         tracks = read_playlist(pid, kind)
         if kind == "album" and tracks:
             conn.execute("INSERT OR REPLACE INTO state (key, value) VALUES (?,?)", (f"sp_album_read:{pid}", today))
@@ -121,6 +123,8 @@ def run(conn, cfg, since, until, ts, log, check):
                         best[sid] = (total, det, t, f"{kind}:{pid}")
     linked = 0
     for sid, (total, det, t, pid) in best.items():
+        if conn.in_transaction:
+            conn.commit()
         if attach(conn, sid, t["id"], pid.split(":")[0], total, dict(det, via=pid, playlist=PLAYLISTS.get(pid.split(":")[1], pid),
                                                               candidate_artists=t["artists"]), t["title"], ts):
             d = embed_details(t["id"])
