@@ -2712,7 +2712,7 @@ function renderPV(d) {
   if (!K.includes(PV.one)) PV.one = "spotify";
   document.querySelectorAll("#pv-mode button").forEach((b) => b.classList.toggle("on", b.dataset.m === PV.mode));
   document.querySelectorAll("#pv-metric button").forEach((b) => b.classList.toggle("on", b.dataset.k === PV.metric));
-  $("#pv-metric").style.visibility = PV.mode === "one" ? "hidden" : "";
+  $("#pv-metric").style.visibility = PV.mode === "one" || PV.mode === "vsyt" ? "hidden" : "";
   const chip = (p, on, attr = "") => `<button class="pv-chip${on ? " on" : ""}" data-p="${p}" style="--pc:${pvColor(p)}" ${attr}><span class="pv-dot"></span>${esc(N[p])}<span class="pv-n">${fmt(S[p].on_now)}</span></button>`;
   const pick = $("#pv-pick"), body = $("#pv-body");
   const days = (p) => pv.series[p];
@@ -2751,6 +2751,8 @@ function renderPV(d) {
     body.querySelectorAll(".pv-row").forEach((r) => (r.onclick = () => pvToggle(r.dataset.p)));
     $("#pv-all").onclick = () => { PV.sel = [...K]; pvSave(); renderPV(); };
     $("#pv-none").onclick = () => { PV.sel = []; pvSave(); renderPV(); };
+  } else if (PV.mode === "vsyt") {
+    pvVsYoutube(d, pv, chip, pick, body);
   } else {
     if (PV.a === PV.b) PV.b = K.find((p) => p !== PV.a);
     const opt = (cur) => K.map((p) => `<option value="${p}"${p === cur ? " selected" : ""}>${esc(N[p])}</option>`).join("");
@@ -2787,6 +2789,38 @@ function renderPV(d) {
   pick.querySelectorAll(".pv-chip").forEach((c) => (c.onclick = () => {
     if (PV.mode === "one") PV.one = c.dataset.p; else pvToggle(c.dataset.p, true);
     pvSave(); renderPV(); }));
+}
+// YouTube vs the other platforms: of the songs YouTube gave us each day, the share each platform has found (now, by the
+// next day, within a week). Young days are left blank for a measure whose wait has not passed (never shown as low).
+const PV_RATIO = { now: ["Found so far", "on the platform now"], d1: ["Within a day", "linked by the day after YouTube"], d7: ["Within a week", "linked within 7 days of YouTube"] };
+function pvVsYoutube(d, pv, chip, pick, body) {
+  const V = pv.vs_youtube, N = pv.names, k = PV.ratio || "d1";
+  const sel = V.platforms.filter((p) => PV.sel.includes(p));
+  pick.innerHTML = `<span class="pv-hint">Platforms</span>` + V.platforms.map((p) => chip(p, PV.sel.includes(p))).join("") +
+    `<span class="spacer"></span><div class="seg" id="pv-ratio">${Object.entries(PV_RATIO).map(([key, [label]]) => `<button class="small${key === k ? " on" : ""}" data-r="${key}">${label}</button>`).join("")}</div>`;
+  const pct = (n, of) => n == null ? null : of ? Math.round((1000 * n) / of) / 10 : null;
+  const ov = (p) => V.overall[p][k];
+  body.innerHTML = `<div class="pv-stats" style="grid-template-columns:repeat(${Math.min(4, sel.length + 1)}, minmax(0, 1fr))">
+      <div class="pv-stat" style="--pc:${pvColor("youtube")}"><span>YouTube found</span><b>${fmt(V.found)}</b><small>new songs in ${d.days} days (the base: 100%)</small></div>
+      ${sel.map((p) => `<div class="pv-stat"><span>${esc(N[p])} · ${esc(PV_RATIO[k][0].toLowerCase())}</span><b>${ov(p) == null ? "–" : ov(p) + "%"}</b>
+        <small>${k === "now" ? `${fmt(V.overall[p].now_n)} of ${fmt(V.found)} songs` : PV_RATIO[k][1]}</small>
+        <i class="pv-meter"><i style="width:${ov(p) || 0}%;background:${pvColor(p)}"></i></i></div>`).join("")}
+    </div>
+    <div class="pv-ch-title" style="margin-top:14px">Share of YouTube's new songs found, ${esc(PV_RATIO[k][1])} <span class="muted">per day of discovery on YouTube</span></div>
+    <div class="chart" id="pv-c1"></div>
+    <div class="table-wrap" style="margin-top:12px;max-height:520px"><table class="pv-table"><thead><tr><th>Day (found on YouTube)</th><th class="num">YouTube</th>
+      ${V.platforms.map((p) => `<th class="num"><span class="pv-dot" style="--pc:${pvColor(p)}"></span>${esc(N[p])}</th>`).join("")}</tr></thead><tbody>${
+      [...V.rows].reverse().map((r) => `<tr><td style="white-space:nowrap"><b>${esc(r.day)}</b>${r.day === d.today ? ' <span class="pill run" style="padding:0 6px"><span class="dot"></span>today</span>' : ""}</td>
+        <td class="num"><b>${fmt(r.found)}</b></td>${V.platforms.map((p) => { const n = r.p[p][k], v = pct(n, r.found);
+          return !r.found ? '<td class="num muted">–</td>' : n == null ? '<td class="num muted" title="too early to judge">…</td>'
+            : `<td class="num${PV.sel.includes(p) ? "" : " muted"}">${v}% <span class="muted" style="font-size:11px">${fmt(n)}</span></td>`; }).join("")}</tr>`).join("")}
+      </tbody><tfoot><tr><td><b>${d.days} days</b></td><td class="num"><b>${fmt(V.found)}</b></td>${V.platforms.map((p) => `<td class="num"><b>${ov(p) == null ? "–" : ov(p) + "%"}</b></td>`).join("")}</tr></tfoot></table></div>
+    <div class="muted" style="font-size:12px;margin-top:8px">100% = every song YouTube gave us that day is on that platform. "…" = too early to judge (a day for "within a day", a week for "within a week").
+      A song counts on a platform once linked there (auto, approved or confirmed); songs released before the period are left out.</div>`;
+  multiLine($("#pv-c1"), sel.map((p) => ({ name: N[p], color: pvColor(p), total: true,
+    points: V.rows.filter((r) => r.found && r.p[p][k] != null).map((r) => ({ x: r.day, y: pct(r.p[p][k], r.found) })) })),
+    { height: 260, yfmt: (v) => `${Math.round(v)}%`, vfmt: (v) => `${v}%`, dots: sel.length < 4, empty: "Pick one or more platforms above." });
+  document.querySelectorAll("#pv-ratio button").forEach((b) => (b.onclick = () => { PV.ratio = b.dataset.r; pvSave(); renderPV(); }));
 }
 function pvToggle(p, noRender) {
   PV.sel = PV.sel.includes(p) ? PV.sel.filter((x) => x !== p) : [...PV.sel, p];

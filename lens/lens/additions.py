@@ -156,6 +156,7 @@ def _platform_view(conn, songs, has, start, days_asc, today):
                       "avg7": round(sum(r["new"] for r in done[-7:]) / len(done[-7:]), 1) if done else 0,
                       "on_now": len(fd), "coverage": _pct(len(fd), len(songs))}
     in_range = {tid for tid, (_, seen, _) in songs.items() if seen >= start}
+    vs_youtube = _vs_youtube(songs, first, keys, days_asc, today)
     sets = {p: set(first.get(p, {})) for p in keys}
     overlap = {}
     for i, a in enumerate(keys):
@@ -166,4 +167,44 @@ def _platform_view(conn, songs, has, start, days_asc, today):
                 "range": {"both": len(A & B & in_range), "a_only": len((A - B) & in_range), "b_only": len((B - A) & in_range),
                           "neither": len(in_range - (A | B))}}
     return {"keys": keys, "names": names, "series": series, "lag": lag, "summary": summary, "overlap": overlap,
-            "songs": len(songs), "songs_in_range": len(in_range)}
+            "songs": len(songs), "songs_in_range": len(in_range), "vs_youtube": vs_youtube}
+
+
+def _vs_youtube(songs, first, keys, days_asc, today):
+    """YouTube vs the other platforms, day by day: of the songs YouTube gave us that day (found that day), how many each
+    platform has now ("now"), had by the next day ("d1") and within a week ("d7"). A measure whose wait has not passed
+    yet (d1 for today, d7 for the last 7 days) is None, so a young day is not shown as a low share."""
+    td = date.fromisoformat(today)
+    by_day = {}
+    for tid, (_, seen, _) in songs.items():
+        by_day.setdefault(seen, []).append(tid)
+    others = [p for p in keys if p != "youtube"]
+    rows, tot = [], {p: {"now": 0, "d1": 0, "d7": 0, "n1": 0, "n7": 0} for p in others}
+    found_total = 0
+    for d in days_asc:
+        tids = by_day.get(d, [])
+        age = (td - date.fromisoformat(d)).days
+        row = {"day": d, "found": len(tids), "d1_ready": age >= 1, "d7_ready": age >= 7, "p": {}}
+        found_total += len(tids)
+        for p in others:
+            fd = first.get(p, {})
+            now = d1 = d7 = 0
+            for t in tids:
+                f = fd.get(t)
+                if f:
+                    now += 1
+                    lag = (date.fromisoformat(f) - date.fromisoformat(d)).days
+                    d1 += lag <= 1
+                    d7 += lag <= 7
+            row["p"][p] = {"now": now, "d1": d1 if age >= 1 else None, "d7": d7 if age >= 7 else None}
+            tot[p]["now"] += now
+            if age >= 1:
+                tot[p]["d1"] += d1
+                tot[p]["n1"] += len(tids)
+            if age >= 7:
+                tot[p]["d7"] += d7
+                tot[p]["n7"] += len(tids)
+        rows.append(row)
+    overall = {p: {"now": _pct(t["now"], found_total), "d1": _pct(t["d1"], t["n1"]) if t["n1"] else None,
+                   "d7": _pct(t["d7"], t["n7"]) if t["n7"] else None, "now_n": t["now"]} for p, t in tot.items()}
+    return {"rows": rows, "overall": overall, "found": found_total, "platforms": others}
