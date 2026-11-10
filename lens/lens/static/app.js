@@ -37,7 +37,7 @@ function toast(msg, bad = false) {
 let STATUS = null;
 
 /* ---------- Router ---------- */
-const PAGES = ["overview", "dashboard", "mgmt", "share", "dev", "status", "missed", "crawl", "apis", "charts", "schedule", "platforms", "reports", "daily", "pdata", "catalogue", "explore", "insights", "review", "runs", "outputs", "sources", "settings"];
+const PAGES = ["overview", "dashboard", "mgmt", "share", "dev", "status", "missed", "added", "crawl", "apis", "charts", "schedule", "platforms", "reports", "daily", "pdata", "catalogue", "explore", "insights", "review", "runs", "outputs", "sources", "settings"];
 // The client login sees only these pages (the server refuses everything else for it).
 const CLIENT_PAGES = ["dashboard", "mgmt", "share", "platforms", "reports", "daily", "catalogue"];
 // A developer can switch to "Client view" to see exactly what the client sees (menu, pages, header); not remembered.
@@ -51,7 +51,7 @@ function route() {
   const sec = p === "apis" ? "crawl" : p;  // Crawl stats and API stats share one page layout
   document.querySelectorAll("section.page").forEach((s) => s.classList.toggle("active", s.id === `page-${sec}`));
   document.querySelectorAll("a.nav").forEach((a) => a.classList.toggle("active", a.getAttribute("href") === `#${p}`));
-  ({ overview: loadOverview, dashboard: loadClient, dev: loadDev, crawl: loadCrawl, apis: loadCrawl, charts: loadCharts, schedule: loadSchedule, status: loadStatus, missed: loadMissed, share: loadShare, mgmt: loadMgmt, platforms: loadPlatform, reports: loadReport, daily: loadDaily, pdata: loadPData, catalogue: loadCatalogue, explore: loadExplore, insights: loadInsights, review: loadReview, runs: loadRuns, outputs: loadOutputs, sources: loadSources, settings: loadSettings })[p]();
+  ({ overview: loadOverview, dashboard: loadClient, dev: loadDev, crawl: loadCrawl, apis: loadCrawl, charts: loadCharts, schedule: loadSchedule, status: loadStatus, missed: loadMissed, added: loadAdded, share: loadShare, mgmt: loadMgmt, platforms: loadPlatform, reports: loadReport, daily: loadDaily, pdata: loadPData, catalogue: loadCatalogue, explore: loadExplore, insights: loadInsights, review: loadReview, runs: loadRuns, outputs: loadOutputs, sources: loadSources, settings: loadSettings })[p]();
   const track = new URLSearchParams(location.hash.split("?")[1] || "").get("track");
   if (track) openTrack(track);
   const meta = new URLSearchParams(location.hash.split("?")[1] || "").get("meta");  // e.g. #explore?meta=singer:arijit singh
@@ -2598,3 +2598,55 @@ async function loadMgmt() {
   $("#mg-how").innerHTML = `<b>How to read this.</b> Everything is ranked by <b>Spotify plays gained</b> in the week (${wk}, the last 7 completed days); YouTube views are shown alongside, not used for ranking.
     A gain is each track's reading minus its own previous reading, so late Spotify counts land on the next reading and nothing is lost. Language-wise growth uses each song's detected language.`;
 }
+
+
+/* ---------- Daily additions (developer): songs added each day, and on each platform ---------- */
+const AD = { days: 30, label: "", view: "links" };
+async function loadAdded() {
+  const q = new URLSearchParams({ days: AD.days }); if (AD.label) q.set("label", AD.label);
+  const d = await api("/api/additions?" + q);
+  const P = d.platforms, links = AD.view === "links", key = links ? "links" : "now_on";
+  const dayName = (x) => new Date(x + "T00:00:00Z").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
+  $("#ad-sub").textContent = `Songs of the period (first YouTube upload from ${d.since}, not released before it)${d.label ? `, ${d.label} only` : ""}: how many were added each day, and on each platform. Days are server days (UTC); today is still running.`;
+  document.querySelectorAll("#ad-days button").forEach((b) => b.classList.toggle("on", +b.dataset.d === AD.days));
+  document.querySelectorAll("#ad-view button").forEach((b) => b.classList.toggle("on", b.dataset.v === AD.view));
+  const sel = $("#ad-label");
+  sel.innerHTML = `<option value="">All labels</option>` + d.labels.map((l) => `<option${l === AD.label ? " selected" : ""}>${esc(l)}</option>`).join("");
+  const sp = d.on_now.spotify || 0;
+  $("#ad-kpis").innerHTML = [
+    ["New songs today", fmt(d.today_so_far), "so far (the server day is still running)", "var(--k1)"],
+    ["New songs yesterday", fmt(d.yesterday), `${fmt(d.links_yesterday)} platform links made yesterday`, "var(--k2)"],
+    ["7-day average", fmt(d.avg7), "new songs a day (completed days)", "var(--k3)"],
+    [`New songs in ${d.days} days`, fmt(d.totals.found), `${fmt(d.period_songs)} songs in the period · ${d.period_songs ? Math.round((100 * sp) / d.period_songs) : 0}% on Spotify`, "var(--k4)"],
+  ].map(([l, v, sub, c]) => `<div class="card kpi" style="--kpi-c:${c}"><div class="label">${l}</div><div class="value">${v}</div><div class="sub">${sub}</div></div>`).join("");
+  const asc = [...d.rows].reverse();
+  barChart($("#ad-chart"), asc.map((r) => ({ label: r.day.slice(5), value: r.found, day: r.day, up: r.uploaded })), {
+    tip: (b) => `<b>${esc(dayName(b.day))}</b><br>${fmt(b.value)} new songs · ${fmt(b.up)} first uploaded that day${b.value - b.up > 50 ? "<br>backfill: most were uploaded earlier" : ""}` });
+  $("#ad-chart2-title").textContent = links ? "Links made per day, by platform" : "Songs found each day: on each platform now";
+  const shown = P.filter((p) => d.totals[key][p.key]);  // platforms with nothing in the range stay off the chart
+  multiLine($("#ad-chart2"), shown.map((p) => ({ name: p.name, color: PCOLOR[p.key] || "var(--accent-2)", points: asc.map((r) => ({ x: r.day, y: r[key][p.key] })) })), { height: 230 });
+  $("#ad-legend").innerHTML = shown.map((p) => `<span><span style="display:inline-block;width:12px;height:3px;background:${PCOLOR[p.key] || "var(--accent-2)"};vertical-align:middle;margin-right:5px"></span>${esc(p.name)}</span>`).join("");
+  $("#ad-table-title").textContent = links ? "Day by day: songs added, and songs first linked on each platform that day" : "Day by day: songs found that day, and how many of them are on each platform now";
+  const cell = (n, of) => !links && of ? `<td class="num">${fmt(n)} <span class="muted" style="font-size:11px">${Math.round((100 * n) / of)}%</span></td>` : `<td class="num${n ? "" : " muted"}">${n ? fmt(n) : "–"}</td>`;
+  const today = d.today;
+  const SHORT = { spotify: "Spotify", ytmusic: "YT Music", jiosaavn: "JioSaavn", deezer: "Deezer", apple: "Apple", musicbrainz: "MusicBrainz", instagram: "Instagram" };
+  // a backfill (a new label or channel, a laptop import) stores many older uploads on one day: say so next to the number
+  const backfill = (r) => r.found - r.uploaded > 50;
+  $("#ad-table").innerHTML = `<thead><tr><th>Day</th><th class="num">New songs</th><th class="num" title="Songs whose first YouTube upload is that day">Uploaded that day</th>${links ? `<th class="num" title="Every upload of these songs stored that day">YT uploads</th>` : ""}
+      ${P.map((p) => `<th class="num" title="${esc(p.name)}">${esc(SHORT[p.key] || p.name)}</th>`).join("")}${links ? `<th class="num" title="Spotify matches found that day, still waiting in Review">In Review</th>` : ""}</tr></thead><tbody>` +
+    d.rows.map((r) => `<tr><td style="white-space:nowrap"><b>${esc(dayName(r.day))}</b>${r.day === today ? ' <span class="pill run" style="padding:0 6px"><span class="dot"></span>today</span>' : ""}${backfill(r) ? ' <span class="pill warn" style="padding:0 6px" title="Most of these songs were first uploaded earlier: a backfill (new label or channel, or an import)">backfill</span>' : ""}</td>
+      <td class="num"><b>${fmt(r.found)}</b></td><td class="num">${fmt(r.uploaded)}</td>${links ? `<td class="num">${fmt(r.uploads)}</td>` : ""}
+      ${P.map((p) => cell(r[key][p.key], r.found)).join("")}${links ? `<td class="num${r.review ? "" : " muted"}">${r.review ? fmt(r.review) : "–"}</td>` : ""}</tr>`).join("") +
+    `</tbody><tfoot><tr><td><b>${d.days} days</b></td><td class="num"><b>${fmt(d.totals.found)}</b></td><td class="num"><b>${fmt(d.totals.uploaded)}</b></td>${links ? `<td class="num"><b>${fmt(d.totals.uploads)}</b></td>` : ""}
+      ${P.map((p) => links ? `<td class="num"><b>${fmt(d.totals.links[p.key])}</b></td>` : cell(d.totals.now_on[p.key], d.totals.found).replace("<td", "<td style='font-weight:650'")).join("")}${links ? `<td class="num"><b>${fmt(d.totals.review)}</b></td>` : ""}</tr></tfoot>`;
+  $("#ad-howto").innerHTML = `<b>How to read this.</b> <b>New songs</b>: songs first stored that day (grouped from the labels' YouTube uploads).
+    <b>First uploaded that day</b>: songs whose first YouTube upload is that day (a backfill or a new channel puts older uploads on the day they were found).
+    <b>YouTube uploads</b>: every upload of these songs stored that day (video, lyric, audio, Shorts). ${links
+      ? `<b>Platform columns</b>: songs first linked on that platform that day (a song counts once per platform, on its first link), whatever day the song itself was found; spikes are backfills (e.g. a laptop import or a channel scan). <b>Spotify in Review</b>: matches found that day still waiting for a decision.`
+      : `<b>Platform columns</b>: of the songs found that day, how many are on that platform now (and the share). Recent days are lower because links keep coming in over the following days.`}
+    Songs released before the period are not counted (they are stored only).`;
+}
+document.querySelectorAll("#ad-days button").forEach((b) => (b.onclick = () => { AD.days = +b.dataset.d; loadAdded(); }));
+document.querySelectorAll("#ad-view button").forEach((b) => (b.onclick = () => { AD.view = b.dataset.v; loadAdded(); }));
+$("#ad-label").onchange = (e) => { AD.label = e.target.value; loadAdded(); };
+$("#ad-refresh").onclick = () => loadAdded();

@@ -49,6 +49,7 @@
   <a class="nav dev-only" href="#review"><svg viewBox="0 0 24 24"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/></svg>Review<span class="nav-badge" id="review-badge" style="display:none"></span></a>
   <a class="nav dev-only" href="#status"><svg viewBox="0 0 24 24"><path d="M3 12h4l2-5 4 10 2-5h6"/><circle cx="12" cy="12" r="10" stroke-opacity=".35"/></svg>Status</a>
   <a class="nav dev-only" href="#missed"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Missed readings<span class="pill bad" id="nav-missed" style="margin-left:auto;padding:0 6px;display:none"></span></a>
+  <a class="nav dev-only" href="#added"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/><rect x="3" y="3" width="18" height="18" rx="4"/></svg>Daily additions</a>
   <a class="nav dev-only" href="#crawl"><svg viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>Crawl stats</a>
   <a class="nav dev-only" href="#apis"><svg viewBox="0 0 24 24"><path d="M8 9l-4 3 4 3M16 9l4 3-4 3"/><circle cx="12" cy="12" r="1.6"/></svg>API stats</a>
   <a class="nav dev-only" href="#runs"><svg viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z"/></svg>Runs</a>
@@ -249,6 +250,26 @@
       <div class="card flush" id="cr-health-card"><h2>API health checks</h2><div class="table-wrap"><table id="cr-health-table"></table></div></div>
     </div>
     <div class="card flush" style="margin-top:16px"><div class="card-head"><h2>Failure log</h2><span class="spacer"></span><span id="cr-kind-chip"></span></div><div class="table-wrap" style="max-height:520px"><table id="cr-failures"></table></div></div>
+  </section>
+
+  <!-- DAILY ADDITIONS (developer): songs added each day, and on each platform -->
+  <section class="page" id="page-added">
+    <div class="page-head"><div><h1>Daily additions</h1><p id="ad-sub">How many songs were added each day, and on each platform.</p></div>
+      <span class="spacer"></span><button class="small" id="ad-refresh">↻ Refresh</button></div>
+    <div class="card" style="margin-bottom:16px"><div class="row" style="gap:14px;flex-wrap:wrap;align-items:flex-end">
+      <label class="field"><span>Days</span><div class="seg" id="ad-days"><button class="small" data-d="7">7</button><button class="small" data-d="14">14</button><button class="small" data-d="30">30</button><button class="small" data-d="60">60</button><button class="small" data-d="90">90</button></div></label>
+      <label class="field"><span>Label</span><select id="ad-label" style="min-width:200px"></select></label>
+      <label class="field"><span>Platform columns show</span><div class="seg" id="ad-view"><button class="small" data-v="links">Links made that day</button><button class="small" data-v="songs">Songs found that day, on each platform now</button></div></label>
+    </div></div>
+    <div class="grid g4" id="ad-kpis"></div>
+    <div class="grid g2" style="margin-top:16px">
+      <div class="card"><div class="card-head"><h2>New songs per day</h2><span class="spacer"></span><span class="muted" style="font-size:12px">first stored that day</span></div><div class="chart" id="ad-chart"></div></div>
+      <div class="card"><div class="card-head"><h2 id="ad-chart2-title">Links made per day, by platform</h2></div><div class="chart" id="ad-chart2"></div>
+        <div id="ad-legend" class="row" style="gap:14px;flex-wrap:wrap;margin-top:6px;font-size:12px"></div></div>
+    </div>
+    <div class="card flush" style="margin-top:16px"><div class="card-head" style="padding:16px 16px 6px"><h2 id="ad-table-title">Day by day</h2></div>
+      <div class="table-wrap" style="max-height:640px"><table id="ad-table"></table></div></div>
+    <div class="card howto" style="margin-top:16px" id="ad-howto"></div>
   </section>
 
   <section class="page" id="page-missed">

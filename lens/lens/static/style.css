@@ -1487,3 +1487,6 @@ nav.side a.nav:hover, .side-toggle:hover { background: color-mix(in srgb, var(--
 button:not(.primary):hover { background-color: color-mix(in srgb, var(--accent) 10%, transparent); }
 /* live console (Runs): a dark glass terminal, its gradient frame kept */
 .console { background: linear-gradient(color-mix(in srgb, var(--console-bg) 74%, transparent), color-mix(in srgb, var(--console-bg) 74%, transparent)) padding-box, var(--brand-grad) border-box !important; }
+/* Daily additions: compact figures so every platform column fits */
+#ad-table th, #ad-table td { padding-left: 10px; padding-right: 10px; }
+#ad-table tfoot td { border-top: 1px solid var(--line); }
