@@ -153,7 +153,7 @@ function barPath(x, y, w, h, r = 4) {
   return `M${x},${y + h}V${y + r}Q${x},${y} ${x + r},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + h}Z`;
 }
 
-function barChart(el, data, { height = 230, onClick, tip } = {}) {
+function barChart(el, data, { height = 230, onClick, tip, color = "var(--series-1)", hover = "var(--series-1-hover)" } = {}) {
   el.innerHTML = "";
   if (!data.length) { el.innerHTML = `<div class="empty">No data</div>`; return; }
   const W = el.clientWidth || 520, H = height, m = { t: 18, r: 8, b: 26, l: 36 };
@@ -162,7 +162,7 @@ function barChart(el, data, { height = 230, onClick, tip } = {}) {
   const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, height: H, role: "img", "aria-label": "bar chart" }, el);
   // ids are page-wide: each chart needs its own, or url(#id) can point at a hidden chart's gradient and the bars vanish
   const gid = `bar-grad-${Math.random().toString(36).slice(2, 7)}`;
-  gradient(svg, gid, "var(--series-1)", 1, 0.55);
+  gradient(svg, gid, color, 1, 0.55);
   const g = svgEl("g", { class: "grid" }, svg), ax = svgEl("g", { class: "axis" }, svg);
   for (let i = 0; i <= 4; i++) {
     const y = m.t + ih - (ih * i) / 4;
@@ -180,7 +180,7 @@ function barChart(el, data, { height = 230, onClick, tip } = {}) {
       svgEl("text", { x: x + bw / 2, y: H - 8, "text-anchor": "middle" }, ax).textContent = d.label;
     const hit = svgEl("rect", { x: m.l + step * i, y: m.t, width: step, height: ih, fill: "transparent", style: onClick ? "cursor:pointer" : "" }, svg);
     hit.addEventListener("mouseenter", () => {
-      bar.setAttribute("fill", "var(--series-1-hover)");
+      bar.setAttribute("fill", hover);
       tt.innerHTML = tip ? tip(d) : `${esc(d.label)}: <b>${fmt(d.value)}</b>`;
       tt.style.left = `${((x + bw / 2) / W) * 100}%`; tt.style.top = `${(y / H) * el.clientHeight}px`; tt.style.display = "block";
     });
@@ -990,11 +990,11 @@ $("#sh-body").addEventListener("click", async (e) => {
 /* ---------- Cross-platform comparison of one song ---------- */
 // Platform colours come from the theme (style.css --c-*), so charts and chips follow light / dark.
 const PCOLOR = { instagram: "var(--c-instagram)", youtube: "var(--c-youtube)", ytmusic: "var(--c-ytmusic)", spotify: "var(--c-spotify)", jiosaavn: "var(--c-jiosaavn)", deezer: "var(--c-deezer)", apple: "var(--c-apple)" };
-function multiLine(el, series, { height = 220, xfmt = (x) => x.slice(5), tipx = (x) => x } = {}) {  // series: [{name, color, points:[{x, y}]}], shared x (days)
+function multiLine(el, series, { height = 220, xfmt = (x) => x.slice(5), tipx = (x) => x, yfmt = compact, vfmt = fmt, empty = "Daily gains appear after two consecutive days of readings.", dots = true } = {}) {  // series: [{name, color, points:[{x, y}]}], shared x (days)
   el.innerHTML = "";
   const xs = [...new Set(series.flatMap((s) => s.points.map((p) => p.x)))].sort();
   const ys = series.flatMap((s) => s.points.map((p) => p.y));
-  if (!xs.length || !ys.length) { el.innerHTML = `<div class="empty">Daily gains appear after two consecutive days of readings.</div>`; return; }
+  if (!xs.length || !ys.length) { el.innerHTML = `<div class="empty">${esc(empty)}</div>`; return; }
   const dual = series.some((s) => s.axis === "right") && series.some((s) => s.axis !== "right");
   const ysL = series.filter((s) => !dual || s.axis !== "right").flatMap((s) => s.points.map((p) => p.y));
   const ysR = dual ? series.filter((s) => s.axis === "right").flatMap((s) => s.points.map((p) => p.y)) : [];
@@ -1006,7 +1006,7 @@ function multiLine(el, series, { height = 220, xfmt = (x) => x.slice(5), tipx = 
   const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, height: H, role: "img", "aria-label": "Daily gain by platform" }, el);
   const g = svgEl("g", { class: "grid" }, svg), ax = svgEl("g", { class: "axis" }, svg);
   for (let i = 0; i <= 4; i++) { const v = yMin + ((yMax - yMin) * i) / 4, y = Y(v);
-    svgEl("line", { x1: m.l, x2: W - m.r, y1: y, y2: y }, g); svgEl("text", { x: m.l - 8, y: y + 4, "text-anchor": "end" }, ax).textContent = compact(v);
+    svgEl("line", { x1: m.l, x2: W - m.r, y1: y, y2: y }, g); svgEl("text", { x: m.l - 8, y: y + 4, "text-anchor": "end" }, ax).textContent = yfmt(v);
     if (dual) { const v2 = yMin2 + ((yMax2 - yMin2) * i) / 4; svgEl("text", { x: W - m.r + 8, y: y + 4, "text-anchor": "start" }, ax).textContent = compact(v2); } }
   if (dual) {
     const nm = (f) => series.filter(f).map((s) => s.name.replace(/ (views|plays)$/, "")).join(", ");
@@ -1025,7 +1025,7 @@ function multiLine(el, series, { height = 220, xfmt = (x) => x.slice(5), tipx = 
       svgEl("path", { d: `${d} L${X(pts[pts.length - 1].x)},${base} L${X(pts[0].x)},${base} Z`, fill: `url(#ml-${uid}-${si})`, class: "area" }, svg);
       svgEl("path", { d, fill: "none", stroke: s.color, "stroke-width": 2.5, "stroke-linejoin": "round", "stroke-linecap": "round", pathLength: 1, class: "line" }, svg);
     }
-    pts.forEach((p) => { const c = svgEl("circle", { cx: X(p.x), cy: Ys(p.y), r: 3.5, fill: s.color, stroke: "var(--surface-1)", "stroke-width": 1.5 }, svg); svgEl("title", {}, c).textContent = `${s.name} ${tipx(p.x)}: ${p.y > 0 && !s.total ? "+" : ""}${fmt(p.y)}`; });
+    pts.forEach((p) => { const c = svgEl("circle", { cx: X(p.x), cy: Ys(p.y), r: dots ? 3.5 : 2.2, fill: s.color, stroke: "var(--surface-1)", "stroke-width": dots ? 1.5 : 1 }, svg); svgEl("title", {}, c).textContent = `${s.name} ${tipx(p.x)}: ${p.y > 0 && !s.total ? "+" : ""}${vfmt(p.y)}`; });
   });
 }
 async function loadCompare(song) {
@@ -2639,6 +2639,7 @@ async function loadAdded() {
       ${P.map((p) => cell(r[key][p.key], r.found)).join("")}${links ? `<td class="num${r.review ? "" : " muted"}">${r.review ? fmt(r.review) : "–"}</td>` : ""}</tr>`).join("") +
     `</tbody><tfoot><tr><td><b>${d.days} days</b></td><td class="num"><b>${fmt(d.totals.found)}</b></td><td class="num"><b>${fmt(d.totals.uploaded)}</b></td>${links ? `<td class="num"><b>${fmt(d.totals.uploads)}</b></td>` : ""}
       ${P.map((p) => links ? `<td class="num"><b>${fmt(d.totals.links[p.key])}</b></td>` : cell(d.totals.now_on[p.key], d.totals.found).replace("<td", "<td style='font-weight:650'")).join("")}${links ? `<td class="num"><b>${fmt(d.totals.review)}</b></td>` : ""}</tr></tfoot>`;
+  renderPV(d);
   $("#ad-howto").innerHTML = `<b>How to read this.</b> <b>New songs</b>: songs first stored that day (grouped from the labels' YouTube uploads).
     <b>First uploaded that day</b>: songs whose first YouTube upload is that day (a backfill or a new channel puts older uploads on the day they were found).
     <b>YouTube uploads</b>: every upload of these songs stored that day (video, lyric, audio, Shorts). ${links
@@ -2650,3 +2651,102 @@ document.querySelectorAll("#ad-days button").forEach((b) => (b.onclick = () => {
 document.querySelectorAll("#ad-view button").forEach((b) => (b.onclick = () => { AD.view = b.dataset.v; loadAdded(); }));
 $("#ad-label").onchange = (e) => { AD.label = e.target.value; loadAdded(); };
 $("#ad-refresh").onclick = () => loadAdded();
+
+/* Songs found on each platform: one platform, compare several, or two head to head (choice remembered per browser) */
+const PV_KEY = "ml_pv";
+const PV = (() => { const d = { mode: "one", one: "spotify", sel: ["youtube", "spotify", "ytmusic", "jiosaavn"], a: "spotify", b: "jiosaavn", metric: "new", scope: "all" };
+  try { return Object.assign(d, JSON.parse(localStorage.getItem(PV_KEY) || "{}")); } catch (e) { return d; } })();
+const pvSave = () => { try { localStorage.setItem(PV_KEY, JSON.stringify(PV)); } catch (e) {} };
+const pvColor = (p) => `var(--pv-${p}, var(--accent))`;
+const PV_METRIC = { new: { name: "Songs first linked per day", f: fmt, y: compact }, total: { name: "Songs on the platform (total so far)", f: fmt, y: compact },
+  coverage: { name: "Coverage: share of the songs found by then", f: (v) => `${v}%`, y: (v) => `${Math.round(v)}%` } };
+let PV_DATA = null;
+function pvLag(l) { return l.median == null ? "–" : l.median === 0 ? "same day" : `${l.median} day${l.median === 1 ? "" : "s"}`; }
+function renderPV(d) {
+  if (d) PV_DATA = d; d = PV_DATA; if (!d) return;
+  const pv = d.pv, K = pv.keys, N = pv.names, S = pv.summary, L = pv.lag;
+  if (!K.includes(PV.one)) PV.one = "spotify";
+  document.querySelectorAll("#pv-mode button").forEach((b) => b.classList.toggle("on", b.dataset.m === PV.mode));
+  document.querySelectorAll("#pv-metric button").forEach((b) => b.classList.toggle("on", b.dataset.k === PV.metric));
+  $("#pv-metric").style.visibility = PV.mode === "one" ? "hidden" : "";
+  const chip = (p, on, attr = "") => `<button class="pv-chip${on ? " on" : ""}" data-p="${p}" style="--pc:${pvColor(p)}" ${attr}><span class="pv-dot"></span>${esc(N[p])}<span class="pv-n">${fmt(S[p].on_now)}</span></button>`;
+  const pick = $("#pv-pick"), body = $("#pv-body");
+  const days = (p) => pv.series[p];
+  const pts = (p, k) => days(p).map((r) => ({ x: r.day, y: r[k] }));
+  if (PV.mode === "one") {
+    pick.innerHTML = `<span class="pv-hint">Platform</span>` + K.map((p) => chip(p, p === PV.one)).join("");
+    const p = PV.one, s = S[p], l = L[p];
+    body.innerHTML = `<div class="pv-stats">
+        <div class="pv-stat"><span>Yesterday</span><b>${fmt(s.yesterday)}</b><small>songs first linked</small></div>
+        <div class="pv-stat"><span>7-day average</span><b>${fmt(s.avg7)}</b><small>a day, completed days</small></div>
+        <div class="pv-stat"><span>In ${d.days} days</span><b>${fmt(s.range)}</b><small>songs first linked</small></div>
+        <div class="pv-stat"><span>On ${esc(N[p])} now</span><b>${fmt(s.on_now)}</b><small>${s.coverage}% of ${fmt(pv.songs)} songs</small><i class="pv-meter"><i style="width:${s.coverage}%;background:${pvColor(p)}"></i></i></div>
+        <div class="pv-stat"><span>Time to link</span><b>${pvLag(l)}</b><small>${l.n ? `median · ${l.within1}% within a day · ${l.within7}% within a week` : "no songs first uploaded in the range"}</small></div>
+      </div>
+      <div class="grid g2" style="margin-top:14px">
+        <div><div class="pv-ch-title">${p === "youtube" ? "New songs found per day" : "Songs first linked per day"}</div><div class="chart" id="pv-c1"></div></div>
+        <div><div class="pv-ch-title">Coverage over time <span class="muted">share of the songs found by then that are on ${esc(N[p])}</span></div><div class="chart" id="pv-c2"></div></div>
+      </div>`;
+    barChart($("#pv-c1"), days(p).map((r) => ({ label: r.day.slice(5), value: r.new, day: r.day, total: r.total })), { height: 230, color: pvColor(p), hover: pvColor(p),
+      tip: (b) => `<b>${esc(b.day)}</b><br>${fmt(b.value)} songs first linked · ${fmt(b.total)} on ${esc(N[p])} by then` });
+    multiLine($("#pv-c2"), [{ name: N[p], color: pvColor(p), points: pts(p, "coverage"), total: true }], { height: 230, yfmt: (v) => `${Math.round(v)}%`, vfmt: (v) => `${v}%`, empty: "No songs yet." });
+  } else if (PV.mode === "compare") {
+    pick.innerHTML = `<span class="pv-hint">Show</span>` + K.map((p) => chip(p, PV.sel.includes(p))).join("") +
+      `<span class="spacer"></span><button class="small" id="pv-all">All</button><button class="small" id="pv-none">Clear</button>`;
+    const m = PV_METRIC[PV.metric], sel = K.filter((p) => PV.sel.includes(p));
+    body.innerHTML = `<div class="pv-ch-title">${m.name}</div><div class="chart" id="pv-c1"></div>
+      <div class="table-wrap" style="margin-top:12px"><table class="pv-table"><thead><tr><th>Platform</th><th class="num">Yesterday</th><th class="num">7-day avg</th><th class="num">In ${d.days} days</th>
+        <th class="num">On it now</th><th>Coverage</th><th class="num" title="Median days from the first YouTube upload to the first link, songs first uploaded in the range">Time to link</th><th class="num">Within a day</th></tr></thead><tbody>${
+        K.map((p) => `<tr class="pv-row${PV.sel.includes(p) ? " on" : ""}" data-p="${p}"><td><span class="pv-dot" style="--pc:${pvColor(p)}"></span><b>${esc(N[p])}</b></td>
+          <td class="num">${fmt(S[p].yesterday)}</td><td class="num">${fmt(S[p].avg7)}</td><td class="num">${fmt(S[p].range)}</td><td class="num"><b>${fmt(S[p].on_now)}</b></td>
+          <td><span class="pv-meter wide"><i style="width:${S[p].coverage}%;background:${pvColor(p)}"></i></span> <span class="muted">${S[p].coverage}%</span></td>
+          <td class="num">${pvLag(L[p])}</td><td class="num">${L[p].n ? L[p].within1 + "%" : "–"}</td></tr>`).join("")}</tbody></table></div>
+      <div class="muted" style="font-size:12px;margin-top:8px">Click a row or a chip to add it to the chart or take it off.</div>`;
+    multiLine($("#pv-c1"), sel.map((p) => ({ name: N[p], color: pvColor(p), points: pts(p, PV.metric), total: PV.metric !== "new" })),
+      { height: 280, yfmt: m.y, vfmt: m.f, dots: sel.length < 4, empty: "Pick one or more platforms above." });
+    body.querySelectorAll(".pv-row").forEach((r) => (r.onclick = () => pvToggle(r.dataset.p)));
+    $("#pv-all").onclick = () => { PV.sel = [...K]; pvSave(); renderPV(); };
+    $("#pv-none").onclick = () => { PV.sel = []; pvSave(); renderPV(); };
+  } else {
+    if (PV.a === PV.b) PV.b = K.find((p) => p !== PV.a);
+    const opt = (cur) => K.map((p) => `<option value="${p}"${p === cur ? " selected" : ""}>${esc(N[p])}</option>`).join("");
+    pick.innerHTML = `<span class="pv-hint">Compare</span><span class="pv-vs"><span class="pv-dot" style="--pc:${pvColor(PV.a)}"></span><select id="pv-a">${opt(PV.a)}</select></span>
+      <button class="small" id="pv-swap" title="Swap A and B">⇄</button>
+      <span class="pv-vs"><span class="pv-dot" style="--pc:${pvColor(PV.b)}"></span><select id="pv-b">${opt(PV.b)}</select></span>
+      <span class="spacer"></span><div class="seg" id="pv-scope"><button class="small" data-s="all">All songs of the period</button><button class="small" data-s="range">Songs found in ${d.days} days</button></div>`;
+    const a = PV.a, b = PV.b, key = K.indexOf(a) < K.indexOf(b) ? `${a}|${b}` : `${b}|${a}`, flip = key !== `${a}|${b}`;
+    const o0 = pv.overlap[key][PV.scope], o = flip ? { both: o0.both, a_only: o0.b_only, b_only: o0.a_only, neither: o0.neither } : o0;
+    const tot = o.both + o.a_only + o.b_only + o.neither || 1, onA = o.both + o.a_only, onB = o.both + o.b_only;
+    const seg = (n, c, label, cls = "") => n ? `<i class="${cls}" style="flex:${n};background:${c}" title="${label}: ${fmt(n)}">${n / tot > .07 ? fmt(n) : ""}</i>` : "";
+    const m = PV_METRIC[PV.metric];
+    body.innerHTML = `<div class="pv-h2h">
+        <div class="pv-side" style="--pc:${pvColor(a)}"><span>${esc(N[a])}</span><b>${fmt(S[a].on_now)}</b><small>${S[a].coverage}% coverage · ${fmt(S[a].avg7)} a day · time to link ${pvLag(L[a])}</small></div>
+        <div class="pv-mid">vs</div>
+        <div class="pv-side" style="--pc:${pvColor(b)}"><span>${esc(N[b])}</span><b>${fmt(S[b].on_now)}</b><small>${S[b].coverage}% coverage · ${fmt(S[b].avg7)} a day · time to link ${pvLag(L[b])}</small></div>
+      </div>
+      <div class="pv-ch-title" style="margin-top:14px">Overlap <span class="muted">${PV.scope === "all" ? `all ${fmt(pv.songs)} songs of the period` : `the ${fmt(pv.songs_in_range)} songs found in ${d.days} days`}</span></div>
+      <div class="pv-stack">${seg(o.a_only, pvColor(a), `Only on ${N[a]}`)}${seg(o.both, `linear-gradient(90deg, ${pvColor(a)}, ${pvColor(b)})`, "On both")}${seg(o.b_only, pvColor(b), `Only on ${N[b]}`)}${seg(o.neither, "var(--glass-track)", "On neither", "pv-none")}</div>
+      <div class="pv-legend"><span><i style="background:${pvColor(a)}"></i>Only ${esc(N[a])} <b>${fmt(o.a_only)}</b></span><span><i style="background:linear-gradient(90deg, ${pvColor(a)}, ${pvColor(b)})"></i>Both <b>${fmt(o.both)}</b></span>
+        <span><i style="background:${pvColor(b)}"></i>Only ${esc(N[b])} <b>${fmt(o.b_only)}</b></span><span><i style="background:var(--glass-track)"></i>Neither <b>${fmt(o.neither)}</b></span></div>
+      <div class="pv-facts">
+        <div><b>${onA ? Math.round((100 * o.both) / onA) : 0}%</b> of the songs on ${esc(N[a])} are also on ${esc(N[b])}</div>
+        <div><b>${onB ? Math.round((100 * o.both) / onB) : 0}%</b> of the songs on ${esc(N[b])} are also on ${esc(N[a])}</div>
+        <div><b>${fmt(o.a_only)}</b> songs to look for on ${esc(N[b])} · <b>${fmt(o.b_only)}</b> to look for on ${esc(N[a])}</div>
+      </div>
+      <div class="pv-ch-title" style="margin-top:16px">${m.name}</div><div class="chart" id="pv-c1"></div>`;
+    multiLine($("#pv-c1"), [a, b].map((p) => ({ name: N[p], color: pvColor(p), points: pts(p, PV.metric), total: PV.metric !== "new" })), { height: 250, yfmt: m.y, vfmt: m.f, empty: "No songs yet." });
+    $("#pv-a").onchange = (e) => { PV.a = e.target.value; if (PV.a === PV.b) PV.b = K.find((p) => p !== PV.a); pvSave(); renderPV(); };
+    $("#pv-b").onchange = (e) => { PV.b = e.target.value; if (PV.a === PV.b) PV.a = K.find((p) => p !== PV.b); pvSave(); renderPV(); };
+    $("#pv-swap").onclick = () => { [PV.a, PV.b] = [PV.b, PV.a]; pvSave(); renderPV(); };
+    document.querySelectorAll("#pv-scope button").forEach((x) => { x.classList.toggle("on", x.dataset.s === PV.scope); x.onclick = () => { PV.scope = x.dataset.s; pvSave(); renderPV(); }; });
+  }
+  pick.querySelectorAll(".pv-chip").forEach((c) => (c.onclick = () => {
+    if (PV.mode === "one") PV.one = c.dataset.p; else pvToggle(c.dataset.p, true);
+    pvSave(); renderPV(); }));
+}
+function pvToggle(p, noRender) {
+  PV.sel = PV.sel.includes(p) ? PV.sel.filter((x) => x !== p) : [...PV.sel, p];
+  pvSave(); if (!noRender) renderPV();
+}
+document.querySelectorAll("#pv-mode button").forEach((b) => (b.onclick = () => { PV.mode = b.dataset.m; pvSave(); renderPV(); }));
+document.querySelectorAll("#pv-metric button").forEach((b) => (b.onclick = () => { PV.metric = b.dataset.k; pvSave(); renderPV(); }));
