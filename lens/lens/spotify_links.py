@@ -56,16 +56,84 @@ def _text(url, headers=BROWSER_UA):
         return ""
 
 
+def _find_entity(o, sid):
+    """Self-healing fallback: the object in the embed page's data that describes track `sid` (its id or uri, a name and
+    a duration), wherever the page keeps it now."""
+    if isinstance(o, dict):
+        if (o.get("id") == sid or o.get("uri") == f"spotify:track:{sid}") and (o.get("name") or o.get("title")) and "duration" in o:
+            return o
+        for v in o.values():
+            f = _find_entity(v, sid)
+            if f:
+                return f
+    elif isinstance(o, list):
+        for v in o:
+            f = _find_entity(v, sid)
+            if f:
+                return f
+    return None
+
+
+def _find_list(o):
+    """Self-healing fallback for album/playlist embeds: the object holding the track list."""
+    if isinstance(o, dict):
+        if isinstance(o.get("trackList"), list):
+            return o
+        for v in o.values():
+            f = _find_list(v)
+            if f:
+                return f
+    elif isinstance(o, list):
+        for v in o:
+            f = _find_list(v)
+            if f:
+                return f
+    return None
+
+
+def embed_entity(page, kind, sid):
+    """(entity, how) from a Spotify embed page (track, album or playlist), lens/heal.py: the usual data path
+    ("next-data"), else the entity found anywhere in the page's data ("scan"); (None, None) when neither works.
+    Every outcome is tallied, so a changed embed page shows on the Console instead of turning into "not on Spotify"."""
+    from . import heal
+    m = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', page or "", re.S) or \
+        re.search(r'<script[^>]+type="application/json"[^>]*>(\{.*?\})</script>', page or "", re.S)
+    try:
+        data = json.loads(m.group(1)) if m else None
+    except ValueError:
+        data = None
+    e, how = None, None
+    try:
+        e = data["props"]["pageProps"]["state"]["data"]["entity"]
+        how = "next-data" if (kind != "track" or e.get("name") or e.get("title")) else None
+    except (KeyError, TypeError):
+        e = None
+    if not how and data:
+        e = _find_entity(data, sid) if kind == "track" else _find_list(data)
+        how = "scan" if e else None
+    heal.tally("spotify_embed", how or "fail")
+    if not how and page and len(page) > 2000:  # a real page we could not read: keep one sample a day
+        heal.sample("spotify_embed", page)
+    return (e, how) if how else (None, None)
+
+
+def parse_embed(page, sid):
+    """(details, how) from a track's embed page."""
+    e, how = embed_entity(page, "track", sid)
+    if not e:
+        return None, None
+    rel = e.get("releaseDate")
+    rel = (rel.get("isoString") if isinstance(rel, dict) else rel) or ""
+    dur = e.get("duration")
+    dur = dur.get("totalMilliseconds") if isinstance(dur, dict) else dur
+    return {"title": e.get("name") or e.get("title") or "",
+            "artists": [a.get("name") for a in e.get("artists") or [] if isinstance(a, dict) and a.get("name")],
+            "release_date": str(rel)[:10] or None, "duration_ms": dur}, how
+
+
 def embed_details(sid):
     """Title, artists, release date and duration of a Spotify track from its public embed page (no API, no browser)."""
-    m = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
-                  _text(f"https://open.spotify.com/embed/track/{sid}"), re.S)
-    try:
-        e = json.loads(m.group(1))["props"]["pageProps"]["state"]["data"]["entity"]
-    except (AttributeError, KeyError, TypeError, ValueError):
-        return None
-    return {"title": e.get("name") or e.get("title") or "", "artists": [a["name"] for a in e.get("artists") or [] if a.get("name")],
-            "release_date": ((e.get("releaseDate") or {}).get("isoString") or "")[:10] or None, "duration_ms": e.get("duration")}
+    return parse_embed(_text(f"https://open.spotify.com/embed/track/{sid}"), sid)[0]
 
 
 def web_candidates(query, pace):

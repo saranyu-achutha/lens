@@ -54,8 +54,9 @@ def read_playlist(pid, kind="playlist"):
     try:
         with urllib.request.urlopen(urllib.request.Request(f"https://open.spotify.com/embed/{kind}/{pid}", headers=BROWSER_UA), timeout=30) as r:
             html = r.read().decode("utf-8", "ignore")
-        e = json.loads(re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', html, re.S).group(1))
-        tracks = e["props"]["pageProps"]["state"]["data"]["entity"].get("trackList") or []
+        from .spotify_links import embed_entity
+        e, _ = embed_entity(html, kind, pid)
+        tracks = (e or {}).get("trackList") or []
     except (urllib.error.URLError, TimeoutError, AttributeError, KeyError, TypeError, ValueError):
         return []
     return [{"id": t["uri"].rsplit(":", 1)[-1], "title": t.get("title") or "",

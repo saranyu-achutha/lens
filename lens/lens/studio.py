@@ -974,6 +974,13 @@ def post_run(conn, body):
     return {"run_id": run_id}
 
 
+def api_heal(conn, qs):
+    """Page readers' health (developer): which way each reader found its values today and this week, held outcomes,
+    learned markers, kept samples and suspicious values (lens/heal.py)."""
+    from . import heal
+    return heal.summary(conn)
+
+
 def api_additions(conn, qs):
     """Daily additions page (developer): songs added each day, and the songs first linked on each platform that day."""
     from . import additions
@@ -2166,7 +2173,7 @@ def fmt_n(n):
 GET = {"/api/coverage": api_coverage, "/api/insights": api_insights, "/api/insights/song": api_insights_song, "/api/ai/status": api_ai_status, "/api/ai/assist": api_ai_assist,
        "/api/meta/top": api_meta_top, "/api/meta/detail": api_meta_detail,
        "/api/merge/suggestions": api_merge_suggestions, "/api/status": api_status, "/api/overview": api_overview, "/api/crawl": api_crawl, "/api/client": api_client, "/api/search": api_search, "/api/dev": api_dev, "/api/tracks": api_tracks,
-       "/api/track": api_track, "/api/platform": api_platform, "/api/report": api_report, "/api/daily": api_daily, "/api/shorts": api_shorts, "/api/system": lambda conn, qs: sysstats.api(conn), "/api/alerts": api_alerts, "/api/live": api_live, "/api/management": api_management, "/api/market_share": api_market_share, "/api/labels/report": api_label_report, "/api/freshness": api_freshness, "/api/additions": api_additions, "/api/charts": lambda conn, qs: alerts.charts_status(conn),
+       "/api/track": api_track, "/api/platform": api_platform, "/api/report": api_report, "/api/daily": api_daily, "/api/shorts": api_shorts, "/api/system": lambda conn, qs: sysstats.api(conn), "/api/alerts": api_alerts, "/api/live": api_live, "/api/management": api_management, "/api/market_share": api_market_share, "/api/labels/report": api_label_report, "/api/freshness": api_freshness, "/api/additions": api_additions, "/api/heal": api_heal, "/api/charts": lambda conn, qs: alerts.charts_status(conn),
        "/api/collection": lambda conn, qs: collection.estimate(conn, overrides={k: qs[k] for k in collection.CHOICES if qs.get(k)}), "/api/items": api_items, "/api/song/compare": api_song_compare, "/api/items/history": api_item_history, "/api/runs": api_runs, "/api/seeds": api_seeds,
        "/api/artist_search": api_artist_search, "/api/health": api_health, "/api/datasets": api_datasets,
        "/api/datasets/view": api_dataset_view, "/api/raw": api_raw, "/api/raw/item": api_raw_item,

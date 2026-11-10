@@ -61,21 +61,47 @@ def render(url, timeout=60):
         subprocess.run(["rm", "-rf", profile])
 
 
+OG_RE = re.compile(r"^([\d.,]+[KMB]?) reels? - Listen to (.*?) on Instagram and watch reels using (.*?) audio", re.I | re.S)
+
+
+def _meta(dom, name):
+    m = re.search(rf'<meta[^>]+(?:property|name)="{re.escape(name)}"[^>]+content="([^"]*)"', dom) or \
+        re.search(rf'<meta[^>]+content="([^"]*)"[^>]+(?:property|name)="{re.escape(name)}"', dom)
+    return html.unescape(m.group(1)) if m else None
+
+
+def login_wall(dom):
+    """Instagram showing its login form instead of the page (not a changed layout)."""
+    return bool(re.search(r'name="username"|loginForm|/accounts/login/', dom)) and "reels/audio" not in (_meta(dom, "og:url") or "")
+
+
 def parse(dom):
-    """Title, artists, reels count and top Reels from a rendered audio page; None when the page didn't show (login wall)."""
+    """Title, artists, reels count and top Reels from a rendered audio page, with `how` (lens/heal.py); None when the
+    page didn't show. Three ways: the text after the "Audio" label, the page's og:description ("83K reels - Listen to
+    <artists> on Instagram and watch reels using <title> audio"), or any "N reels" text with the page title."""
     text = [html.unescape(x).strip() for x in re.split(r"<[^>]+>", re.sub(r"<(script|style)\b.*?</\1>", "", dom, flags=re.S))]
     text = [x for x in text if x]
-    try:
+    title = artists = count_text = None
+    how = None
+    if "Audio" in text:
         i = text.index("Audio")
-    except ValueError:
-        return None
-    rest = text[i + 1:i + 8]
-    count_text = next((x for x in rest if re.fullmatch(r"[\d.,]+[KMB]? reels?", x, re.I)), None)
+        rest = text[i + 1:i + 8]
+        count_text = next((x for x in rest if re.fullmatch(r"[\d.,]+[KMB]? reels?", x, re.I)), None)
+        if count_text:
+            title, how = rest[0], "audio-label"
+            artists = rest[1] if rest[1] != count_text else ""
+    if not count_text:
+        og = OG_RE.match(_meta(dom, "og:description") or "")
+        if og:
+            count_text, artists, title, how = f"{og.group(1)} reels", og.group(2).strip(), og.group(3).strip(), "og-description"
+    if not count_text:
+        found = next((x for x in text if re.fullmatch(r"[\d.,]+[KMB]? reels?", x, re.I)), None)
+        page_title = re.sub(r"\s*[|•·-]\s*Instagram.*$", "", _meta(dom, "og:title") or "", flags=re.I).strip()
+        if found and page_title:
+            count_text, title, artists, how = found, page_title, "", "reels-text"
     if not count_text:
         return None
-    title = rest[0]
-    artists = rest[1] if rest[1] != count_text else ""
-    original = bool(re.match(r"original audio", title, re.I) or re.match(r"original audio", artists, re.I))
+    original = bool(re.match(r"original audio", title or "", re.I) or re.match(r"original audio", artists or "", re.I))
     reels, chunks = [], re.split(r'href="/reel/([\w-]+)/?"', dom)
     for code, chunk in zip(chunks[1::2], chunks[2::2]):
         nums = [n for n in (html.unescape(x).strip() for x in re.findall(r">([^<>]{1,12})<", chunk[:6000]))
@@ -83,7 +109,8 @@ def parse(dom):
         if code not in {r["id"] for r in reels}:
             reels.append({"id": code, "likes": number(nums[0]) if len(nums) > 0 else None,
                           "comments": number(nums[1]) if len(nums) > 1 else None, "views": number(nums[2]) if len(nums) > 2 else None})
-    return {"title": title, "artists": artists, "original": original, "count_text": count_text, "count": number(count_text), "reels": reels}
+    return {"title": title, "artists": artists or "", "original": original, "count_text": count_text, "count": number(count_text),
+            "reels": reels, "how": how}
 
 
 def link(conn, song_id, text, who="console", method="manual"):
@@ -126,24 +153,44 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
     if not todo:
         return {"status": "ok", "instagram_read": 0}
     log(f"Instagram: reading {len(todo)} audio pages (one every {PACE:.0f} s)")
-    read = failed = in_row = 0
+    from . import heal
+    heal.ensure(conn)
+    read = failed = in_row = held_values = 0
+    how = {}
     for iid, aid, tid, song in todo:
         if should_stop():
             raise Cancelled()
         dom = render(PAGE.format(aid))
         if not dom.strip():  # the browser itself didn't run (e.g. blocked by AppArmor): nothing to read on this machine
             log("Instagram: the headless browser did not start; stopping")
+            heal.record(conn, "instagram", "fail")
+            conn.commit()
             return {"status": "failed", "error": "headless browser did not start", "instagram_read": read, "instagram_failed": failed + 1}
         p = parse(dom)
         if p is None:
             failed += 1
             in_row += 1
-            if in_row >= 3:  # Instagram is showing a login wall to this machine: stop for today, no harder retries
-                log("Instagram: 3 pages in a row not shown (login wall); stopping until the next run")
+            heal.record(conn, "instagram", "fail")
+            wall = login_wall(dom)
+            if not wall:  # not a login wall: the page shows but no way found the count (a changed layout): keep a sample
+                heal.sample("instagram", dom)
+            conn.commit()
+            if in_row >= 3:  # 3 in a row: a login wall (stop for today, no harder retries) or a changed page (alert)
+                log("Instagram: 3 pages in a row not shown (" + ("login wall" if wall else "the page may have changed; a sample is kept") +
+                    "); stopping until the next run")
                 break
             time.sleep(PACE)
             continue
         in_row = 0
+        how[p["how"]] = how.get(p["how"], 0) + 1
+        last = heal.last_sound(conn, iid, today)
+        verdict = heal.check_value(last, p["count"], "reels")
+        if verdict != "ok":  # far from the last count: kept apart, read again next run
+            heal.suspect(conn, iid, "reels", p["count"], last, verdict)
+            conn.commit()
+            held_values += 1
+            time.sleep(PACE)
+            continue
         core = match.parse_spotify_title(song)[0]
         official = not p["original"] and match.title_score(core, match.parse_spotify_title(p["title"])[0]) >= 0.85
         ts = db.now_iso()
@@ -162,4 +209,7 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
         read += 1
         log(f"  {song}: {p['count_text']}{'' if official else ' (not the official audio: not counted)'}")
         time.sleep(PACE)
-    return {"status": "ok", "instagram_read": read, "instagram_failed": failed}
+    for strategy, k in how.items():
+        heal.record(conn, "instagram", strategy, k)
+    conn.commit()
+    return {"status": "ok", "instagram_read": read, "instagram_failed": failed, "instagram_suspect": held_values}

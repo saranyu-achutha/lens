@@ -1548,3 +1548,5 @@ button:not(.primary):hover { background-color: color-mix(in srgb, var(--accent) 
   .pv-facts { grid-template-columns: 1fr; }
   .pv-vs select { min-width: 0; }
 }
+/* a page that could not load: a notice with Retry (app.js pageGuard) */
+.page-error { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; box-shadow: var(--lift), inset 3px 0 0 var(--bad, #e5484d) !important; }

@@ -45,6 +45,29 @@ def _get(call, **params):
     return {}
 
 
+def play_count(x):
+    """(value, how) of a song.getDetails entry, lens/heal.py: the usual top-level play_count, else under more_info,
+    else any key named like a play count. (None, None) when the reply has no such field at all (a changed reply), and
+    ("", how) when the field is there but empty (JioSaavn hides counts of songs with few plays)."""
+    if "play_count" in x:
+        return x.get("play_count"), "play_count"
+    mi = x.get("more_info") or {}
+    if isinstance(mi, dict) and "play_count" in mi:
+        return mi.get("play_count"), "more_info"
+    stack = [x]
+    while stack:
+        o = stack.pop()
+        if isinstance(o, dict):
+            for k, v in o.items():
+                if re.fullmatch(r"play_?count|plays?_?count|playcount", str(k), re.I):
+                    return v, "scan"
+                if isinstance(v, (dict, list)):
+                    stack.append(v)
+        elif isinstance(o, list):
+            stack.extend(o)
+    return None, None
+
+
 def _todo(conn, since, until, today, limit):
     recheck = (date.fromisoformat(today) - timedelta(days=7)).isoformat()
     return conn.execute(
@@ -252,33 +275,70 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
                              WHERE {UNREAD}""", (since, today, fresh, today)).fetchall()
     by_pid = {r[1]: r[0] for r in items}
     pids, read, hidden = list(by_pid), 0, 0
+    from . import freshness, heal
+    heal.ensure(conn)
+    hidden_ids, known, known_empty, unknown, suspects, how = [], 0, 0, 0, 0, {}
     for i in range(0, len(pids), 50):
         if should_stop():
             raise Cancelled()
         d = _get("song.getDetails", pids=",".join(pids[i:i + 50]))
         songs = d.get("songs") or [v for v in d.values() if isinstance(v, dict) and v.get("id")]
         for x in songs:
-            iid, pc = by_pid.get(x.get("id")), x.get("play_count")
+            iid = by_pid.get(x.get("id"))
             if iid is None:
                 continue
-            if pc in (None, ""):  # JioSaavn hides the count of songs with few plays: nothing to read today
-                conn.execute("INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)", (f"js_hidden:{iid}", today))
-                from . import freshness
-                freshness.mark(conn, iid, "plays", "hidden", ts)  # read, no number: counts for the 24-hour check
-                hidden += 1
+            pc, way = play_count(x)
+            last = heal.last_snapshot(conn, iid, "plays", today)
+            if way is None:  # no play-count field at all: the reply changed shape, not a hidden count (retried, not marked)
+                unknown += 1
                 continue
+            if pc in (None, ""):  # JioSaavn hides the count of songs with few plays: nothing to read today
+                hidden_ids.append(iid)  # marked after the guards below
+                if last:
+                    known += 1
+                    known_empty += 1
+                continue
+            if last:
+                known += 1
+            how[way] = how.get(way, 0) + 1
+            try:
+                val = int(float(str(pc).replace(",", "")))
+            except ValueError:
+                unknown += 1
+                continue
+            verdict = heal.check_value(last, val, "plays")
+            if verdict != "ok":  # far from the last reading: kept apart, not stored
+                heal.suspect(conn, iid, "plays", val, last, verdict, ts)
+                suspects += 1
+                continue
+            pc = val
             # song.getDetails has release_date / year at the top level (search results keep them under more_info)
             rel = x.get("release_date") or (x.get("more_info") or {}).get("release_date") or (str(x.get("year")) if x.get("year") else None)
             if rel:  # keep the release date for the release-year check
                 conn.execute("UPDATE platform_item SET published_at=? WHERE id=? AND (published_at IS NULL OR published_at='')", (rel, iid))
-            val = int(pc)
             conn.execute("INSERT INTO reading (platform_item_id, metric, value, captured_at) VALUES (?, 'plays', ?, ?)", (iid, val, ts))
             conn.execute("""INSERT INTO snapshot (platform_item_id, metric, value, capture_date, captured_at) VALUES (?, 'plays', ?, ?, ?)
                             ON CONFLICT(platform_item_id, metric, capture_date) DO UPDATE SET value=excluded.value, captured_at=excluded.captured_at""",
                          (iid, val, today, ts))
             read += 1
         conn.commit()
+    # hidden counts are trusted only while the reply still carries counts for songs that had one (lens/heal.py)
+    held = heal.known_guard(conn, "jiosaavn", known, known_empty) or \
+        heal.mass_guard(conn, "jiosaavn", "hidden", len(hidden_ids), read + len(hidden_ids) + unknown)
+    if held:
+        log(f"  GUARD: {len(hidden_ids)} songs came back without a count ({known_empty} of {known} that had one); none is marked as read")
+    else:
+        for iid in hidden_ids:
+            conn.execute("INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)", (f"js_hidden:{iid}", today))
+            freshness.mark(conn, iid, "plays", "hidden", ts)  # read, no number: counts for the 24-hour check
+        hidden = len(hidden_ids)
+    for way, k in how.items():
+        heal.record(conn, "jiosaavn", way, k)
+    if unknown:
+        heal.record(conn, "jiosaavn", "fail", unknown)
+    conn.commit()
     if pids:
-        log(f"JioSaavn: play counts read for {read} of {len(pids)} tracks" + (f" ({hidden} hidden by JioSaavn: too few plays to show)" if hidden else ""))
+        log(f"JioSaavn: play counts read for {read} of {len(pids)} tracks" + (f" ({hidden} hidden by JioSaavn: too few plays to show)" if hidden else "")
+            + (f"; {unknown} replies without a play-count field" if unknown else "") + (f"; {suspects} values held as suspicious" if suspects else ""))
     total = conn.execute("SELECT count(DISTINCT track_id) FROM platform_item WHERE platform='jiosaavn'").fetchone()[0]
     return {"status": "ok", "jiosaavn_found": found, "jiosaavn_missing": missing, "jiosaavn_read": read, "jiosaavn_hidden": hidden, "jiosaavn_songs": total}

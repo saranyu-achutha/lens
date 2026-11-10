@@ -10,6 +10,8 @@ remembered in `alert` so each has a "since", can be snoozed, and closes itself w
   spotify_api         the Spotify API health check is failing
   review              matches waiting for review
   paused              jobs paused for more than 30 minutes
+  heal:<reader>       a page reader is on a fallback (the page changed) or held by its guard (lens/heal.py)
+  suspect:<reader>    20+ values held as suspicious today
 Severity: critical (data is being lost now), warning (needs attention soon), info.
 """
 import json
@@ -147,6 +149,9 @@ def evaluate(conn):
                     "title": f"{what} paused for {pause.minutes_paused(p):.0f} minutes",
                     "detail": f"Paused by {p.get('by') or '?'}{' (' + p['reason'] + ')' if p.get('reason') else ''}; "
                               f"resumes by itself at {p['until'][:16].replace('T', ' ')} UTC. Resume on the Developer dashboard."})
+    # Page readers (lens/heal.py): a page changed and a fallback reads it, a reader held by its guard, suspicious values
+    from . import heal
+    out += heal.alert_conditions(conn)
     pending = conn.execute("SELECT count(*) FROM platform_item WHERE review_state='pending'").fetchone()[0]
     if pending:
         out.append({"key": "review", "severity": "info", "action": "open:review",

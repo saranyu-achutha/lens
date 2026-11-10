@@ -157,6 +157,11 @@ class JobManager:
         self._log(j, "done" if status == "ok" else f"finished: {status}")
         stats["trigger"] = j["trigger"]
         stats["log_tail"] = j["log"][-200:]
+        try:  # page-reader health counts tallied in memory during the job (lens/heal.py); never stops the result save
+            from . import heal
+            heal.flush(conn)
+        except Exception:
+            pass
         # Record the result, retrying while another writer holds the database; whatever happens, the lane is freed
         # below (a failed save once left the browser lane "running" for 6 hours and blocked Spotify plays and Instagram).
         for attempt in range(6):

@@ -95,19 +95,70 @@ def _walk(o, key, out):
     return out
 
 
+COUNT_RE = re.compile(r"^([\d.,]+\s*[KMB]?)\s+Shorts?$", re.I)
+
+
+def initial_data(html):
+    """The page's ytInitialData object (raw_decode: a '};' inside a string cannot cut it short), or None."""
+    for marker in ("var ytInitialData = ", 'window["ytInitialData"] = ', "ytInitialData = "):
+        i = html.find(marker)
+        if i >= 0:
+            try:
+                return json.JSONDecoder().raw_decode(html, i + len(marker))[0]
+            except ValueError:
+                continue
+    return None
+
+
+def _strings(o):
+    return [t for t in _walk(o, "content", []) + _walk(o, "text", []) + _walk(o, "simpleText", []) if isinstance(t, str)]
+
+
+def _owner_block(d):
+    """Self-healing fallback: the smallest part of the page data that holds both an 'N Shorts' count and a channel id
+    (the sound's header), whatever its renderer is called now. The owner is never taken from elsewhere on the page
+    (the listed Shorts have their own creators)."""
+    best = None
+    def visit(o):
+        nonlocal best
+        if isinstance(o, dict):
+            for v in o.values():
+                visit(v)
+            dump = json.dumps(o, ensure_ascii=False)
+            if len(dump) < 200_000 and re.search(r'"browseId":\s*"UC[\w-]+"', dump) and \
+                    any(COUNT_RE.fullmatch(t.strip()) for t in _strings(o)):
+                if best is None or len(dump) < best[0]:
+                    best = (len(dump), o)
+        elif isinstance(o, list):
+            for v in o:
+                visit(v)
+    visit({k: v for k, v in d.items() if k not in ("contents", "onResponseReceivedActions")})  # the header, not the Shorts grid
+    if best is None:
+        visit(d)
+    return best[1] if best else None
+
+
 def parse(html):
-    """What a sound page shows: title, owner, count (or None), and the listed Shorts. None if it isn't a sound page."""
-    m = re.search(r"var ytInitialData = (\{.*?\});</script>", html, re.S)
-    if not m:
+    """What a sound page shows: title, owner, count (or None), and the listed Shorts, plus `how` (which strategy found the
+    header, lens/heal.py). None if it isn't a sound page."""
+    d = initial_data(html)
+    if not d:
         return None
-    d = json.loads(m.group(1))
-    hdr = (d.get("header") or {}).get("pageHeaderRenderer")
+    hdr, how = (d.get("header") or {}).get("pageHeaderRenderer"), "header"
+    if not hdr and isinstance(d.get("header"), dict) and d["header"]:  # the header renderer was renamed
+        hdr, how = next(iter(d["header"].values())), "any-header"
+        if not isinstance(hdr, dict) or not any(COUNT_RE.fullmatch(t.strip()) for t in _strings(hdr)):
+            hdr = None
+    if not hdr:
+        hdr, how = _owner_block(d), "scan"
     if not hdr:
         return None
-    texts = [t for t in _walk(hdr, "content", []) if isinstance(t, str)]
-    count_text = next((t for t in texts if re.fullmatch(r"[\d.,]+[KMB]? Shorts?", t.strip(), re.I)), None)
+    texts = _strings(hdr)
+    count_text = next((t.strip() for t in texts if COUNT_RE.fullmatch(t.strip())), None)
     owner = next((t for t in texts if t.startswith("@")), None)
     owner_id = next(iter(re.findall(r'"browseId":\s*"(UC[\w-]+)"', json.dumps(hdr))), None)
+    if how != "header" and not owner_id:  # a fallback that can't tell whose sound it is must not guess
+        return None
     shorts = {}
     for x in _walk(d, "shortsLockupViewModel", []):
         vid = ((x.get("onTap") or {}).get("innertubeCommand") or {}).get("reelWatchEndpoint", {}).get("videoId")
@@ -117,7 +168,7 @@ def parse(html):
         views = number(((x.get("overlayMetadata") or {}).get("secondaryText") or {}).get("content"))
         shorts[vid] = {"id": vid, "title": re.sub(r",\s*[\d.,KMBkmb]+ views?\s*[–-]\s*play Short$|\s*[–-]\s*play Short$", "", acc), "views": views}
     return {"title": hdr.get("pageTitle") or (texts[0] if texts else None), "owner": owner, "owner_id": owner_id,
-            "count_text": count_text, "count": number(count_text) if count_text else None, "shorts": list(shorts.values())}
+            "count_text": count_text, "count": number(count_text) if count_text else None, "shorts": list(shorts.values()), "how": how}
 
 
 NO_SOUND_RECHECK_DAYS = 7  # an upload YouTube shows no sound page for (often Shorts use switched off): tried again weekly
@@ -132,7 +183,14 @@ def fetch(video_id):
                 body = r.read().decode("utf-8", "replace")
             time.sleep(PACE)
             p = parse(body)
-            return p if p else (False if "ytInitialData" in body else None)
+            if p:
+                return p
+            # no sound header: YouTube shows no sound page for this upload (Shorts use off) -- or the page changed;
+            # run() trusts this only while its guards pass (lens/heal.py), and keeps one sample of such a page
+            if initial_data(body) is not None:
+                fetch.last_empty = body
+                return False
+            return None
         except urllib.error.HTTPError as e:
             if e.code in (403, 429):  # slow down instead of pushing
                 time.sleep(60 * (attempt + 1))
@@ -143,6 +201,10 @@ def fetch(video_id):
         except (urllib.error.URLError, TimeoutError):
             time.sleep(5 * (attempt + 1))
     return None
+
+
+def n_seen(*counts):
+    return sum(counts)
 
 
 def due(conn, cfg, today):
@@ -175,44 +237,74 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
     todo = due(conn, cfg, today)[:cfg["songs"].get("shorts_pages_per_run", 300)]
     if todo:
         log(f"Shorts: reading {len(todo)} official sound pages (about {len(todo) * (PACE + 1) / 60:.0f} min)")
-    read = counted = failed = not_label = no_sound = 0
-    for n, (iid, vid, tid) in enumerate(todo, 1):
-        if should_stop():
-            raise Cancelled()
-        try:
-            p = fetch(vid)
-        except Exception as e:  # one page failing doesn't stop the rest
-            log(f"  {vid}: {e}")
-            p = None
-        if p is False:
-            conn.execute("INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)", (f"shorts_nosound:{iid}", today))
-            conn.commit()
-            no_sound += 1
-            continue
-        if p is None:
-            failed += 1
-            continue
-        official = p["owner_id"] in label_ids
-        shorts = p["count"] or 0
-        ts = db.now_iso()
-        conn.execute("""INSERT OR REPLACE INTO sound_use (platform_item_id, day, platform, song_id, shorts, official, count_text, listed,
-                            listed_views, sound_title, sound_owner, owner_channel, captured_at) VALUES (?, ?, 'youtube', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                     (iid, today, tid, shorts, int(official), p["count_text"], len(p["shorts"]),
-                      sum(s["views"] or 0 for s in p["shorts"]), p["title"], p["owner"], p["owner_id"], ts))
-        if not official:  # someone else's sound: kept for checking, its Shorts not stored
+    from . import heal
+    heal.ensure(conn)
+    read = counted = failed = not_label = no_sound = held_values = 0
+    nosound, known, known_empty, how = [], 0, 0, {}
+    try:
+        for n, (iid, vid, tid) in enumerate(todo, 1):
+            if should_stop():
+                raise Cancelled()
+            try:
+                p = fetch(vid)
+            except Exception as e:  # one page failing doesn't stop the rest
+                log(f"  {vid}: {e}")
+                p = None
+            last = heal.last_sound(conn, iid, today)
+            if last is not None:  # had a sound page before: if it now shows none, that says more about the page than the upload
+                known += 1
+                known_empty += p is False
+            if p is False:
+                nosound.append(iid)  # marked at the end, only if the guards pass
+                no_sound += 1
+                continue
+            if p is None:
+                failed += 1
+                continue
+            how[p.get("how") or "header"] = how.get(p.get("how") or "header", 0) + 1
+            official = p["owner_id"] in label_ids
+            shorts = p["count"] or 0
+            verdict = heal.check_value(last, shorts, "shorts")
+            if verdict != "ok":  # a count far from the last one: kept apart, not stored (read again next run)
+                heal.suspect(conn, iid, "shorts", shorts, last, verdict)
+                conn.commit()
+                held_values += 1
+                continue
+            ts = db.now_iso()
+            conn.execute("""INSERT OR REPLACE INTO sound_use (platform_item_id, day, platform, song_id, shorts, official, count_text, listed,
+                                listed_views, sound_title, sound_owner, owner_channel, captured_at) VALUES (?, ?, 'youtube', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                         (iid, today, tid, shorts, int(official), p["count_text"], len(p["shorts"]),
+                          sum(s["views"] or 0 for s in p["shorts"]), p["title"], p["owner"], p["owner_id"], ts))
+            if not official:  # someone else's sound: kept for checking, its Shorts not stored
+                read += 1
+                not_label += 1
+                conn.commit()
+                continue
+            for s in p["shorts"]:
+                conn.execute("""INSERT INTO sound_short (video_id, platform_item_id, song_id, title, views, first_seen, last_seen)
+                                VALUES (?,?,?,?,?,?,?) ON CONFLICT(video_id) DO UPDATE SET views=excluded.views, title=excluded.title,
+                                last_seen=excluded.last_seen""", (s["id"], iid, tid, s["title"][:300], s["views"], today, today))
+            conn.commit()  # each page saved: never hold the database while waiting on the network
             read += 1
-            not_label += 1
-            conn.commit()
-            continue
-        for s in p["shorts"]:
-            conn.execute("""INSERT INTO sound_short (video_id, platform_item_id, song_id, title, views, first_seen, last_seen)
-                            VALUES (?,?,?,?,?,?,?) ON CONFLICT(video_id) DO UPDATE SET views=excluded.views, title=excluded.title,
-                            last_seen=excluded.last_seen""", (s["id"], iid, tid, s["title"][:300], s["views"], today, today))
-        conn.commit()  # each page saved: never hold the database while waiting on the network
-        read += 1
-        counted += shorts > 0
-        if n % 50 == 0:
-            log(f"  {n}/{len(todo)} sounds read ({counted} used in Shorts)")
+            counted += shorts > 0
+            if n % 50 == 0:
+                log(f"  {n}/{len(todo)} sounds read ({counted} used in Shorts)")
+    finally:
+        # "no sound page" outcomes: trusted only while the reader works (lens/heal.py); otherwise none is marked and
+        # those uploads are tried again next run
+        held = heal.known_guard(conn, "shorts", known, known_empty) or heal.mass_guard(conn, "shorts", "nosound", len(nosound), n_seen(read, failed, no_sound, held_values))
+        if held:
+            log(f"  GUARD: {len(nosound)} pages showed no sound header ({known_empty} of {known} that had one before); the page may have changed, "
+                f"so none is marked (they are retried). See Missed readings → Page readers.")
+            heal.sample("shorts", getattr(fetch, "last_empty", "") or "")
+        else:
+            for iid in nosound:
+                conn.execute("INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)", (f"shorts_nosound:{iid}", today))
+        for strategy, k in how.items():
+            heal.record(conn, "shorts", strategy, k)
+        if failed:
+            heal.record(conn, "shorts", "fail", failed)
+        conn.commit()
     if todo:
         log(f"Shorts: {read} sounds read, {counted} used in Shorts, {not_label} not owned by a label channel (not counted), "
             f"{no_sound} uploads without a sound page (rechecked in {NO_SOUND_RECHECK_DAYS} days), {failed} pages not readable")

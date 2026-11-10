@@ -190,8 +190,8 @@ def _embed(kind, sid):
     for attempt in range(3):
         try:
             h = urllib.request.urlopen(req, timeout=20).read().decode("utf-8", "ignore")
-            m = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', h, re.S)
-            return json.loads(m.group(1))["props"]["pageProps"]["state"]["data"]["entity"] if m else {}
+            from .spotify_links import embed_entity
+            return embed_entity(h, kind, sid)[0]  # None (could not read the page, not "gone") when no way found it
         except urllib.error.HTTPError as e:
             if e.code == 404:
                 return {}

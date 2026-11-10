@@ -78,8 +78,10 @@ def embed(tid):
     for attempt in range(3):
         try:
             h = urllib.request.urlopen(req, timeout=20).read().decode("utf-8", "ignore")
-            m = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', h, re.S)
-            e = json.loads(m.group(1))["props"]["pageProps"]["state"]["data"]["entity"] if m else {}
+            from .spotify_links import embed_entity
+            e, how = embed_entity(h, "track", tid)
+            if e is None:  # the page came but could not be read (changed layout): not "gone", try again later
+                return None
             return {"id": e.get("id") or tid, "name": e.get("name") or e.get("title"),
                     "artists": [{"name": a["name"], "id": (a.get("uri") or "").rsplit(":", 1)[-1]} for a in e.get("artists") or []],
                     "duration_ms": e.get("duration"), "explicit": e.get("isExplicit"),
@@ -113,12 +115,15 @@ def _choose(vids, song, rows, log=None):
     """(outcome, best candidate or None, score): the best result by the match rules, read from its embed page."""
     keys = match.block_keys(song_parts(song["title"])[0]) | match.block_keys(song["title"])
     new_from = (date.fromisoformat(song["first_day"]) - timedelta(days=spotify_found.NEW_BEFORE_DAYS)).isoformat()
-    best_new, best_old = None, None
+    best_new, best_old, unreadable = None, None, 0
     for r in rows[:5]:
         if not (match.block_keys(match.parse_spotify_title(r["name"])[0]) & keys):
             continue  # its own title shares no word with the song (only a film name or a singer, at most)
         e = embed(r["id"])
         time.sleep(0.5)
+        if e is None:  # the embed page could not be read (blocked, or its layout changed): not evidence of "not found"
+            unreadable += 1
+            continue
         if not e:
             continue
         track = {"title": e["name"], "artists": [a["name"] for a in e["artists"]], "release_title": None,
@@ -142,6 +147,8 @@ def _choose(vids, song, rows, log=None):
         return "queued", best_new[1], best_new[0]
     if best_old:
         return "older_release", best_old[1], best_old[0]
+    if unreadable:  # a candidate could not be checked: say so, so the song is searched again instead of marked "not found"
+        return "unreadable", None, None
     return "not_found", None, None
 
 
@@ -226,6 +233,10 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
                 continue  # not recorded: searched again next run
             empty_in_row = 0
             outcome, e, score = _choose(spotify_found._videos(conn, song["id"]), song, got.get("rows") or [])
+            if outcome == "unreadable":  # its candidates' pages could not be read: not recorded, searched again next run
+                st["web_failed"] += 1
+                time.sleep(pause_s)
+                continue
             conn.execute(
                 """INSERT INTO spotify_found (song_id, label, channel, yt_first, yt_title, track_id, sp_title, sp_artists, sp_release,
                                               file_status, title_match, outcome, score, imported_at)
@@ -295,7 +306,7 @@ def laptop_search(songs_list, tabs=12, out="spotify_laptop_search.json", log=pri
         if stop["why"]:
             return
         qs = list(dict.fromkeys(q for q in (query(song["title"]), song_parts(song["title"])[0][:100], (song["title"] or "")[:100]) if q.strip()))
-        outcome, e, score, used, any_page = "not_found", None, None, None, False
+        outcome, e, score, used, any_page, checked = "not_found", None, None, None, False, False
         for q in qs:
             got = search(port, q) or (time.sleep(2) or search(port, q))
             time.sleep(pause_s)
@@ -303,6 +314,9 @@ def laptop_search(songs_list, tabs=12, out="spotify_laptop_search.json", log=pri
                 continue
             any_page = True
             o, cand, sc = _choose(song["videos"], song, got.get("rows") or [])
+            if o == "unreadable":  # candidates not checkable: this query proves nothing
+                continue
+            checked = True
             if o == "queued" or (o == "older_release" and outcome == "not_found"):
                 outcome, e, score, used = o, cand, sc, q
             if o == "queued":
@@ -314,6 +328,8 @@ def laptop_search(songs_list, tabs=12, out="spotify_laptop_search.json", log=pri
                     stop["why"] = "12 songs in a row without any page: Spotify may be blocking; re-run later to continue"
                 return  # not recorded: searched again next run
             stop["empty"] = 0
+            if not checked:  # pages came, but no candidate could be checked (embed pages unreadable): searched again later
+                return
             res["songs"][str(song["id"])] = {"outcome": outcome, "track": e, "score": score, "query": used or qs[0]}
             n = len(res["songs"])
             if n % 25 == 0:

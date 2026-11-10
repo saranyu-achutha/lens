@@ -44,6 +44,26 @@ const CLIENT_PAGES = ["dashboard", "mgmt", "share", "platforms", "reports", "dai
 let CLIENT_VIEW = false;
 const isClient = () => STATUS?.role === "client" || CLIENT_VIEW;
 const hashParams = () => new URLSearchParams(location.hash.split("?")[1] || "");
+// Failure-proof pages: a page whose data could not be loaded (server busy, network gone, a bug) shows a notice with
+// Retry at the top instead of staying blank; the rest of the Console keeps working.
+function pageGuard(sec, load) {
+  const page = document.getElementById(`page-${sec}`);
+  page?.querySelector(":scope > .page-error")?.remove();
+  Promise.resolve().then(load).catch((e) => {
+    if (!page || !page.classList.contains("active")) return;
+    const box = document.createElement("div");
+    box.className = "card notice page-error";
+    box.innerHTML = `<b>This page could not load.</b> <span class="muted">${esc(e && e.message ? e.message : String(e))}</span>
+      <span class="spacer"></span><button class="small primary">↻ Retry</button>`;
+    box.querySelector("button").onclick = () => route();
+    const head = page.querySelector(".page-head");
+    head ? head.after(box) : page.prepend(box);
+  });
+}
+window.addEventListener("unhandledrejection", (e) => {  // a background refresh that failed: say so once, never break the page
+  const now = Date.now();
+  if (now - (window.__lastErrToast || 0) > 15000) { window.__lastErrToast = now; toast(`Could not refresh: ${e.reason && e.reason.message || e.reason}`, true); }
+});
 function route() {
   const home = isClient() ? "dashboard" : "overview";
   const page = (location.hash.slice(1).split("?")[0]) || home;
@@ -51,7 +71,7 @@ function route() {
   const sec = p === "apis" ? "crawl" : p;  // Crawl stats and API stats share one page layout
   document.querySelectorAll("section.page").forEach((s) => s.classList.toggle("active", s.id === `page-${sec}`));
   document.querySelectorAll("a.nav").forEach((a) => a.classList.toggle("active", a.getAttribute("href") === `#${p}`));
-  ({ overview: loadOverview, dashboard: loadClient, dev: loadDev, crawl: loadCrawl, apis: loadCrawl, charts: loadCharts, schedule: loadSchedule, status: loadStatus, missed: loadMissed, added: loadAdded, share: loadShare, mgmt: loadMgmt, platforms: loadPlatform, reports: loadReport, daily: loadDaily, pdata: loadPData, catalogue: loadCatalogue, explore: loadExplore, insights: loadInsights, review: loadReview, runs: loadRuns, outputs: loadOutputs, sources: loadSources, settings: loadSettings })[p]();
+  pageGuard(sec, ({ overview: loadOverview, dashboard: loadClient, dev: loadDev, crawl: loadCrawl, apis: loadCrawl, charts: loadCharts, schedule: loadSchedule, status: loadStatus, missed: loadMissed, added: loadAdded, share: loadShare, mgmt: loadMgmt, platforms: loadPlatform, reports: loadReport, daily: loadDaily, pdata: loadPData, catalogue: loadCatalogue, explore: loadExplore, insights: loadInsights, review: loadReview, runs: loadRuns, outputs: loadOutputs, sources: loadSources, settings: loadSettings })[p]);
   const track = new URLSearchParams(location.hash.split("?")[1] || "").get("track");
   if (track) openTrack(track);
   const meta = new URLSearchParams(location.hash.split("?")[1] || "").get("meta");  // e.g. #explore?meta=singer:arijit singh
@@ -2409,8 +2429,32 @@ $("#st-refresh").onclick = () => loadStatus();
 // ---- Missed readings: items of the songs in scope not read within 24 hours (lens/freshness.py), retried by the watchdog
 let msTimer, MS_PLAT = "";
 const istTime = (iso) => iso ? new Date(iso).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true }) + " IST" : "never";
+const HEAL_STATE = { ok: ["ok", "Working"], healed: ["warn", "Healed: a fallback is reading"], broken: ["bad", "Held: the page changed"], idle: ["", "No reads today"] };
+async function loadHeal() {
+  const el = $("#ms-heal");
+  let d;
+  try { d = await api("/api/heal"); } catch (e) { el.innerHTML = `<tbody><tr><td class="empty">Could not load the readers' health: ${esc(e.message)}</td></tr></tbody>`; return; }
+  const ways = (by, primary) => Object.entries(by).filter(([k]) => k !== "fail" && k !== "guard")
+    .map(([k, v]) => `<span class="pill${k === primary ? "" : " warn"}" style="padding:0 7px" title="${k === primary ? "the usual way" : "a fallback"}">${esc(k)} ${fmt(v)}</span>`).join(" ") || '<span class="muted">–</span>';
+  el.innerHTML = `<thead><tr><th>Reader</th><th>State today</th><th>Found today (by way)</th><th class="num">Not readable</th><th class="num">Held by guard</th>
+      <th class="num">Suspicious</th><th class="num">Read this week</th><th>Learned marker</th><th>Page sample</th></tr></thead><tbody>` +
+    d.readers.map((r) => { const [cls, label] = HEAL_STATE[r.state] || ["", r.state];
+      return `<tr><td><b>${esc(r.name)}</b><div class="t2">usual way: ${esc(r.primary)}</div></td>
+        <td><span class="pill ${cls}"><span class="dot"></span>${esc(label)}</span></td><td>${ways(r.today.by, r.primary)}</td>
+        <td class="num${r.today.fail ? "" : " muted"}">${r.today.fail ? fmt(r.today.fail) : "–"}</td><td class="num${r.today.guard ? "" : " muted"}">${r.today.guard ? fmt(r.today.guard) : "–"}</td>
+        <td class="num${r.suspects_today ? "" : " muted"}">${r.suspects_today ? fmt(r.suspects_today) : "–"}</td>
+        <td class="num">${fmt(r.week.primary + r.week.fallback)}${r.week.fallback ? ` <span class="muted" style="font-size:11px">${fmt(r.week.fallback)} by fallback</span>` : ""}</td>
+        <td class="mono" style="font-size:12px">${r.hint ? esc(r.hint) : '<span class="muted">–</span>'}</td>
+        <td class="muted" style="font-size:12px">${r.last_sample ? `kept ${esc(r.last_sample)}` : "–"}</td></tr>`; }).join("") + "</tbody>";
+  $("#ms-suspects").innerHTML = d.suspects.length ? `<details style="padding:4px 18px 14px"><summary class="muted" style="cursor:pointer;font-size:12.5px">
+      ${fmt(d.suspects.length)} most recent values held as suspicious (not stored: they fell sharply or jumped against the last reading)</summary>
+      <div class="table-wrap" style="max-height:300px;margin-top:8px"><table><thead><tr><th>When</th><th>Platform</th><th>Item</th><th>Metric</th><th class="num">Value read</th><th class="num">Last reading</th><th>Why</th></tr></thead><tbody>` +
+      d.suspects.map((x) => `<tr><td class="muted">${esc(istTime(x.at))}</td><td>${esc(x.platform)}</td><td>${esc((x.title || "").slice(0, 70))}</td><td>${esc(x.metric)}</td>
+        <td class="num">${fmt(x.value)}</td><td class="num">${fmt(x.last)}</td><td>${x.reason === "fell" ? "fell sharply" : "jumped"}</td></tr>`).join("") + "</tbody></table></div></details>" : "";
+}
 async function loadMissed() {
   clearTimeout(msTimer);
+  loadHeal();
   const d = await api("/api/freshness" + (MS_PLAT ? `?platform=${encodeURIComponent(MS_PLAT)}` : ""));
   const s = d.settings, plats = Object.keys(d.names);
   $("#ms-sub").textContent = `Songs first uploaded from ${s.since} (not released before the period), on every platform they are linked to: an item is missed when it was last read more than ${s.hours} hours ago, or linked that long ago and never read. A platform with missed items gets its job started again every ${s.retry_minutes} minutes until they are read.`;
