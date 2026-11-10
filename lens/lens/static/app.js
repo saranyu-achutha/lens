@@ -265,6 +265,9 @@ const ytCell = (r) => `<td class="num">${r.yt_videos ? r.yt_videos : '<span clas
 const metaLine = (m) => !m ? "" : [m.music_director && `<b>Music</b> ${esc(m.music_director)}`, m.film && `<b>Film</b> ${esc(m.film)}`,
   m.language && esc(m.language), m.category && esc(m.category)].filter(Boolean).join(" · ");
 // Each tracked label has its own gradient (colours in style.css .lb-*, tuned for light and dark).
+// One colour per label everywhere (the label tags' own first colour), so a label looks the same on every chart.
+const LABEL_HUE = { sony: "#4c8ff0", tseries: "#ef4444", saregama: "#e3a008", zee: "#8b5cf6", aditya: "#10b981", think: "#06b6d4", times: "#ec4899" };
+const labelColor = (name) => LABEL_HUE[LABEL_KEY[name]] || "#94a3b8";
 const LABEL_KEY = { "Sony Music India": "sony", "T-Series": "tseries", "Saregama": "saregama", "Zee Music Company": "zee", "Aditya Music": "aditya", "Think Music": "think", "Times Music": "times" };
 const labelTag = (name) => name ? `<span class="label-tag lb-${LABEL_KEY[name] || "other"}">${esc(name)}</span>` : "";
 const trackCell = (r) => `<td><div class="t1">${esc(r.title)}${labelTag(r.music_label)}</div>
@@ -419,8 +422,15 @@ function audioCards(d) {
 // Daily growth: YouTube and audio on two charts, each with its own axis
 function growthCharts(ytEl, auEl, auLegend, d) {
   const yt = d.trend.filter((l) => l.platform === "youtube"), au = d.trend.filter((l) => l.platform !== "youtube");
-  multiLine(ytEl, yt.map((l) => ({ name: l.name, color: PCOLOR[l.platform], points: l.points })).filter((l) => l.points.length), { height: 260 });
-  multiLine(auEl, au.map((l) => ({ name: l.name, color: PCOLOR[l.platform], points: l.points })).filter((l) => l.points.length), { height: 260 });
+  const ser = (ls) => ls.map((l) => ({ name: l.name, color: PCOLOR[l.platform], points: l.points })).filter((l) => l.points.length);
+  // Line or Columns; audio columns are stacked (Spotify + YouTube Music + JioSaavn = the day's audio streams)
+  const draw = (el, ls, stacked) => (kind) => kind === "columns"
+    ? (stacked ? stackColumns(el, ser(ls), { vfmt: compact1 }) : barChart(el, (ser(ls)[0]?.points || []).map((p) => ({ label: p.x.slice(5), value: p.y, x: p.x })),
+        { height: 260, color: PCOLOR.youtube, hover: PCOLOR.youtube, tip: (b) => `<b>${esc(b.x)}</b><br>+${compact(b.value)} views` }))
+    : multiLine(el, ser(ls), { height: 260 });
+  const host = (el) => (el.id && document.getElementById(el.id + "-sw")) || null;
+  if (host(ytEl)) chartSwitch(host(ytEl), "growth-yt", ["line", "columns"], draw(ytEl, yt, false)); else draw(ytEl, yt, false)("line");
+  if (host(auEl)) chartSwitch(host(auEl), "growth-au", ["line", "columns"], draw(auEl, au, true), { columns: "Stacked columns" }); else draw(auEl, au, true)("line");
   auLegend.innerHTML = legendHtml(au);
 }
 // Songs: top and fastest growing, by YouTube views or by audio streams (a switch, not mixed columns)
@@ -469,6 +479,13 @@ async function loadClient() {
   glance();
   $("#cl-audio").innerHTML = audioCards(d);
   growthCharts($("#cl-trend-yt"), $("#cl-trend-au"), $("#cl-legend"), d);
+  // where the streams and views come from: platforms' share of audio streams, labels' share of YouTube views
+  partsChart($("#cl-split-au-sw"), $("#cl-split-au"), "dash-split-au",
+    d.platforms.filter((p) => ["spotify", "ytmusic", "jiosaavn"].includes(p.platform)).map((p) => ({ name: p.name.replace(/ plays$/, ""), value: p.total || 0, color: PCOLOR[p.platform] })),
+    { vfmt: compact1, center: "Audio streams" });
+  partsChart($("#cl-split-yt-sw"), $("#cl-split-yt"), "dash-split-yt",
+    d.labels.filter((l) => l.label !== "Other").map((l) => ({ name: l.label, tag: labelTag(l.label), value: l.yt_views || 0, color: labelColor(l.label) })),
+    { vfmt: compact, center: "YouTube views" });
   const songs = () => { songTables(d, $("#cl-top"), $("#cl-risers"), $("#cl-risers-title")); wireSongSwitch($("#page-dashboard"), songs); };
   songs();
   const lead = d.labels[0];
@@ -779,6 +796,16 @@ async function loadLabelDaily() {
   $("#ld-days").innerHTML = `<thead><tr><th>Day</th>${LR_COLS.map(([k, n]) => `<th class="num">${n}${k === "releases" ? "" : " gained"}</th>`).join("")}${lab ? "" : `<th>Top label</th>`}<th class="num">Spotify read</th></tr></thead><tbody>` +
     d.days.map((day) => `<tr><td><b>${dayLabel(day.day)}</b>${day.recent ? ' <span class="muted" style="font-size:11px">may still change</span>' : ""}</td>${cells(lab ? day.labels[lab] : day.all, day)}${lab ? "" : `<td>${leader(day)}</td>`}
       <td class="num muted">${day.read.sp == null ? "–" : day.read.sp + "%"}</td></tr>`).join("") + "</tbody>";
+  labelHeat(d);
+}
+// labels x days of the month for the chosen measure (the same figures as the ranking and the day-by-day table)
+function labelHeat(d) {
+  const days = [...d.days].map((x) => x.day).sort(), byDay = Object.fromEntries(d.days.map((x) => [x.day, x]));
+  const rows = d.ranking.map((r) => r.label).filter((l) => d.labels.includes(l));
+  const k = d.by, f = (v) => (k === "releases" ? fmt(v) : (k === "sp" || k === "ytm" || k === "audio" ? compact1 : compact)(v));
+  $("#ld-heat-title").textContent = `Heatmap: ${d.metrics[k]} by label and day, ${monthName(d.month)}`;
+  heatmap($("#ld-heat"), rows, days, (l, day) => { const x = byDay[day]?.labels?.[l]; return x ? x[k] : null; },
+    { vfmt: f, rowLabel: (l) => labelTag(l), colLabel: (c) => String(+c.slice(8)), hue: k === "yt" ? PCOLOR.youtube : k === "releases" ? "var(--accent)" : PCOLOR.spotify });
 }
 async function loadLabelMonthly() {
   const d = await api(`/api/labels/report?view=monthly&by=${LR.mby}`);
@@ -2519,7 +2546,7 @@ async function loadShare() {
   const q = new URLSearchParams({ ...(MS.days ? { days: MS.days } : {}), ...(MS.month ? { month: MS.month } : {}) });
   const d = await api(`/api/market_share?${q}`);
   MS.days = d.days;
-  const N = d.days, lcolor = Object.fromEntries(d.labels.map((l, i) => [l.label, LABEL_COLORS[i % LABEL_COLORS.length]]));
+  const N = d.days, lcolor = Object.fromEntries(d.labels.map((l) => [l.label, labelColor(l.label)]));
   $("#sh-asof").innerHTML = `<span class="dot"></span>Figures for ${dayLabel(d.report_day)} (last completed day)`;
   $("#sh-started").innerHTML = `<b>Official daily readings started:</b> ${startedLine(d.started)}. Songs released before then could not be read from their first day,
     and many labels' Spotify tracks were linked only recently, so the Spotify and audio shares rest on fewer days for those labels for now
@@ -2548,8 +2575,14 @@ async function loadShare() {
       <div class="sl-top"><span>${labelTag(l.label)}</span><span class="sl-pct">${l[k + "_share"] ?? 0}%</span></div>
       <div class="share-track"><span style="width:${l[k + "_share"] || 0}%;background:${lcolor[l.label]}"></span></div>
       <div class="sl-meta">${shareNum(k, l[k])} · ${fmt(l[k + "_songs"])} songs</div></div>`).join("");
-  $("#sh-yt").innerHTML = bars("yt");
-  $("#sh-au").innerHTML = bars("audio");
+  // each share card: the bars as before, or a donut / one stacked bar of the same split
+  [["yt", "#sh-yt"], ["audio", "#sh-au"]].forEach(([k, el]) => {
+    const parts = by(k).map((l) => ({ name: l.label, tag: labelTag(l.label), value: l[k] || 0, color: lcolor[l.label] }));
+    chartSwitch($(el + "-sw"), `share-${k}`, ["bars", "donut", "seg"], (kind) => {
+      $(el).classList.toggle("share-list", kind === "bars");
+      if (kind === "bars") $(el).innerHTML = bars(k); else (kind === "donut" ? donutChart : segBar)($(el), parts, { vfmt: (v) => shareNum(k, v), center: k === "yt" ? "YouTube views" : "Audio streams" });
+    });
+  });
   $("#sh-yt-title").textContent = `Share of YouTube views by day ${N}`;
   $("#sh-au-title").textContent = `Share of audio streams by day ${N}`;
   const ks = ["yt", "audio", "sp", "ytm", "js"], names = Object.fromEntries(d.measures.map((m) => [m.key, m.name]));
@@ -2630,6 +2663,15 @@ async function loadMgmt() {
   document.querySelectorAll("#mg-genre-src button").forEach((b) => { b.classList.toggle("on", b.dataset.g === MG.genre); b.onclick = () => { MG.genre = b.dataset.g; loadMgmt(); }; });
   document.querySelectorAll("#mg-genre-method button").forEach((b) => { b.classList.toggle("on", b.dataset.m === MG.method); b.onclick = () => { MG.method = b.dataset.m; loadMgmt(); }; });
   grpTbl(d.genres, "#mg-genres", MG.genre === "apple" ? "Apple Music genre" : "Category");
+  // the week's Spotify plays split by label, language and genre: donut, ranked bars or one stacked bar
+  const SPLIT_COLORS = LABEL_COLORS;  // fixed order per list: the largest part always gets the first colour
+  const split = (xs, id, tag) => partsChart($(`#mg-split-${id}-sw`), $(`#mg-split-${id}`), `mg-split-${id}`,
+    xs.map((r, i) => ({ name: r.name, tag: tag ? labelTag(r.name) : null, value: Math.max(0, r.sp_week || 0), color: tag ? labelColor(r.name) : SPLIT_COLORS[i % SPLIT_COLORS.length] })),
+    { vfmt: compact1, center: "Spotify plays" });
+  split(d.labels, "label", true);
+  split(d.languages, "lang");
+  split(d.genres, "genre");
+  $("#mg-split-genre-title").textContent = MG.genre === "apple" ? "By Apple Music genre" : "By category";
   const gc = d.genre_check, pc = (n) => Math.round((100 * n) / (gc.songs || 1));
   $("#mg-genre-check").innerHTML = `<b>Genre attribution: findings for review.</b>
     <ul style="margin:6px 0 0 18px;padding:0">
@@ -2828,3 +2870,105 @@ function pvToggle(p, noRender) {
 }
 document.querySelectorAll("#pv-mode button").forEach((b) => (b.onclick = () => { PV.mode = b.dataset.m; pvSave(); renderPV(); }));
 document.querySelectorAll("#pv-metric button").forEach((b) => (b.onclick = () => { PV.metric = b.dataset.k; pvSave(); renderPV(); }));
+
+/* ---------- More chart forms (2026-11-10): donut, ranked bars, segmented bar, stacked columns, heatmap, and a switch ----------
+   Part-to-whole data gets Donut | Bars | Stacked bar (bars compare parts most exactly; the donut reads the split at a
+   glance); daily series get Line | Columns. Parts beyond 6 fold into "Other". Every form has a hover tooltip, and a
+   legend with names, values and shares (identity never by colour alone). The choice per chart is kept in this browser. */
+const CH_KEY = "ml_chart:";
+const chartPick = (id, kinds) => { try { const k = localStorage.getItem(CH_KEY + id); if (kinds.includes(k)) return k; } catch (e) {} return kinds[0]; };
+// A small switch in a card head (or any host); render(kind) draws the chart.
+function chartSwitch(host, id, kinds, render, names = {}) {
+  const label = { donut: "Donut", bars: "Bars", seg: "Stacked bar", line: "Line", columns: "Columns", table: "Table", heat: "Heatmap", ...names };
+  let cur = chartPick(id, kinds);
+  host.innerHTML = `<div class="seg ch-switch" role="group" aria-label="Chart type">${kinds.map((k) => `<button class="small${k === cur ? " on" : ""}" data-k="${k}">${label[k] || k}</button>`).join("")}</div>`;
+  host.querySelectorAll("button").forEach((b) => (b.onclick = () => {
+    cur = b.dataset.k; try { localStorage.setItem(CH_KEY + id, cur); } catch (e) {}
+    host.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b)); render(cur); }));
+  render(cur);
+}
+// parts: [{name, value, color, tag?}] -> the 6 largest and "Other" (never a generated colour for a 7th part)
+function foldParts(parts, max = 6) {
+  const xs = parts.filter((p) => (p.value || 0) > 0).sort((a, b) => b.value - a.value);
+  if (xs.length <= max + 1) return xs;
+  const rest = xs.slice(max);
+  return [...xs.slice(0, max), { name: `Other (${rest.length})`, value: rest.reduce((a, p) => a + p.value, 0), color: "var(--text-muted)", other: true }];
+}
+const ch = (n, d = 1) => Math.abs(n) >= 1e5 ? compact(n) : fmt(Math.round(n * 10 ** d) / 10 ** d);
+function partsLegend(parts, total, vfmt) {
+  return `<div class="ch-legend">${parts.map((p, i) => `<div class="ch-leg" data-i="${i}"><i style="background:${p.color}"></i><span class="ch-name">${p.tag || esc(p.name)}</span>
+    <b>${vfmt(p.value)}</b><span class="muted">${total ? ((100 * p.value) / total).toFixed(1) : 0}%</span></div>`).join("")}</div>`;
+}
+function donutChart(el, rawParts, { vfmt = ch, center = "Total", size = 200 } = {}) {
+  const parts = foldParts(rawParts), total = parts.reduce((a, p) => a + p.value, 0);
+  if (!total) { el.innerHTML = `<div class="empty">Nothing to share out yet.</div>`; return; }
+  const R = size / 2, r0 = R * 0.62, gap = parts.length > 1 ? 0.012 : 0;  // a thin surface gap between slices
+  let a = -Math.PI / 2;
+  const arc = (a1, a2, ro, ri) => { const big = a2 - a1 > Math.PI ? 1 : 0, p = (ang, rr) => `${R + rr * Math.cos(ang)},${R + rr * Math.sin(ang)}`;
+    return `M${p(a1, ro)}A${ro},${ro} 0 ${big} 1 ${p(a2, ro)}L${p(a2, ri)}A${ri},${ri} 0 ${big} 0 ${p(a1, ri)}Z`; };
+  const segs = parts.map((p) => { const span = (2 * Math.PI * p.value) / total, s = { p, a1: a + gap, a2: a + Math.max(span - gap, 0.002) }; a += span; return s; });
+  el.innerHTML = `<div class="ch-donut"><div class="ch-donut-svg" style="width:${size}px;height:${size}px">
+      <svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" role="img" aria-label="${esc(center)} split">${segs.map((s, i) =>
+        `<path class="ch-slice" data-i="${i}" d="${arc(s.a1, s.a2, R - 2, r0)}" fill="${s.p.color}"></path>`).join("")}</svg>
+      <div class="ch-center"><small>${esc(center)}</small><b>${vfmt(total)}</b></div></div>${partsLegend(parts, total, vfmt)}</div>`;
+  const cen = el.querySelector(".ch-center"), base = cen.innerHTML;
+  const focus = (i) => { el.querySelectorAll(".ch-slice").forEach((x) => x.classList.toggle("dim", i != null && +x.dataset.i !== i));
+    el.querySelectorAll(".ch-leg").forEach((x) => x.classList.toggle("on", i != null && +x.dataset.i === i));
+    cen.innerHTML = i == null ? base : `<small>${parts[i].tag ? parts[i].tag : esc(parts[i].name)}</small><b>${((100 * parts[i].value) / total).toFixed(1)}%</b><small>${vfmt(parts[i].value)}</small>`; };
+  el.querySelectorAll(".ch-slice, .ch-leg").forEach((x) => { x.addEventListener("mouseenter", () => focus(+x.dataset.i)); x.addEventListener("mouseleave", () => focus(null)); });
+}
+function rankBars(el, rawParts, { vfmt = ch } = {}) {
+  const parts = foldParts(rawParts, 9), total = parts.reduce((a, p) => a + p.value, 0), max = Math.max(...parts.map((p) => p.value), 1);
+  if (!total) { el.innerHTML = `<div class="empty">Nothing to share out yet.</div>`; return; }
+  el.innerHTML = `<div class="ch-rank">${parts.map((p) => `<div class="ch-rrow" title="${esc(p.name)}: ${vfmt(p.value)} (${((100 * p.value) / total).toFixed(1)}%)">
+      <span class="ch-name">${p.tag || esc(p.name)}</span><span class="ch-rtrack"><i style="width:${(100 * p.value) / max}%;background:${p.color}"></i></span>
+      <b>${((100 * p.value) / total).toFixed(1)}%</b><span class="muted">${vfmt(p.value)}</span></div>`).join("")}</div>`;
+}
+function segBar(el, rawParts, { vfmt = ch } = {}) {
+  const parts = foldParts(rawParts), total = parts.reduce((a, p) => a + p.value, 0);
+  if (!total) { el.innerHTML = `<div class="empty">Nothing to share out yet.</div>`; return; }
+  el.innerHTML = `<div class="ch-seg">${parts.map((p) => { const pc = (100 * p.value) / total;
+      return `<i style="flex:${p.value};background:${p.color}" title="${esc(p.name)}: ${vfmt(p.value)} (${pc.toFixed(1)}%)">${pc >= 9 ? pc.toFixed(0) + "%" : ""}</i>`; }).join("")}</div>
+    ${partsLegend(parts, total, vfmt)}`;
+}
+// One part-to-whole chart with its switch. host: the switch's place; el: the chart's place.
+function partsChart(host, el, id, parts, opts = {}) {
+  chartSwitch(host, id, opts.kinds || ["donut", "bars", "seg"], (k) => (k === "donut" ? donutChart : k === "bars" ? rankBars : segBar)(el, parts, opts));
+}
+// Stacked columns for daily series that add up (e.g. audio streams = Spotify + YouTube Music + JioSaavn).
+function stackColumns(el, series, { height = 260, vfmt = ch, xfmt = (x) => x.slice(5) } = {}) {
+  el.innerHTML = "";
+  const xs = [...new Set(series.flatMap((s) => s.points.map((p) => p.x)))].sort();
+  if (!xs.length) { el.innerHTML = `<div class="empty">No days yet.</div>`; return; }
+  const val = series.map((s) => Object.fromEntries(s.points.map((p) => [p.x, Math.max(0, p.y || 0)])));
+  const tot = xs.map((x) => val.reduce((a, v) => a + (v[x] || 0), 0)), max = niceMax(Math.max(...tot, 1));
+  const W = el.clientWidth || 600, H = height, m = { t: 12, r: 10, b: 26, l: 52 }, iw = W - m.l - m.r, ih = H - m.t - m.b;
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, height: H, role: "img", "aria-label": "stacked columns" }, el);
+  const g = svgEl("g", { class: "grid" }, svg), ax = svgEl("g", { class: "axis" }, svg);
+  for (let i = 0; i <= 4; i++) { const y = m.t + ih - (ih * i) / 4; svgEl("line", { x1: m.l, x2: W - m.r, y1: y, y2: y }, g);
+    svgEl("text", { x: m.l - 8, y: y + 4, "text-anchor": "end" }, ax).textContent = compact((max * i) / 4); }
+  const step = iw / xs.length, bw = Math.max(3, Math.min(30, step * 0.7)), tt = tooltipFor(el), lab = Math.ceil(xs.length / 8);
+  xs.forEach((x, i) => {
+    let y0 = m.t + ih; const cx = m.l + step * i + (step - bw) / 2;
+    series.forEach((s, si) => { const v = val[si][x] || 0, h = (v / max) * ih; if (h <= 0) return;
+      svgEl("rect", { x: cx, y: y0 - h, width: bw, height: Math.max(h - 1, 0.5), fill: s.color, rx: si === series.length - 1 ? 2 : 0, class: "bar" }, svg); y0 -= h; });
+    if (i % lab === 0) svgEl("text", { x: cx + bw / 2, y: H - 8, "text-anchor": "middle" }, ax).textContent = xfmt(x);
+    const hit = svgEl("rect", { x: m.l + step * i, y: m.t, width: step, height: ih, fill: "transparent" }, svg);
+    hit.addEventListener("mouseenter", () => { tt.innerHTML = `<b>${esc(x)}</b> · ${vfmt(tot[i])}<br>` + series.map((s, si) =>
+        `<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${s.color};margin-right:5px"></span>${esc(s.name)} ${vfmt(val[si][x] || 0)}`).join("<br>");
+      tt.style.left = `${((cx + bw / 2) / W) * 100}%`; tt.style.top = `${m.t}px`; tt.style.display = "block"; });
+    hit.addEventListener("mouseleave", () => { tt.style.display = "none"; });
+  });
+}
+// Heatmap: rows x columns, one hue light -> dark (more = darker); empty cells stay blank.
+function heatmap(el, rows, cols, get, { vfmt = ch, rowLabel = (r) => esc(r), colLabel = (c) => esc(c), hue = "var(--accent)", title = "" } = {}) {
+  const vals = rows.flatMap((r) => cols.map((c) => get(r, c))).filter((v) => v != null && v > 0);
+  if (!vals.length) { el.innerHTML = `<div class="empty">No figures for these days yet.</div>`; return; }
+  const max = Math.max(...vals);
+  const cell = (r, c) => { const v = get(r, c); if (v == null || v <= 0) return `<td class="hm-c hm-empty" title="${esc(String(r))} · ${esc(String(c))}: –"></td>`;
+    const t = Math.sqrt(v / max);  // square root: small values stay visible next to a large one
+    return `<td class="hm-c" style="background:color-mix(in srgb, ${hue} ${Math.round(8 + 88 * t)}%, transparent)" title="${esc(String(r))} · ${esc(String(c))}: ${vfmt(v)}"></td>`; };
+  el.innerHTML = `<div class="table-wrap"><table class="hm">${title ? `<caption>${esc(title)}</caption>` : ""}<thead><tr><th></th>${cols.map((c) => `<th class="hm-h">${colLabel(c)}</th>`).join("")}</tr></thead>
+    <tbody>${rows.map((r) => `<tr><th class="hm-r">${rowLabel(r)}</th>${cols.map((c) => cell(r, c)).join("")}</tr>`).join("")}</tbody></table></div>
+    <div class="hm-scale"><span class="muted">less</span>${[0.1, 0.3, 0.55, 0.8, 1].map((t) => `<i style="background:color-mix(in srgb, ${hue} ${Math.round(8 + 88 * Math.sqrt(t))}%, transparent)"></i>`).join("")}<span class="muted">more · max ${vfmt(max)}</span></div>`;
+}

@@ -105,8 +105,8 @@
       <div class="grid g3 glance" id="ov-pf-kpis"></div>
       <div class="grid g3" id="ov-pf-audio" style="margin-top:16px"></div>
       <div class="grid g2" style="margin-top:16px">
-        <div class="card"><div class="card-head"><h2>YouTube views gained</h2><span class="spacer"></span><span class="muted" style="font-size:12px">each day, last 30 days</span></div><div class="chart" id="ov-pf-trend-yt"></div></div>
-        <div class="card"><div class="card-head"><h2>Audio streams gained</h2><span class="spacer"></span><span class="muted" style="font-size:12px">each day, last 30 days</span></div><div class="chart" id="ov-pf-trend-au"></div>
+        <div class="card"><div class="card-head"><h2>YouTube views gained</h2><span class="spacer"></span><span class="muted" style="font-size:12px">each day, last 30 days</span><span id="ov-pf-trend-yt-sw" style="margin-left:10px"></span></div><div class="chart" id="ov-pf-trend-yt"></div></div>
+        <div class="card"><div class="card-head"><h2>Audio streams gained</h2><span class="spacer"></span><span class="muted" style="font-size:12px">each day, last 30 days</span><span id="ov-pf-trend-au-sw" style="margin-left:10px"></span></div><div class="chart" id="ov-pf-trend-au"></div>
           <div id="ov-pf-legend" class="row" style="gap:14px;flex-wrap:wrap;margin-top:6px;font-size:12px"></div></div>
       </div>
       <div class="grid g2" style="margin-top:16px">
@@ -139,10 +139,14 @@
     <div class="grid g4 glance" id="cl-kpis"></div>
     <div class="sec-title"><h2>Audio streams by platform</h2></div>
     <div class="grid g3" id="cl-audio"></div>
+    <div class="grid g2" style="margin-top:16px">
+      <div class="card"><div class="card-head"><h2>Audio streams by platform</h2><span class="spacer"></span><span id="cl-split-au-sw"></span></div><div id="cl-split-au"></div></div>
+      <div class="card"><div class="card-head"><h2>YouTube views by label</h2><span class="spacer"></span><span id="cl-split-yt-sw"></span></div><div id="cl-split-yt"></div></div>
+    </div>
     <div class="sec-title"><h2>Daily growth</h2><span class="muted">gained each day, last 30 days</span></div>
     <div class="grid g2">
-      <div class="card"><div class="card-head"><h2>YouTube views gained</h2></div><div class="chart" id="cl-trend-yt"></div></div>
-      <div class="card"><div class="card-head"><h2>Audio streams gained</h2></div><div class="chart" id="cl-trend-au"></div>
+      <div class="card"><div class="card-head"><h2>YouTube views gained</h2><span class="spacer"></span><span id="cl-trend-yt-sw"></span></div><div class="chart" id="cl-trend-yt"></div></div>
+      <div class="card"><div class="card-head"><h2>Audio streams gained</h2><span class="spacer"></span><span id="cl-trend-au-sw"></span></div><div class="chart" id="cl-trend-au"></div>
         <div id="cl-legend" class="row" style="gap:14px;flex-wrap:wrap;margin-top:6px;font-size:12px"></div></div>
     </div>
     <div class="sec-title"><h2>Songs</h2></div>
@@ -307,6 +311,12 @@
       <span class="spacer"></span><span class="pill ok" id="mg-week"></span></div>
     <div class="card notice" id="mg-started" style="margin-top:4px"></div>
     <div class="grid g5 glance" id="mg-kpis" style="margin-top:16px"></div>
+    <div class="sec-title"><h2>Where this week's Spotify plays came from</h2><span class="muted">plays gained in the week, split three ways</span></div>
+    <div class="grid g3">
+      <div class="card"><div class="card-head"><h2>By label</h2><span class="spacer"></span><span id="mg-split-label-sw"></span></div><div id="mg-split-label"></div></div>
+      <div class="card"><div class="card-head"><h2>By language</h2><span class="spacer"></span><span id="mg-split-lang-sw"></span></div><div id="mg-split-lang"></div></div>
+      <div class="card"><div class="card-head"><h2 id="mg-split-genre-title">By genre</h2><span class="spacer"></span><span id="mg-split-genre-sw"></span></div><div id="mg-split-genre"></div></div>
+    </div>
     <div class="sec-title"><h2>Top songs and releases</h2><span class="muted">Spotify plays gained this week</span></div>
     <div class="grid g2">
       <div class="card flush"><h2 style="padding:16px 16px 0">Top songs</h2><div class="table-wrap" style="max-height:520px"><table id="mg-songs"></table></div></div>
@@ -346,8 +356,8 @@
     <div class="card notice" id="sh-started" style="margin-top:16px"></div>
     <div class="grid g4 glance" id="sh-kpis" style="margin-top:16px"></div>
     <div class="grid g2" style="margin-top:16px">
-      <div class="card"><div class="card-head"><h2 id="sh-yt-title">Share of YouTube views</h2></div><div id="sh-yt" class="share-list"></div></div>
-      <div class="card"><div class="card-head"><h2 id="sh-au-title">Share of audio streams</h2></div><div id="sh-au" class="share-list"></div></div>
+      <div class="card"><div class="card-head"><h2 id="sh-yt-title">Share of YouTube views</h2><span class="spacer"></span><span id="sh-yt-sw"></span></div><div id="sh-yt" class="share-list"></div></div>
+      <div class="card"><div class="card-head"><h2 id="sh-au-title">Share of audio streams</h2><span class="spacer"></span><span id="sh-au-sw"></span></div><div id="sh-au" class="share-list"></div></div>
     </div>
     <div class="card flush" style="margin-top:16px"><div class="card-head" style="padding:16px 16px 0"><h2>Share by platform</h2><span class="spacer"></span><span class="muted" style="font-size:12px">rank · total · songs measured</span></div>
       <div class="table-wrap"><table id="sh-matrix"></table></div></div>
@@ -522,6 +532,8 @@
       <div class="card flush" style="margin-top:16px"><div class="card-head" style="padding:16px 16px 0"><h2 id="ld-days-title">Day by day</h2><span class="spacer"></span>
         <span class="muted" style="font-size:12px">⏳ = still coming in (late Spotify counts land on the day they are read)</span></div>
         <div class="table-wrap" style="max-height:640px"><table id="ld-days"></table></div></div>
+      <div class="card" style="margin-top:16px"><div class="card-head"><h2 id="ld-heat-title">Heatmap: labels by day</h2><span class="spacer"></span>
+        <span class="muted" style="font-size:12px">darker = more; hover a cell for the figure</span></div><div id="ld-heat"></div></div>
     </div>
     <div id="rp-lmonthly" style="display:none">
       <div class="card" style="margin-bottom:16px"><div class="row" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
