@@ -24,6 +24,16 @@ async function api(path, body) {
   const data = r.headers.get("X-ML-Enc") === "1" && window.__mlDec
     ? await r.text().then((t) => window.__mlDec(t)).catch(() => ({}))
     : await r.json().catch(() => ({}));
+  if (r.status === 403 && data.elsewhere) {  // one browser per client login: signed in on another browser since
+    if (!document.getElementById("ml-elsewhere")) {
+      const box = document.createElement("div"); box.id = "ml-elsewhere";
+      box.innerHTML = `<div><b>This login is now in use in another browser.</b><p>Only one browser at a time can use a client login.</p>
+        <button class="btn primary" type="button">Continue here</button></div>`;
+      box.querySelector("button").onclick = () => location.reload();  // opening the page again takes the login over here
+      document.body.appendChild(box);
+    }
+    throw new Error("This login is now in use in another browser.");
+  }
   if (r.status === 403 && /reload the page/.test(data.error || "")) {  // browser session expired (lens/shield.py): fresh page, fresh session
     let last = 0; try { last = +sessionStorage.getItem("ml_reload") || 0; } catch (e) {}
     if (Date.now() - last > 60000) { try { sessionStorage.setItem("ml_reload", Date.now()); } catch (e) {} location.reload(); }

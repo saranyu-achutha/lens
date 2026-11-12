@@ -14,8 +14,9 @@ Layers, each closing a different way of pulling the data out:
      (and IP) is blocked for 15 minutes. A person clicking through pages never comes close.
   5. Daily volume caps per login: 300 different songs opened (song details, daily history, comparisons) and 3,000
      data requests (the status poll not counted). Bulk copying of the catalogue stops there.
-  6. Sessions: at most `max_sessions` browsers per login at once (a new sign-in on another browser ends the oldest
-     session), so a shared password stops working for the others.
+  6. Sessions: one browser per client login at a time (`max_sessions`, 1 since 2026-11-12: "a single login is enough
+     for the demo"); a sign-in on another browser ends the earlier session, whose page then says so and offers to
+     continue there (it never reloads by itself, so two browsers cannot keep signing each other out).
   7. Encoded feeds: client data travels XOR-encoded with a per-session key the page receives inline (X-ML-Enc), so a
      saved network log (HAR) or the developer tools' network tab shows no readable data.
   8. Every request of a client login is counted per day (requests, songs opened, IPs, last seen: Developer dashboard ->
@@ -39,7 +40,7 @@ BOT_UA = re.compile(r"curl|wget|python|requests|httpx|aiohttp|urllib|scrapy|go-h
                     r"selenium|webdriver|puppeteer|playwright|crawl|spider|scrap|httrack|nutch|wkhtml|\bbot\b|bot/|-bot|_bot", re.I)
 DEFAULTS = {"per_minute": 90, "per_hour": 1200, "ip_per_minute": 150, "block_minutes": 15, "songs_per_day": 300,
             "requests_per_day": 3000, "login_fail_ip": 10, "login_fail_user": 20, "login_window_minutes": 10,
-            "session_hours": 12, "max_sessions": 3}
+            "session_hours": 12, "max_sessions": 1}
 SONG_PATHS = {"/api/track", "/api/song/compare", "/api/shorts", "/api/insights/song", "/api/meta/detail"}
 UNCOUNTED = {"/api/status"}
 COOKIE = "ml_sess"
@@ -231,8 +232,11 @@ def session_ok(cookie_header, user, ua):
     if not hmac.compare_digest(sig, _sign(f"{u}|{exp}|{sid}|{_ua_hash(ua)}")):
         return None
     if sid not in _live_sessions():
-        return None
+        return ENDED  # a valid session that a newer sign-in ended
     return enc_key(v)
+
+
+ENDED = "ended"
 
 
 def encode(data, key):

@@ -2370,6 +2370,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(403, {"error": "automated access is not allowed"})
             if url.path.startswith("/api/"):
                 self._enc_key = shield.session_ok(self.headers.get("Cookie", ""), cuser, ua)
+                if self._enc_key == shield.ENDED:  # signed in on another browser since (one browser per login)
+                    self._enc_key = None
+                    return self._send(403, {"error": "in use elsewhere", "elsewhere": True})
                 if not self._enc_key:
                     if self.headers.get("X-ML-App") == "1":  # the Console itself with an expired session: it reloads
                         return self._send(403, {"error": "session expired: reload the page"})
@@ -2454,7 +2457,7 @@ class Handler(BaseHTTPRequestHandler):
             https = self.headers.get("X-Forwarded-Proto", "") == "https"
             ip, cuser, ua = shield.client_ip(self.headers, self.client_address[0]), self._login_user(), self.headers.get("User-Agent", "")
             key = shield.session_ok(self.headers.get("Cookie", ""), cuser, ua)  # this browser's session is still valid: kept
-            if not key:  # (a reload must not count as another browser and sign out the login's other devices)
+            if not key or key == shield.ENDED:  # (an ended one: opening the page again takes the login over here)  # (a reload must not count as another browser and sign out the login's other devices)
                 cookie, key = shield.make_cookie(cuser, ua, https, ip)
                 extra = {"Set-Cookie": cookie}
             mark = html.escape(f"{cuser} · {ip}", quote=True)

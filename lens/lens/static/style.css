@@ -1715,3 +1715,8 @@ body:not(.role-client) #ml-wm { display: none; }
 body.role-client.ml-dt main, body.role-client.ml-shot main { filter: blur(18px) !important; visibility: hidden; }
 body.role-client.ml-dt::after { content: "Please close the browser's developer tools to see the data."; position: fixed; inset: 0; z-index: 9995;
   display: flex; align-items: center; justify-content: center; font: 600 16px/1.5 Inter, sans-serif; color: var(--text-primary); background: var(--bg); }
+/* one browser per client login: the earlier browser's notice (2026-11-12) */
+#ml-elsewhere { position: fixed; inset: 0; z-index: 9996; display: flex; align-items: center; justify-content: center; background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(14px); }
+#ml-elsewhere > div { max-width: 420px; text-align: center; padding: 28px 30px; border-radius: 18px; border: 1px solid transparent;
+  background: var(--tip-tint) padding-box, linear-gradient(var(--tip-bg), var(--tip-bg)) padding-box, var(--tip-edge) border-box; box-shadow: var(--tip-shadow); color: var(--tip-text); }
+#ml-elsewhere p { color: var(--tip-sub); margin: 8px 0 18px; }
