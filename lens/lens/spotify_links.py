@@ -237,12 +237,20 @@ def run(conn, cfg, secrets, since, until, ts, log, check):
     pace = cfg["songs"].get("odesli_pace_seconds", 6.5)
 
 
+    def free():  # never hold the write lock while waiting on the network (12 Nov: marks committed only every 10 songs,
+        # ~27 s of calls per song, so the lock was held ~4.5 min at a time and Spotify plays, Instagram and the browser
+        # search failed with "database is locked" all morning)
+        if conn.in_transaction:
+            conn.commit()
+
     for n, song in enumerate(todo, 1):
         check()
+        free()
         done = False
         # 1. MusicBrainz recording -> its Spotify link (the recording was already matched to this song)
         for rec, score in conn.execute("SELECT platform_id, match_score FROM platform_item WHERE track_id=? AND platform='musicbrainz'",
                                        (song["id"],)).fetchall():
+            free()
             d = _get(f"https://musicbrainz.org/ws/2/recording/{rec}?inc=url-rels&fmt=json", ua) or {}
             time.sleep(1.1)
             for rel in d.get("relations") or []:
@@ -261,6 +269,7 @@ def run(conn, cfg, secrets, since, until, ts, log, check):
                                      AND review_state IN ('auto','approved','song')""", (song["id"], *SOURCE_ORDER)).fetchall()
             links.sort(key=lambda r: SOURCE_ORDER.index(r["platform"]))
             for plat, url in links[:2]:  # the two most exact links: enough, and keeps within Odesli's pace
+                free()
                 d = _get(f"{ODESLI}?{urllib.parse.urlencode({'url': url, 'userCountry': 'IN', 'key': key})}")
                 time.sleep(pace)
                 if not d or d.get("_status") in (401, 403):
@@ -285,10 +294,12 @@ def run(conn, cfg, secrets, since, until, ts, log, check):
         # 3. Web search (DuckDuckGo, then Bing): candidates checked on the embed page and by the match rules
         if not done and web:
             searches += 1
+            free()
             engine, ids = web_candidates(f'{song["title"]} {song["singer"] or ""} spotify'.strip(), cfg["songs"].get("web_search_pace_seconds", 5))
             vids = _vids(conn, song["id"]) if ids else []
             best = None
             for sid in ids:
+                free()
                 det = embed_details(sid)
                 time.sleep(1)
                 if not det:
@@ -304,8 +315,7 @@ def run(conn, cfg, secrets, since, until, ts, log, check):
                 found["web"] += 1
                 done = True
         mark_tried(conn, song["id"], today)
-        if n % 10 == 0:
-            conn.commit()
+        free()
         if n % 50 == 0:
             log(f"  {n}/{len(todo)} tried ({found['musicbrainz']} from MusicBrainz, {found['odesli']} from Odesli, {found['web']} from web search)")
     conn.commit()

@@ -189,6 +189,21 @@ def check_value(last, value, metric):
     return "ok"
 
 
+def confirmed(conn, item_id, metric, value, last, reader, times=3):
+    """True when the same 'suspicious' value has now been read `times` times (this read included) against the same last
+    stored reading: a value that every fresh read gives is the page's real number (e.g. Shorts deleted, a sound
+    reassigned, a count corrected by the platform), so it is stored instead of being re-read forever (2026-11-12: 13
+    Shorts sounds held since the early morning made the Shorts job run 83 times in a day). A one-off misread does not
+    repeat exactly. No clock involved: the anchor is the last stored value."""
+    ensure(conn)
+    n = conn.execute("""SELECT count(*) FROM reading_suspect WHERE platform_item_id=? AND metric=? AND value=? AND last_value IS ?""",
+                     (item_id, metric, value, last)).fetchone()[0]
+    if n + 1 >= times:
+        record(conn, reader, "confirmed")
+        return True
+    return False
+
+
 def suspect(conn, item_id, metric, value, last, reason, at=None):
     ensure(conn)
     conn.execute("INSERT INTO reading_suspect (platform_item_id, metric, value, last_value, reason, captured_at) VALUES (?,?,?,?,?,?)",
@@ -224,6 +239,8 @@ def summary(conn, days=7):
             t = {"primary": 0, "fallback": 0, "fail": 0, "guard": 0, "by": {}}
             for _, _, s, n in rs:
                 t["by"][s] = t["by"].get(s, 0) + n
+                if s == "confirmed":  # suspicious values stored after repeating (not a way of reading the page)
+                    continue
                 t["fail" if s == "fail" else "guard" if s == "guard" else "primary" if s == info["primary"] else "fallback"] += n
             return t
         td, wk = tally([r for r in mine if r[0] == today]), tally(mine)

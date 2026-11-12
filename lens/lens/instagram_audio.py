@@ -185,7 +185,7 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
         how[p["how"]] = how.get(p["how"], 0) + 1
         last = heal.last_sound(conn, iid, today)
         verdict = heal.check_value(last, p["count"], "reels")
-        if verdict != "ok":  # far from the last count: kept apart, read again next run
+        if verdict != "ok" and not heal.confirmed(conn, iid, "reels", p["count"], last, "instagram"):  # far from the last count: kept apart, read again next run (stored once the same value repeats)
             heal.suspect(conn, iid, "reels", p["count"], last, verdict)
             conn.commit()
             held_values += 1

@@ -167,6 +167,8 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
         for n, song in enumerate(todo, 1):
             if should_stop():
                 raise Cancelled()
+            if conn.in_transaction:  # save the last song before the next search: never hold the write lock while waiting
+                conn.commit()
             hit = find_track(yt, song["title"], labels.get(song["channel"]), _artists(conn, song["id"]), _song_lang(conn, song["id"]))
             t = _tries(song["tried"])
             conn.execute("INSERT OR REPLACE INTO state (key, value) VALUES (?,?)",

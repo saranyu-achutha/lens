@@ -307,7 +307,7 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
                 unknown += 1
                 continue
             verdict = heal.check_value(last, val, "plays")
-            if verdict != "ok":  # far from the last reading: kept apart, not stored
+            if verdict != "ok" and not heal.confirmed(conn, iid, "plays", val, last, "jiosaavn"):  # far from the last reading: kept apart, not stored (until the same value repeats)
                 heal.suspect(conn, iid, "plays", val, last, verdict, ts)
                 suspects += 1
                 continue

@@ -381,7 +381,7 @@ def import_file(conn, path, log=print, only=None):
         for item_id in items[tid]:
             last = heal.last_snapshot(conn, item_id, "plays", day)
             verdict = heal.check_value(last, value, "plays")
-            if verdict != "ok":  # not stored: a misread (e.g. another track's count) must not become a reading
+            if verdict != "ok" and not heal.confirmed(conn, item_id, "plays", value, last, "spotify_plays"):  # not stored: a misread (e.g. another track's count) must not become a reading; the same value read 3 times is real
                 heal.suspect(conn, item_id, "plays", value, last, verdict, ts)
                 held_values += 1
                 continue

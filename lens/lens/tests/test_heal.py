@@ -204,6 +204,16 @@ class SpotifyImport(unittest.TestCase):
         self.assertEqual(got, {1: 100_500})
         self.assertEqual(self.conn.execute("SELECT reason FROM reading_suspect").fetchone()[0], "fell")
 
+    def test_value_that_repeats_is_stored(self):
+        # 12 Nov: a count that really fell (e.g. Shorts deleted) was quarantined and re-read every 20 minutes all day;
+        # the same value read 3 times is the page's real number
+        for _ in range(2):
+            p = self.write({"T1": 5_000}, [])
+            spotify_plays.import_file(self.conn, p, log=lambda m: None)
+        self.assertIsNone(self.conn.execute("SELECT 1 FROM snapshot WHERE platform_item_id=2 AND capture_date='2026-11-10'").fetchone())
+        spotify_plays.import_file(self.conn, self.write({"T1": 5_000}, []), log=lambda m: None)  # third identical read
+        self.assertEqual(self.conn.execute("SELECT value FROM snapshot WHERE platform_item_id=2 AND capture_date='2026-11-10'").fetchone()[0], 5_000)
+
     def test_gone_only_when_spotify_says_so(self):
         p = self.write({f"T{i}": 101_000 + i for i in range(10)}, [], {"T10": "gone: Page not found", "T11": "page error: not shown Spotify"})
         spotify_plays.import_file(self.conn, p, log=lambda m: None)

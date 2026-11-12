@@ -265,7 +265,7 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, run_id=None, *
             official = p["owner_id"] in label_ids
             shorts = p["count"] or 0
             verdict = heal.check_value(last, shorts, "shorts")
-            if verdict != "ok":  # a count far from the last one: kept apart, not stored (read again next run)
+            if verdict != "ok" and not heal.confirmed(conn, iid, "shorts", shorts, last, "shorts"):  # a count far from the last one: kept apart, not stored (read again next run; stored once the same value repeats)
                 heal.suspect(conn, iid, "shorts", shorts, last, verdict)
                 conn.commit()
                 held_values += 1
