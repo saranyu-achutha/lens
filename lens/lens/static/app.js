@@ -22,6 +22,10 @@ async function api(path, body) {
   if (body === undefined && FOCUS_ALL && path.startsWith("/api/")) path += (path.includes("?") ? "&" : "?") + "focus=all";
   const r = await fetch(path, opt);
   const data = await r.json().catch(() => ({}));
+  if (r.status === 403 && /reload the page/.test(data.error || "")) {  // browser session expired (lens/shield.py): fresh page, fresh session
+    let last = 0; try { last = +sessionStorage.getItem("ml_reload") || 0; } catch (e) {}
+    if (Date.now() - last > 60000) { try { sessionStorage.setItem("ml_reload", Date.now()); } catch (e) {} location.reload(); }
+  }
   if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
   return data;
 }

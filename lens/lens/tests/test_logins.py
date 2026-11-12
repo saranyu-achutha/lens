@@ -57,9 +57,12 @@ class Logins(unittest.TestCase):
             def __init__(self, user, password):
                 self.headers = {"Authorization": "Basic " + base64.b64encode(f"{user}:{password}".encode()).decode()}
                 self.sent = None
+                self.client_address = ("127.0.0.1", 0)
+                self.wfile = io.BytesIO()
             def send_response(self, code): self.sent = code
             def send_header(self, *a): pass
             def end_headers(self): pass
+            def _send(self, code, body, *a, **k): self.sent = code
 
         handler = next(v for v in vars(studio).values() if isinstance(v, type) and hasattr(v, "_role"))
         role = lambda u, p: handler._role(Fake(u, p))

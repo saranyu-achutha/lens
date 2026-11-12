@@ -25,7 +25,7 @@ from pathlib import Path
 
 import threading
 
-from . import ai, alerts, collection, config, crawl_stats, db, exports, health, insights, jobs, logins, merge, metadata, pause, review, song_daily, songs, spotify_charts, sysstats
+from . import ai, alerts, collection, config, crawl_stats, db, exports, health, insights, jobs, logins, merge, metadata, pause, review, shield, song_daily, songs, spotify_charts, sysstats
 from .discover_spotify import EXPORT_SQL
 from . import spotify
 from .spotify import Spotify, SpotifyError
@@ -2257,18 +2257,25 @@ class Handler(BaseHTTPRequestHandler):
         if not PASSWORD:
             return "developer"
         h = self.headers.get("Authorization", "")
+        ip = shield.client_ip(self.headers, self.client_address[0])
         if h.startswith("Basic "):
+            user = ""
             try:
                 user, pw = base64.b64decode(h[6:]).decode().split(":", 1)
                 dev_user, dev_pw = DEV_LOGIN
                 if dev_user and dev_pw and hmac.compare_digest(user, dev_user) and hmac.compare_digest(pw, dev_pw):
-                    return "developer"
+                    return "developer"  # checked first: a lockout caused by others on the same IP never stops the developer
+                if shield.login_blocked(ip, user):  # too many wrong passwords: locked out for a while (no guessing)
+                    self._send(429, {"error": "Too many failed sign-ins. Try again in 15 minutes."})
+                    return None
                 if logins.verify(user, pw):  # a named client account (lens/logins.py): client pages, read-only
                     return "client"
                 if hmac.compare_digest(pw, PASSWORD):
                     return "client"
             except Exception:
                 pass
+            if user != "signout":
+                shield.login_failed(ip, user)
         self.send_response(401)
         self.send_header("WWW-Authenticate", 'Basic realm="Market Lens"')
         self.send_header("X-Robots-Tag", ROBOTS_TAG)
@@ -2295,6 +2302,13 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header(k, v)
         self.end_headers()
         self.wfile.write(data)
+
+    def _login_user(self):
+        h = self.headers.get("Authorization", "")
+        try:
+            return base64.b64decode(h[6:]).decode().split(":", 1)[0] if h.startswith("Basic ") else ""
+        except Exception:
+            return ""
 
     def _actor(self):
         user = ""
@@ -2338,6 +2352,21 @@ class Handler(BaseHTTPRequestHandler):
         self._client = role == "client"
         url = urllib.parse.urlparse(self.path)
         qs = {k: v[-1] for k, v in urllib.parse.parse_qs(url.query).items()}
+        if role == "client":  # anti-scraping shield (lens/shield.py): no bots or scripts, browser session, rate and volume limits
+            ua, ip = self.headers.get("User-Agent", ""), shield.client_ip(self.headers, self.client_address[0])
+            cuser = self._login_user()
+            if shield.is_bot(ua):
+                shield.log_event("bot", cuser, ip, url.path, ua[:120])
+                return self._send(403, {"error": "automated access is not allowed"})
+            if url.path.startswith("/api/"):
+                if not shield.session_ok(self.headers.get("Cookie", ""), cuser, ua):
+                    if self.headers.get("X-ML-App") == "1":  # the Console itself with an expired session: it reloads
+                        return self._send(403, {"error": "session expired: reload the page"})
+                    shield.log_event("session", cuser, ip, url.path, "no browser session")
+                    return self._send(403, {"error": "open the Console to see this data"})
+                verdict = shield.allow(cuser, ip, url.path, qs)
+                if verdict:
+                    return self._send(verdict[0], {"error": verdict[1]})
         if role == "client" and url.path.startswith("/api/") and (self.headers.get("X-ML-App") != "1" or self.headers.get("Sec-Fetch-Dest") == "document"):
             # client data feeds only for the Console itself, not opened directly in the browser (no copying of raw data)
             return self._send(403, {"error": "open the Console to see this data"})
@@ -2409,7 +2438,11 @@ class Handler(BaseHTTPRequestHandler):
         f = (STATIC / name).resolve()
         if STATIC not in f.parents or not f.is_file():
             return self._send(404, b"not found", "text/plain")
-        self._send(200, f.read_bytes(), mimetypes.guess_type(f.name)[0] or "application/octet-stream")
+        extra = None
+        if role == "client" and name == "index.html":  # the Console page hands out the browser session its data feeds need
+            https = self.headers.get("X-Forwarded-Proto", "") == "https"
+            extra = {"Set-Cookie": shield.make_cookie(self._login_user(), self.headers.get("User-Agent", ""), https)}
+        self._send(200, f.read_bytes(), mimetypes.guess_type(f.name)[0] or "application/octet-stream", extra)
 
     def do_POST(self):
         role = self._role()

@@ -35,7 +35,7 @@ DATED_BACKUP = re.compile(r"^lens_(\d{4}-\d{2}-\d{2})\.db\.gz$")
 
 
 def _settings(cfg):
-    return {"enabled": True, "after_hour": 3, "raw_keep_days": 7, "backup_keep_days": 14,
+    return {"enabled": True, "after_hour": 3, "raw_keep_days": 7, "backup_keep_days": 14, "predeploy_keep_newest": 3, "predeploy_keep_days": 14,
             **(cfg.get("cleanup") or {})}
 
 
@@ -137,6 +137,31 @@ def compress_outputs(log=print):
     return saved
 
 
+PREDEPLOY = re.compile(r"^lens_predeploy_(\d{8})-(\d{6})\.db\.gz$")
+
+
+def prune_predeploy(log=print, keep_newest=3, keep_days=14):
+    """Copies taken before each deploy (deploy_server.sh) piled up: 7 a day on busy days, ~150 MB each, 11 GB on
+    2026-11-12, never removed. Kept: the newest `keep_newest`, and the newest one of each of the last `keep_days` days;
+    only older extra copies are removed (the nightly backups are kept separately for backup_keep_days). Returns bytes freed."""
+    files = sorted((f for f in BACKUPS.glob("lens_predeploy_*.db.gz") if PREDEPLOY.match(f.name)), key=lambda f: f.name, reverse=True)
+    keep = set(f.name for f in files[:keep_newest])
+    cutoff = (date.today() - timedelta(days=keep_days)).strftime("%Y%m%d")
+    seen_days = set()
+    for f in files:
+        d = PREDEPLOY.match(f.name).group(1)
+        if d >= cutoff and d not in seen_days:
+            seen_days.add(d)
+            keep.add(f.name)
+    freed = 0
+    for f in files:
+        if f.name not in keep:
+            freed += f.stat().st_size
+            f.unlink()
+            log(f"backups: {f.name} removed (an extra pre-deploy copy; the day's newest is kept)")
+    return freed
+
+
 def compress_loose_backups(log=print):
     """Gzip uncompressed database copies in data/backups (not touched for a day and not open). Returns bytes saved."""
     saved = 0
@@ -234,6 +259,7 @@ def run(conn, cfg, secrets, log=print, should_stop=lambda: False, **_):
         stats["cleanup_raw_rows"], stats["cleanup_raw_bytes"] = archive_raw(conn, s["raw_keep_days"], log, should_stop)
     stats["cleanup_outputs_saved"] = compress_outputs(log)
     stats["cleanup_backups_saved"] = compress_loose_backups(log)
+    stats["cleanup_predeploy_freed"] = prune_predeploy(log, s["predeploy_keep_newest"], s["predeploy_keep_days"])
     stats["cleanup_temp_freed"] = clear_temp_profiles(log)
     stats["cleanup_db_shrunk"] = reclaim(conn, log, should_stop)
     stats["cleanup_system_freed"] = system(log)

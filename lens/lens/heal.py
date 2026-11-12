@@ -245,8 +245,12 @@ def summary(conn, days=7):
             return t
         td, wk = tally([r for r in mine if r[0] == today]), tally(mine)
         read = td["primary"] + td["fallback"]
+        # held now: Spotify plays keeps a "held" flag that clears once the day's evidence passes (2026-11-12: the reader
+        # recovered but stayed "broken" all day because of the morning's holds); the others: holds outnumber reads today
+        held_now = (bool(conn.execute("SELECT 1 FROM state WHERE key=?", (f"heal_held:{key}:{today}",)).fetchone())
+                    if key == "spotify_plays" else td["guard"] > 0 and td["guard"] >= read)
         state = ("idle" if not (read or td["fail"] or td["guard"]) else
-                 "broken" if td["guard"] or (td["fail"] >= 10 and td["fail"] > read) else
+                 "broken" if held_now or (td["fail"] >= 10 and td["fail"] > read) else
                  "healed" if td["fallback"] > td["primary"] else "ok")
         folder = config.DB_FILE.parent / "heal_samples" / key
         samples = sorted(p.name[:10] for p in folder.glob("*.html.gz")) if folder.exists() else []

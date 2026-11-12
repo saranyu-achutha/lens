@@ -152,6 +152,8 @@ def evaluate(conn):
     # Page readers (lens/heal.py): a page changed and a fallback reads it, a reader held by its guard, suspicious values
     from . import heal
     out += heal.alert_conditions(conn)
+    from . import shield
+    out += shield.alert_conditions(conn)  # blocked scraping attempts and login lockouts
     pending = conn.execute("SELECT count(*) FROM platform_item WHERE review_state='pending'").fetchone()[0]
     if pending:
         out.append({"key": "review", "severity": "info", "action": "open:review",
