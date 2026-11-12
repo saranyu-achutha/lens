@@ -498,7 +498,7 @@ async function loadClient() {
       <span class="bar-track"><span class="bar-fill" style="width:${pct(p.songs, d.songs)}%;background:${PCOLOR[p.platform] || "var(--accent)"}"></span></span>
       <span class="bar-val">${pct(p.songs, d.songs)}% <span class="muted">${fmt(p.songs)}</span></span></div>`).join("");
   [["shorts", "#cl-shorts", "Shorts"], ["reels", "#cl-reels", "Reels"]].forEach(([k, el, what]) => {
-    const sh = d[k];
+    const sh = k === "reels" && isClient() ? null : d[k];  // no Instagram for client logins
     $(el + "-card").style.display = sh ? "" : "none";
     if (!sh) return;
     $(el + "-sub").textContent = `${compact(sh.total)} ${what} made with the official audio of ${fmt(sh.songs)} songs${sh.gain ? ` · ${sh.gain > 0 ? "+" : ""}${compact(sh.gain)} in the last day` : ""}`;
@@ -876,7 +876,7 @@ function ddChangeCell(r, k) {
 }
 // Two header rows: platform groups over (total, change) pairs; only metrics that have data are shown.
 function ddHeader(keys, lead) {
-  const groups = DD_GROUPS.map(([name, ks, plat]) => [name, ks.filter((k) => keys.includes(k)), plat]).filter((g) => g[1].length);
+  const groups = DD_GROUPS.filter((g) => !(isClient() && g[2] === "instagram")).map(([name, ks, plat]) => [name, ks.filter((k) => keys.includes(k)), plat]).filter((g) => g[1].length);
   return `<thead><tr class="dd-grp">${lead.map(() => "<th></th>").join("")}${groups.map(([n, ks, plat]) =>
       `<th colspan="${ks.length * 2}" class="dd-gh"><i class="pi ic-${plat}"></i>${esc(n)}</th>`).join("")}</tr>
     <tr>${lead.map((l) => `<th class="${l.num ? "num" : ""}">${l.label}</th>`).join("")}${groups.flatMap(([, ks]) => ks.map((k) =>
@@ -994,13 +994,18 @@ async function loadShorts(song) {
   $("#dd-shorts").style.display = "";
   document.querySelectorAll("#sh-period button").forEach((b) => b.classList.toggle("on", b.dataset.p === SH.period));
   const dev = !isClient();
+  if (!dev) {  // client logins: YouTube Shorts only, no Instagram (user rule, 2026-11-12)
+    d.sounds = (d.sounds || []).filter((x) => x.platform !== "instagram"); d.top = (d.top || []).filter((x) => x.platform !== "instagram");
+    $("#sh-title").textContent = "YouTube Shorts made with the official audio";
+    $("#sh-note").textContent = "Counted only from official sounds, as YouTube shows them (rounded above 1,000, e.g. 5K): the sounds of the song's uploads on the label channels. Clips using a re-upload are not counted.";
+  }
   const add = dev ? `<div class="row" style="gap:8px;margin-top:12px;flex-wrap:wrap"><input id="sh-ig-url" placeholder="Paste the song's Instagram audio link (instagram.com/reels/audio/…)" style="flex:1;min-width:260px">
       <button class="small primary" id="sh-ig-add">Add Instagram audio</button></div>` : "";
   const sum = (plat) => d.sounds.filter((x) => x.platform === plat && x.official).reduce((a, x) => a + (x.shorts || 0), 0);
   const nOf = (plat) => d.sounds.filter((x) => x.platform === plat && x.official).length;
   $("#sh-total").textContent = [nOf("youtube") ? `${fmt(sum("youtube"))} YouTube Shorts` : "", nOf("instagram") ? `${fmt(sum("instagram"))} Instagram Reels` : ""].filter(Boolean).join(" · ");
   if (!d.sounds.length) {
-    $("#sh-body").innerHTML = `<div class="empty">Counts are read once a day from the official sounds: YouTube's "Shorts using this sound" page of the song's label uploads, and the song's Instagram audio page once its link is added. Nothing read for this song yet.</div>` + add;
+    $("#sh-body").innerHTML = `<div class="empty">Counts are read once a day from the official sounds: YouTube's "Shorts using this sound" page of the song's label uploads${dev ? ", and the song's Instagram audio page once its link is added" : ""}. Nothing read for this song yet.</div>` + add;
   } else {
     const name = { day: "Day", week: "Week", month: "Month", year: "Year" }[SH.period];
     const gainCell = (g) => `<td class="num ${g > 0 ? "delta-up" : ""}">${g == null ? "–" : (g > 0 ? "+" : "") + fmt(g)}</td>`;
@@ -1010,9 +1015,9 @@ async function loadShorts(song) {
         <div class="t2">${esc(x.asset_type || (x.platform === "instagram" ? "Reels audio" : ""))}${x.day ? ` · read ${esc(x.day)}` : ""}</div></td><td>${esc(x.sound_owner || "–")}</td>
         <td class="num"><b>${usedCount(x)}</b></td><td class="num">${x.listed_views ? compact(x.listed_views) : "–"}</td>
         ${dev ? `<td>${x.platform === "instagram" ? `<button class="small" data-ig-remove="${x.platform_item_id}" title="Remove this Instagram audio from the song">✕</button>` : ""}</td>` : ""}</tr>`).join("") + "</tbody></table>";
-    const series = `<table><thead><tr><th>${name}</th><th class="num">YouTube Shorts</th><th class="num">New</th><th class="num">Instagram Reels</th><th class="num">New</th></tr></thead><tbody>` +
+    const series = `<table><thead><tr><th>${name}</th><th class="num">YouTube Shorts</th><th class="num">New</th>${dev ? '<th class="num">Instagram Reels</th><th class="num">New</th>' : ""}</tr></thead><tbody>` +
       (d.series.map((r) => `<tr><td>${esc(SH.period === "day" ? ddDay(r.period) : r.period)}</td><td class="num">${r.total == null ? "–" : fmt(r.total)}</td>${gainCell(r.gain)}
-        <td class="num">${r.reels == null ? "–" : fmt(r.reels)}</td>${gainCell(r.reels_gain)}</tr>`).join("") || `<tr><td class="empty" colspan="5">No readings yet.</td></tr>`) + "</tbody></table>";
+        ${dev ? `<td class="num">${r.reels == null ? "–" : fmt(r.reels)}</td>${gainCell(r.reels_gain)}` : ""}</tr>`).join("") || `<tr><td class="empty" colspan="5">No readings yet.</td></tr>`) + "</tbody></table>";
     const top = d.top.length ? `<table><thead><tr><th>Most-viewed clips using the official audio</th><th class="num">Views</th><th class="num">Likes</th><th>First seen</th></tr></thead><tbody>` +
       d.top.map((x) => `<tr><td>${x.platform === "instagram" ? "Instagram Reel" : "YouTube Short"} · <a href="${clipLink(x)}" target="_blank" rel="noopener">${esc(x.title || x.video_id.replace(/^ig:/, ""))}</a></td>
         <td class="num">${x.views == null ? "–" : compact(x.views)}</td><td class="num">${x.likes == null ? "–" : compact(x.likes)}</td><td class="muted">${esc(x.first_seen)}</td></tr>`).join("") + "</tbody></table>" : "";

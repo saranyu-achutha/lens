@@ -301,6 +301,45 @@ def api_platform(conn, qs):
     return out
 
 
+# Instagram is hidden from every client login (user rule, 2026-11-12): client JSON loses every Instagram key, list entry
+# and platform row; client CSV downloads lose Instagram columns. Developers see everything.
+_IG = re.compile(r"instagram|reels|(^|_)ig(_|$)", re.I)
+_DROP = object()
+
+
+def no_instagram(x):
+    if isinstance(x, dict):
+        if any(isinstance(x.get(k), str) and _IG.search(x[k]) for k in ("platform", "key", "metric", "source", "kind")):
+            return _DROP
+        out = {}
+        for k, v in x.items():
+            if _IG.search(str(k)):
+                continue
+            v = no_instagram(v)
+            if v is not _DROP:
+                out[k] = v
+        return out
+    if isinstance(x, (list, tuple)):
+        if x and isinstance(x[0], str) and _IG.search(x[0]) and len(x) <= 4:  # a ("ig_reels", "Instagram Reels") pair
+            return _DROP
+        return [v for v in (no_instagram(v) for v in x)
+                if v is not _DROP and not (isinstance(v, str) and re.fullmatch(r"instagram|ig_reels|reels", v, re.I))]
+    return x
+
+
+def no_instagram_csv(data):
+    text = data.decode("utf-8-sig") if isinstance(data, bytes) else data
+    rows = list(csv.reader(io.StringIO(text)))
+    if not rows:
+        return data
+    keep = [i for i, h in enumerate(rows[0]) if not _IG.search(h)]
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    for r in rows:
+        w.writerow([r[i] for i in keep if i < len(r)])
+    return ("\ufeff" if isinstance(data, bytes) and data.startswith(b"\xef\xbb\xbf") else "").encode() + buf.getvalue().encode()
+
+
 # Daily data page: song_daily rows, by day (all songs) or by song (all days), with the change from the previous day.
 DAILY_COLS = [("yt_views", "YouTube views"), ("yt_likes", "YouTube likes"), ("yt_comments", "YouTube comments"),
               ("ytm_plays", "YouTube Music plays"), ("sp_plays", "Spotify plays"), ("js_plays", "JioSaavn plays"), ("dz_rank", "Deezer rank"),
@@ -2236,6 +2275,12 @@ class Handler(BaseHTTPRequestHandler):
         return None
 
     def _send(self, code, body, ctype="application/json", extra=None):
+        if getattr(self, "_client", False):  # no Instagram for client logins
+            if not isinstance(body, bytes) and ctype.startswith("application/json"):
+                body = no_instagram(body)
+                body = {} if body is _DROP else body
+            elif ctype.startswith("text/csv"):
+                body = no_instagram_csv(body)
         data = body if isinstance(body, bytes) else json.dumps(body, default=str).encode()
         self.send_response(code)
         self.send_header("Content-Type", ctype)
@@ -2286,6 +2331,7 @@ class Handler(BaseHTTPRequestHandler):
         role = self._role()
         if not role:
             return
+        self._client = role == "client"
         url = urllib.parse.urlparse(self.path)
         qs = {k: v[-1] for k, v in urllib.parse.parse_qs(url.query).items()}
         if role == "client" and ((url.path.startswith("/api/") and url.path not in CLIENT_GET) or url.path.startswith("/docs/")):

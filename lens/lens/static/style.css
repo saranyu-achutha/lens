@@ -1592,3 +1592,26 @@ button:not(.primary):hover { background-color: color-mix(in srgb, var(--accent) 
 .hm .hm-r { width: 1%; }
 .hm .hm-r .label-tag { text-transform: none; }
 .hm thead th.hm-h { position: static; }
+
+/* ---------- Hover help (info.js, 2026-11-12) ---------- */
+h1.has-info, h2.has-info, h3.has-info, h4.has-info, th.has-info, .nav-sec.has-info { text-decoration: underline dotted color-mix(in srgb, var(--accent, #6b7cff) 55%, transparent); text-underline-offset: 4px; text-decoration-thickness: 1px; cursor: help; }
+.kpi.has-info .label, .pf-card.has-info .pf-name { text-decoration: underline dotted color-mix(in srgb, var(--accent, #6b7cff) 55%, transparent); text-underline-offset: 3px; cursor: help; }
+.kpi.has-info, .pf-card.has-info, .hl-list > li.has-info { cursor: help; }
+body.info-off .has-info { text-decoration: none !important; cursor: inherit; }
+#info-toggle.on { color: var(--accent, #6b7cff); }
+#info-toggle:not(.on) { opacity: .55; }
+#info-pop { position: fixed; z-index: 9999; pointer-events: none; max-width: calc(100vw - 24px); padding: 12px 14px 10px; border-radius: 14px;
+  background: color-mix(in srgb, var(--surface-1, #0f1424) 94%, transparent); color: var(--text-primary, #e8ecf8); border: 1px solid var(--border, rgba(255,255,255,.12));
+  backdrop-filter: blur(18px) saturate(150%); box-shadow: 0 22px 48px -18px rgba(0, 0, 0, .55); font-size: 12.5px; line-height: 1.45;
+  animation: ip-in .14s ease-out; }
+#info-pop::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 3px; border-radius: 14px 14px 0 0;
+  background: linear-gradient(90deg, #3987e5, #9085e9, #199e70); }
+#info-pop .ip-title { font-weight: 650; font-size: 13.5px; margin-bottom: 8px; letter-spacing: .01em; }
+#info-pop .ip-row { display: grid; grid-template-columns: 96px 1fr; gap: 10px; padding: 5px 0; border-top: 1px dashed color-mix(in srgb, var(--border, #fff) 70%, transparent); }
+#info-pop .ip-k { color: var(--text-muted, #95a0bd); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; padding-top: 1px; }
+#info-pop .ip-v { font-variant-numeric: tabular-nums; }
+:root[data-theme="light"] #info-pop { background: rgba(255, 255, 255, .97); color: #0b1324; box-shadow: 0 22px 48px -20px rgba(40, 60, 120, .35); }
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) #info-pop { background: rgba(255, 255, 255, .97); color: #0b1324; } }
+@media (max-width: 560px) { #info-pop .ip-row { grid-template-columns: 1fr; gap: 2px; } }
+@media (prefers-reduced-motion: reduce) { #info-pop { animation: none; } }
+@keyframes ip-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
