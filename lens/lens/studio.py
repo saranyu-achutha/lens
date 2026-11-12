@@ -2452,9 +2452,11 @@ class Handler(BaseHTTPRequestHandler):
         extra, data = None, f.read_bytes()
         if role == "client" and name == "index.html":  # the Console page hands out the browser session its data feeds need
             https = self.headers.get("X-Forwarded-Proto", "") == "https"
-            ip, cuser = shield.client_ip(self.headers, self.client_address[0]), self._login_user()
-            cookie, key = shield.make_cookie(cuser, self.headers.get("User-Agent", ""), https, ip)
-            extra = {"Set-Cookie": cookie}
+            ip, cuser, ua = shield.client_ip(self.headers, self.client_address[0]), self._login_user(), self.headers.get("User-Agent", "")
+            key = shield.session_ok(self.headers.get("Cookie", ""), cuser, ua)  # this browser's session is still valid: kept
+            if not key:  # (a reload must not count as another browser and sign out the login's other devices)
+                cookie, key = shield.make_cookie(cuser, ua, https, ip)
+                extra = {"Set-Cookie": cookie}
             mark = html.escape(f"{cuser} · {ip}", quote=True)
             data = data.replace(b"</head>", f'<meta name="ml-k" content="{key}"><meta name="ml-w" content="{mark}"></head>'.encode(), 1)
         self._send(200, data, mimetypes.guess_type(f.name)[0] or "application/octet-stream", extra)
