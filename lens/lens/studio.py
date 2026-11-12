@@ -4,7 +4,7 @@ Usage:
     python3 -m lens.studio [--host 127.0.0.1] [--port 3000]
 
 Binding to a non-loopback host requires STUDIO_PASSWORD (env or .env); the UI then asks for a login (HTTP basic auth):
-  client     any username with STUDIO_PASSWORD: Dashboard, Platforms, Reports, Daily data and Songs, read-only
+  client     any username with STUDIO_PASSWORD, or a named client login (lens/logins.py, e.g. timesnow): client pages, read-only
   developer  DEVELOPER_USERNAME + DEVELOPER_PASSWORD (.env): every page and action
 """
 import argparse
@@ -25,7 +25,7 @@ from pathlib import Path
 
 import threading
 
-from . import ai, alerts, collection, config, crawl_stats, db, exports, health, insights, jobs, merge, metadata, pause, review, song_daily, songs, spotify_charts, sysstats
+from . import ai, alerts, collection, config, crawl_stats, db, exports, health, insights, jobs, logins, merge, metadata, pause, review, song_daily, songs, spotify_charts, sysstats
 from .discover_spotify import EXPORT_SQL
 from . import spotify
 from .spotify import Spotify, SpotifyError
@@ -2223,6 +2223,8 @@ class Handler(BaseHTTPRequestHandler):
                 dev_user, dev_pw = DEV_LOGIN
                 if dev_user and dev_pw and hmac.compare_digest(user, dev_user) and hmac.compare_digest(pw, dev_pw):
                     return "developer"
+                if logins.verify(user, pw):  # a named client account (lens/logins.py): client pages, read-only
+                    return "client"
                 if hmac.compare_digest(pw, PASSWORD):
                     return "client"
             except Exception:
