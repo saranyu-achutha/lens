@@ -34,6 +34,28 @@
     document.body.classList.toggle("ml-dt", performance.now() - t > 120);
   }, 1000);
 
+  // screen capture (2026-11-12, user: "1 and 2 together"): starting the Snipping Tool, the Mac screenshot tools, Game Bar
+  // or a recorder takes focus away from the browser, so the data blanks the moment the window loses focus and comes back
+  // when the page is clicked again (a click into the page's own YouTube / Spotify player does not count). Real client
+  // logins only. A recording started before the page opened, or running in the background, cannot be seen by a page.
+  const player = () => { const a = document.activeElement; return !!(a && a.tagName === "IFRAME"); };
+  const away = (on) => { if (document.body) document.body.classList.toggle("ml-away", on); };
+  const check = () => { if (!locked() || !KEY) return away(false); away(document.hidden || (!document.hasFocus() && !player())); };
+  window.addEventListener("blur", () => setTimeout(check, 0));
+  window.addEventListener("focus", check);
+  document.addEventListener("visibilitychange", check);
+  setInterval(check, 400);  // also when a blur event is missed
+  // option 2: the screenshot shortcuts blank the page as they are pressed (Windows key, Win+Shift+S, Cmd+Shift+3/4/5,
+  // Alt/Ctrl+PrintScreen), before the capture tool opens
+  document.addEventListener("keydown", (e) => {
+    if (!locked() || !KEY) return;
+    const k = e.key || "";
+    if (k === "Meta" || k === "OS" || k === "PrintScreen" || ((e.metaKey || e.ctrlKey) && e.shiftKey) || (e.metaKey && /^[345]$/.test(k))) {
+      document.body.classList.add("ml-shot"); clearTimeout(window.__mlShotT);
+      window.__mlShotT = setTimeout(() => document.body.classList.remove("ml-shot"), 2500);
+    }
+  }, true);
+
   // the screenshot key: the clipboard is emptied and the page blanks for a moment
   document.addEventListener("keyup", (e) => {
     if (!locked() || e.key !== "PrintScreen") return;

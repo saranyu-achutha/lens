@@ -1717,3 +1717,8 @@ body.role-client.ml-dt::after { content: "Please close the browser's developer t
 #ml-elsewhere > div { max-width: 420px; text-align: center; padding: 28px 30px; border-radius: 18px; border: 1px solid transparent;
   background: var(--tip-tint) padding-box, linear-gradient(var(--tip-bg), var(--tip-bg)) padding-box, var(--tip-edge) border-box; box-shadow: var(--tip-shadow); color: var(--tip-text); }
 #ml-elsewhere p { color: var(--tip-sub); margin: 8px 0 18px; }
+/* Screen capture (2026-11-12, protect.js): the data blanks while the window does not have focus (a capture tool took it)
+   and while a screenshot shortcut is pressed; a click brings it back. */
+body.role-client.ml-away main { visibility: hidden !important; }
+body.role-client.ml-away::before { content: "Click anywhere to continue viewing."; position: fixed; inset: 0; z-index: 9994; display: flex;
+  align-items: center; justify-content: center; font: 600 16px/1.5 Inter, sans-serif; color: var(--text-muted); background: var(--bg); pointer-events: none; }
