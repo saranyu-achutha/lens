@@ -11,6 +11,7 @@ import argparse
 import base64
 import csv
 import hmac
+import html
 import io
 import json
 import mimetypes
@@ -1012,6 +1013,11 @@ def post_run(conn, body):
             raise ValueError("Configure SPOTIFY_CLIENT_ID_2 and SPOTIFY_CLIENT_SECRET_2 first")
     run_id = MANAGER.start(body.get("job", "spotify_discovery"), since=body.get("since"), until=body.get("until"))
     return {"run_id": run_id}
+
+
+def api_shield(conn, qs):
+    """Developer: client logins' access today (requests, IPs, sessions, songs opened, blocks) and the latest blocks."""
+    return shield.summary()
 
 
 def api_heal(conn, qs):
@@ -2213,7 +2219,7 @@ def fmt_n(n):
 GET = {"/api/coverage": api_coverage, "/api/insights": api_insights, "/api/insights/song": api_insights_song, "/api/ai/status": api_ai_status, "/api/ai/assist": api_ai_assist,
        "/api/meta/top": api_meta_top, "/api/meta/detail": api_meta_detail,
        "/api/merge/suggestions": api_merge_suggestions, "/api/status": api_status, "/api/overview": api_overview, "/api/crawl": api_crawl, "/api/client": api_client, "/api/search": api_search, "/api/dev": api_dev, "/api/tracks": api_tracks,
-       "/api/track": api_track, "/api/platform": api_platform, "/api/report": api_report, "/api/daily": api_daily, "/api/shorts": api_shorts, "/api/system": lambda conn, qs: sysstats.api(conn), "/api/alerts": api_alerts, "/api/live": api_live, "/api/management": api_management, "/api/market_share": api_market_share, "/api/labels/report": api_label_report, "/api/freshness": api_freshness, "/api/additions": api_additions, "/api/heal": api_heal, "/api/charts": lambda conn, qs: alerts.charts_status(conn),
+       "/api/track": api_track, "/api/platform": api_platform, "/api/report": api_report, "/api/daily": api_daily, "/api/shorts": api_shorts, "/api/system": lambda conn, qs: sysstats.api(conn), "/api/alerts": api_alerts, "/api/live": api_live, "/api/management": api_management, "/api/market_share": api_market_share, "/api/labels/report": api_label_report, "/api/freshness": api_freshness, "/api/additions": api_additions, "/api/heal": api_heal, "/api/shield": api_shield, "/api/charts": lambda conn, qs: alerts.charts_status(conn),
        "/api/collection": lambda conn, qs: collection.estimate(conn, overrides={k: qs[k] for k in collection.CHOICES if qs.get(k)}), "/api/items": api_items, "/api/song/compare": api_song_compare, "/api/items/history": api_item_history, "/api/runs": api_runs, "/api/seeds": api_seeds,
        "/api/artist_search": api_artist_search, "/api/health": api_health, "/api/datasets": api_datasets,
        "/api/datasets/view": api_dataset_view, "/api/raw": api_raw, "/api/raw/item": api_raw_item,
@@ -2287,6 +2293,9 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(body, bytes) and ctype.startswith("application/json"):
                 body = no_instagram(body)
                 body = {} if body is _DROP else body
+                if getattr(self, "_enc_key", None):  # encoded for the page only: a saved network log shows no readable data
+                    body = shield.encode(json.dumps(body, default=str).encode(), self._enc_key)
+                    ctype, extra = "text/plain; charset=utf-8", dict(extra or {}, **{"X-ML-Enc": "1"})
             elif ctype.startswith("text/csv"):
                 body = no_instagram_csv(body)
         data = body if isinstance(body, bytes) else json.dumps(body, default=str).encode()
@@ -2350,6 +2359,7 @@ class Handler(BaseHTTPRequestHandler):
         if not role:
             return
         self._client = role == "client"
+        self._enc_key = None
         url = urllib.parse.urlparse(self.path)
         qs = {k: v[-1] for k, v in urllib.parse.parse_qs(url.query).items()}
         if role == "client":  # anti-scraping shield (lens/shield.py): no bots or scripts, browser session, rate and volume limits
@@ -2359,7 +2369,8 @@ class Handler(BaseHTTPRequestHandler):
                 shield.log_event("bot", cuser, ip, url.path, ua[:120])
                 return self._send(403, {"error": "automated access is not allowed"})
             if url.path.startswith("/api/"):
-                if not shield.session_ok(self.headers.get("Cookie", ""), cuser, ua):
+                self._enc_key = shield.session_ok(self.headers.get("Cookie", ""), cuser, ua)
+                if not self._enc_key:
                     if self.headers.get("X-ML-App") == "1":  # the Console itself with an expired session: it reloads
                         return self._send(403, {"error": "session expired: reload the page"})
                     shield.log_event("session", cuser, ip, url.path, "no browser session")
@@ -2438,11 +2449,15 @@ class Handler(BaseHTTPRequestHandler):
         f = (STATIC / name).resolve()
         if STATIC not in f.parents or not f.is_file():
             return self._send(404, b"not found", "text/plain")
-        extra = None
+        extra, data = None, f.read_bytes()
         if role == "client" and name == "index.html":  # the Console page hands out the browser session its data feeds need
             https = self.headers.get("X-Forwarded-Proto", "") == "https"
-            extra = {"Set-Cookie": shield.make_cookie(self._login_user(), self.headers.get("User-Agent", ""), https)}
-        self._send(200, f.read_bytes(), mimetypes.guess_type(f.name)[0] or "application/octet-stream", extra)
+            ip, cuser = shield.client_ip(self.headers, self.client_address[0]), self._login_user()
+            cookie, key = shield.make_cookie(cuser, self.headers.get("User-Agent", ""), https, ip)
+            extra = {"Set-Cookie": cookie}
+            mark = html.escape(f"{cuser} · {ip}", quote=True)
+            data = data.replace(b"</head>", f'<meta name="ml-k" content="{key}"><meta name="ml-w" content="{mark}"></head>'.encode(), 1)
+        self._send(200, data, mimetypes.guess_type(f.name)[0] or "application/octet-stream", extra)
 
     def do_POST(self):
         role = self._role()

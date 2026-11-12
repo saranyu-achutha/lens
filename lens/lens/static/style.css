@@ -1706,3 +1706,12 @@ nav.side::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--accent)
   html.side-mini nav.side:not(:hover) a.nav { padding-top: 5px !important; padding-bottom: 5px !important; }
   html.side-mini nav.side:not(:hover) a.nav svg { width: 17px !important; height: 17px !important; }
 }
+
+/* Data-theft deterrents for client logins (2026-11-12, protect.js): watermark with login, IP and time; data hidden
+   while the browser's developer tools are open or the screenshot key is pressed. */
+#ml-wm { position: fixed; inset: 0; z-index: 9990; pointer-events: none; background-repeat: repeat; background-size: 460px 220px; }
+body:not(.role-client) #ml-wm { display: none; }
+@media print { #ml-wm { display: none; } }
+body.role-client.ml-dt main, body.role-client.ml-shot main { filter: blur(18px) !important; visibility: hidden; }
+body.role-client.ml-dt::after { content: "Please close the browser's developer tools to see the data."; position: fixed; inset: 0; z-index: 9995;
+  display: flex; align-items: center; justify-content: center; font: 600 16px/1.5 Inter, sans-serif; color: var(--text-primary); background: var(--bg); }

@@ -267,6 +267,10 @@
     "market_share._presets(): H = last completed day − first YouTube reading + 1; Spotify history added as its own choice; best = most final songs.");
   INFO["sh-preset"] = I("Measure every song at this day of its life.", "Final = lived this many days and read by then; provisional = younger songs, shown with their latest value.", "Recounted on every page open.", "Pick the day with enough final songs for a fair share; ★ has the most.");
   INFO["sh-custom"] = I("Type your own day N (1–365).", "The page recounts the songs measurable at that day and recalculates every share.", "At once.", "For any comparison window you need, e.g. 10 or 45 days.");
+  INFO["client access"] = I("Who used the client logins today: requests, songs opened, browsers signed in, IP addresses, last seen and blocks; on the right the latest blocked attempts.",
+    "Every data request of a client login is counted. Blocks: bots or scripts, requests without the Console's browser session, too fast, over the daily caps, wrong passwords and lockouts.",
+    "Live; counts reset at midnight UTC.", "Spots misuse early, e.g. a shared password (several IPs, many browsers) or bulk copying (blocks).",
+    "lens/shield.py → data/shield.db (shield_access, shield_session, shield_event); settings config.json → shield.");
   /* page-specific meanings of common words */
   Object.assign(INFO, {
     "dashboard|songs": I("Top songs and fastest-growing songs, by YouTube views or audio streams.", "Switch with the buttons; views and streams are never mixed.", LAST_DAY, ""),

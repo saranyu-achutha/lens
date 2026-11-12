@@ -21,7 +21,9 @@ async function api(path, body) {
   const opt = body === undefined ? { headers: { "X-ML-App": "1" } } : { method: "POST", headers: { "Content-Type": "application/json", "X-ML-App": "1" }, body: JSON.stringify(body) };
   if (body === undefined && FOCUS_ALL && path.startsWith("/api/")) path += (path.includes("?") ? "&" : "?") + "focus=all";
   const r = await fetch(path, opt);
-  const data = await r.json().catch(() => ({}));
+  const data = r.headers.get("X-ML-Enc") === "1" && window.__mlDec
+    ? await r.text().then((t) => window.__mlDec(t)).catch(() => ({}))
+    : await r.json().catch(() => ({}));
   if (r.status === 403 && /reload the page/.test(data.error || "")) {  // browser session expired (lens/shield.py): fresh page, fresh session
     let last = 0; try { last = +sessionStorage.getItem("ml_reload") || 0; } catch (e) {}
     if (Date.now() - last > 60000) { try { sessionStorage.setItem("ml_reload", Date.now()); } catch (e) {} location.reload(); }
@@ -560,9 +562,22 @@ async function loadSystem() {
     `</tbody><tfoot><tr><td><b>App data</b></td><td class="num"><b>${bytes(tot)}</b></td><td class="num">${((100 * tot) / s.disk_total).toFixed(1)}%</td></tr>
      <tr><td colspan="3" class="muted" style="font-size:12px">Folder sizes are added up at most every 6 hours.</td></tr></tfoot>`;
 }
+async function loadShield() {  // Developer dashboard -> Client access (lens/shield.py)
+  const d = await api("/api/shield"), st = d.settings;
+  $("#dev-shield-note").textContent = `limits: ${st.per_minute}/min · ${st.per_hour}/h · ${st.songs_per_day} songs and ${st.requests_per_day} requests a day · ${st.max_sessions} browsers per login`;
+  $("#dev-shield").innerHTML = `<thead><tr><th>Login</th><th class="num">Requests</th><th class="num">Songs opened</th><th class="num">Browsers</th><th>IPs</th><th>Last seen</th><th class="num">Blocks</th></tr></thead><tbody>` +
+    (d.logins.map((r) => `<tr><td><b>${esc(r.login || "–")}</b></td><td class="num">${fmt(r.requests)}</td><td class="num">${fmt(r.songs || 0)}</td><td class="num">${fmt(r.sessions)}</td>
+      <td class="muted">${esc(r.ips.join(", "))}</td><td class="muted">${r.last ? ago(r.last) : "–"}</td><td class="num ${r.blocks ? "warn-text" : ""}">${fmt(r.blocks)}</td></tr>`).join("")
+      || `<tr><td class="empty" colspan="7">No client sign-ins today.</td></tr>`) + "</tbody>";
+  const kind = { bot: "bot / script", session: "no browser session", rate: "too fast", volume: "daily cap", login: "wrong password", lockout: "locked out", session_ended: "older session ended" };
+  $("#dev-shield-events").innerHTML = `<thead><tr><th>When</th><th>Blocked</th><th>Login</th><th>IP</th><th>Detail</th></tr></thead><tbody>` +
+    (d.recent.map((e) => `<tr><td class="muted">${ago(e.at)}</td><td>${esc(kind[e.kind] || e.kind)}</td><td>${esc(e.login || "–")}</td><td class="muted">${esc(e.ip)}</td><td class="muted">${esc((e.detail || e.path || "").slice(0, 80))}</td></tr>`).join("")
+      || `<tr><td class="empty" colspan="5">Nothing blocked.</td></tr>`) + "</tbody>";
+}
 async function loadDev() {
   loadSystem().catch(() => {});
   loadAlerts();
+  loadShield().catch(() => {});
   const d = await api("/api/dev");
   const fr = d.freshness;
   $("#dev-fresh").innerHTML = `<div class="fresh-grid">${fr.sources.map((x) => `<div class="fresh ${x.last == null ? "none" : x.ok ? "ok" : "bad"}"><span class="dot"></span><div><div class="t1">${esc(x.source)}</div>

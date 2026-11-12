@@ -14,7 +14,12 @@ Layers, each closing a different way of pulling the data out:
      (and IP) is blocked for 15 minutes. A person clicking through pages never comes close.
   5. Daily volume caps per login: 300 different songs opened (song details, daily history, comparisons) and 3,000
      data requests (the status poll not counted). Bulk copying of the catalogue stops there.
-  6. Every block is logged (data/shield.db, its own file so it can never lock the main database) and raises an alert
+  6. Sessions: at most `max_sessions` browsers per login at once (a new sign-in on another browser ends the oldest
+     session), so a shared password stops working for the others.
+  7. Encoded feeds: client data travels XOR-encoded with a per-session key the page receives inline (X-ML-Enc), so a
+     saved network log (HAR) or the developer tools' network tab shows no readable data.
+  8. Every request of a client login is counted per day (requests, songs opened, IPs, last seen: Developer dashboard ->
+     Client access), and every block is logged (data/shield.db, its own file so it can never lock the main database) and raises an alert
      on the Developer dashboard naming the login and IP.
 Limits are in memory per process (a restart clears the counters, not the log). Settings: config.json -> shield.
 """
@@ -34,7 +39,7 @@ BOT_UA = re.compile(r"curl|wget|python|requests|httpx|aiohttp|urllib|scrapy|go-h
                     r"selenium|webdriver|puppeteer|playwright|crawl|spider|scrap|httrack|nutch|wkhtml|\bbot\b|bot/|-bot|_bot", re.I)
 DEFAULTS = {"per_minute": 90, "per_hour": 1200, "ip_per_minute": 150, "block_minutes": 15, "songs_per_day": 300,
             "requests_per_day": 3000, "login_fail_ip": 10, "login_fail_user": 20, "login_window_minutes": 10,
-            "session_hours": 12}
+            "session_hours": 12, "max_sessions": 3}
 SONG_PATHS = {"/api/track", "/api/song/compare", "/api/shorts", "/api/insights/song", "/api/meta/detail"}
 UNCOUNTED = {"/api/status"}
 COOKIE = "ml_sess"
@@ -72,6 +77,9 @@ def _secret():
 def _db():
     c = sqlite3.connect(str(config.DB_FILE.parent / "shield.db"), timeout=5)
     c.execute("CREATE TABLE IF NOT EXISTS shield_event (at TEXT, kind TEXT, user TEXT, ip TEXT, path TEXT, detail TEXT)")
+    c.execute("CREATE TABLE IF NOT EXISTS shield_session (sid TEXT PRIMARY KEY, user TEXT, ua TEXT, ip TEXT, issued TEXT, ended TEXT)")
+    c.execute("""CREATE TABLE IF NOT EXISTS shield_access (day TEXT, user TEXT, ip TEXT, requests INTEGER, last TEXT,
+                 PRIMARY KEY (day, user, ip))""")
     return c
 
 
@@ -100,7 +108,7 @@ def events(hours=24):
 
 def alert_conditions(conn=None):
     """For lens.alerts: blocked scraping attempts and login lockouts in the last 24 hours."""
-    rows = events(24)
+    rows = [r for r in events(24) if r[0] != "session_ended"]
     if not rows:
         return []
     total = sum(r[3] for r in rows)
@@ -155,27 +163,122 @@ def _ua_hash(ua):
     return hashlib.sha256((ua or "").encode()).hexdigest()[:16]
 
 
-def make_cookie(user, ua, https):
-    exp = int(time.time() + 3600 * settings()["session_hours"])
-    body = f"{user}|{exp}|{_ua_hash(ua)}"
-    sig = hmac.new(_secret(), body.encode(), hashlib.sha256).hexdigest()[:32]
-    val = f"{user}|{exp}|{sig}".replace(";", "")
-    return f"{COOKIE}={val}; Path=/; Max-Age={3600 * settings()['session_hours']}; HttpOnly; SameSite=Strict" + ("; Secure" if https else "")
+_SESS = {"at": 0.0, "live": set()}
 
 
-def session_ok(cookie_header, user, ua):
+def _live_sessions():
+    """Session ids still allowed (cached 20 s; a newer sign-in ends the oldest beyond max_sessions)."""
+    now = time.time()
+    if now - _SESS["at"] > 20:
+        try:
+            c = _db()
+            _SESS["live"] = {r[0] for r in c.execute("SELECT sid FROM shield_session WHERE ended IS NULL")}
+            c.close()
+        except Exception:
+            pass
+        _SESS["at"] = now
+    return _SESS["live"]
+
+
+def _sign(body):
+    return hmac.new(_secret(), body.encode(), hashlib.sha256).hexdigest()[:32]
+
+
+def make_cookie(user, ua, https, ip=""):
+    """A new browser session for a client login: (Set-Cookie header, the page's decoding key)."""
+    st = settings()
+    exp, sid = int(time.time() + 3600 * st["session_hours"]), hashlib.sha256(f"{time.time_ns()}|{user}|{ip}".encode()).hexdigest()[:20]
+    val = f"{user}|{exp}|{sid}|{_sign(f'{user}|{exp}|{sid}|{_ua_hash(ua)}')}".replace(";", "")
+    try:
+        c = _db()
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        c.execute("INSERT INTO shield_session VALUES (?,?,?,?,?,NULL)", (sid, user, (ua or "")[:200], ip, now))
+        old = [r[0] for r in c.execute("SELECT sid FROM shield_session WHERE user=? AND ended IS NULL ORDER BY rowid DESC", (user,))][st["max_sessions"]:]
+        for o in old:  # beyond the allowed number of browsers: the oldest sessions end
+            c.execute("UPDATE shield_session SET ended=? WHERE sid=?", (now, o))
+        c.commit()
+        c.close()
+        if old:
+            log_event("session_ended", user, ip, "", f"{len(old)} older session(s) ended by a new sign-in")
+    except Exception:
+        pass
+    _SESS["at"] = 0.0
+    header = f"{COOKIE}={val}; Path=/; Max-Age={3600 * st['session_hours']}; HttpOnly; SameSite=Strict" + ("; Secure" if https else "")
+    return header, enc_key(val)
+
+
+def _cookie(cookie_header):
     for part in (cookie_header or "").split(";"):
         k, _, v = part.strip().partition("=")
         if k == COOKIE:
-            try:
-                u, exp, sig = v.rsplit("|", 2)
-                if u != user or int(exp) < time.time():
-                    return False
-                want = hmac.new(_secret(), f"{u}|{exp}|{_ua_hash(ua)}".encode(), hashlib.sha256).hexdigest()[:32]
-                return hmac.compare_digest(sig, want)
-            except ValueError:
-                return False
-    return False
+            return v
+    return ""
+
+
+def enc_key(cookie_value):
+    return hmac.new(_secret(), ("enc|" + cookie_value).encode(), hashlib.sha256).hexdigest()
+
+
+def session_ok(cookie_header, user, ua):
+    """The session's decoding key when the browser session is valid for this login and browser, else None."""
+    v = _cookie(cookie_header)
+    try:
+        u, exp, sid, sig = v.rsplit("|", 3)
+    except ValueError:
+        return None
+    if u != user or not exp.isdigit() or int(exp) < time.time():
+        return None
+    if not hmac.compare_digest(sig, _sign(f"{u}|{exp}|{sid}|{_ua_hash(ua)}")):
+        return None
+    if sid not in _live_sessions():
+        return None
+    return enc_key(v)
+
+
+def encode(data, key):
+    """XOR with the session key, then base64 (the page decodes it)."""
+    import base64
+    k = key.encode()
+    return base64.b64encode(bytes(b ^ k[i % len(k)] for i, b in enumerate(data)))
+
+
+def count_access(user, ip):
+    try:
+        c = _db()
+        now = datetime.now(timezone.utc)
+        c.execute("""INSERT INTO shield_access VALUES (?,?,?,1,?) ON CONFLICT(day, user, ip)
+                     DO UPDATE SET requests=requests+1, last=excluded.last""", (now.date().isoformat(), user, ip, now.isoformat(timespec="seconds")))
+        c.commit()
+        c.close()
+    except Exception:
+        pass
+
+
+def summary():
+    """Developer dashboard -> Client access: today per login (requests, IPs, last seen, live sessions, songs opened, blocks)."""
+    today = datetime.now(timezone.utc).date().isoformat()
+    out = {}
+    try:
+        c = _db()
+        for user, ip, n, last in c.execute("SELECT user, ip, requests, last FROM shield_access WHERE day=?", (today,)):
+            r = out.setdefault(user, {"login": user, "requests": 0, "ips": [], "last": "", "sessions": 0, "blocks": 0})
+            r["requests"] += n
+            r["ips"].append(ip)
+            r["last"] = max(r["last"], last or "")
+        for user, n in c.execute("SELECT user, count(*) FROM shield_session WHERE ended IS NULL GROUP BY 1"):
+            out.setdefault(user, {"login": user, "requests": 0, "ips": [], "last": "", "sessions": 0, "blocks": 0})["sessions"] = n
+        for user, n in c.execute("SELECT user, count(*) FROM shield_event WHERE at >= ? AND kind NOT IN ('login', 'session_ended') GROUP BY 1", (today,)):
+            out.setdefault(user, {"login": user, "requests": 0, "ips": [], "last": "", "sessions": 0, "blocks": 0})["blocks"] = n
+        recent = c.execute("SELECT at, kind, user, ip, path, detail FROM shield_event ORDER BY at DESC LIMIT 30").fetchall()
+        c.close()
+    except Exception:
+        recent = []
+    with _LOCK:
+        for user, songs in _day["songs"].items():
+            if user in out:
+                out[user]["songs"] = len(songs)
+    return {"today": today, "logins": sorted(out.values(), key=lambda r: -r["requests"]), "settings": settings(),
+            "recent": [dict(zip(("at", "kind", "login", "ip", "path", "detail"), r)) for r in recent]}
 
 
 def allow(user, ip, path, qs):
@@ -204,6 +307,7 @@ def allow(user, ip, path, qs):
             reason = None
         if reason is None:
             _day["req"][user] += 1
+            count_access(user, ip)
             if _day["req"][user] > s["requests_per_day"]:
                 reason, kind = f"over {s['requests_per_day']} requests today", "volume"
             else:
