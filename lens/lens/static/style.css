@@ -1593,25 +1593,59 @@ button:not(.primary):hover { background-color: color-mix(in srgb, var(--accent) 
 .hm .hm-r .label-tag { text-transform: none; }
 .hm thead th.hm-h { position: static; }
 
-/* ---------- Hover help (info.js, 2026-11-12) ---------- */
-h1.has-info, h2.has-info, h3.has-info, h4.has-info, th.has-info, .nav-sec.has-info { text-decoration: underline dotted color-mix(in srgb, var(--accent, #6b7cff) 55%, transparent); text-underline-offset: 4px; text-decoration-thickness: 1px; cursor: help; }
-.kpi.has-info .label, .pf-card.has-info .pf-name { text-decoration: underline dotted color-mix(in srgb, var(--accent, #6b7cff) 55%, transparent); text-underline-offset: 3px; cursor: help; }
+/* ---------- Hover help (info.js, 2026-11-12) and chart tooltips: one gradient look, matched to each theme ---------- */
+:root {
+  --tip-bg: rgba(17, 22, 36, .93);
+  --tip-tint: linear-gradient(150deg, rgba(57, 135, 229, .20) 0%, rgba(144, 133, 233, .14) 48%, rgba(25, 158, 112, .13) 100%);
+  --tip-edge: linear-gradient(135deg, rgba(122, 179, 244, .85), rgba(176, 167, 244, .75) 50%, rgba(79, 209, 165, .8));
+  --tip-text: #eef2f7; --tip-sub: #aab4c6; --tip-line: rgba(176, 167, 244, .16);
+  --tip-shadow: 0 26px 60px -22px rgba(0, 0, 0, .75), 0 0 0 1px rgba(255, 255, 255, .02), 0 10px 34px -12px rgba(57, 135, 229, .40);
+  --tip-k1: #7ab3f4; --tip-k2: #b0a7f4; --tip-k3: #4fd1a5; --tip-k4: #f5c26b; --tip-k5: #9aa6ba;
+}
+:root[data-theme="light"] {
+  --tip-bg: rgba(255, 255, 255, .96);
+  --tip-tint: linear-gradient(150deg, rgba(47, 111, 219, .13) 0%, rgba(109, 95, 216, .09) 50%, rgba(18, 138, 98, .10) 100%);
+  --tip-edge: linear-gradient(135deg, #5b93ea, #8f84e6 50%, #2bb084);
+  --tip-text: #111827; --tip-sub: #4b5567; --tip-line: rgba(109, 95, 216, .14);
+  --tip-shadow: 0 24px 54px -22px rgba(40, 60, 120, .38), 0 8px 26px -14px rgba(47, 111, 219, .30);
+  --tip-k1: #2f6fdb; --tip-k2: #6d5fd8; --tip-k3: #128a62; --tip-k4: #b7791f; --tip-k5: #6b7484;
+}
+
+/* markers on things that have help */
+h1.has-info, h2.has-info, h3.has-info, h4.has-info, th.has-info, .nav-sec.has-info, .kpi.has-info .label, .pf-card.has-info .pf-name {
+  text-decoration: underline dotted color-mix(in srgb, var(--tip-k2) 60%, transparent); text-underline-offset: 4px; text-decoration-thickness: 1px; cursor: help; }
 .kpi.has-info, .pf-card.has-info, .hl-list > li.has-info { cursor: help; }
-body.info-off .has-info { text-decoration: none !important; cursor: inherit; }
-#info-toggle.on { color: var(--accent, #6b7cff); }
+body.info-off .has-info, body.info-off .has-info .label, body.info-off .has-info .pf-name { text-decoration: none !important; cursor: inherit; }
+#info-toggle.on { color: var(--tip-k1); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tip-k2) 45%, transparent); }
 #info-toggle:not(.on) { opacity: .55; }
-#info-pop { position: fixed; z-index: 9999; pointer-events: none; max-width: calc(100vw - 24px); padding: 12px 14px 10px; border-radius: 14px;
-  background: color-mix(in srgb, var(--surface-1, #0f1424) 94%, transparent); color: var(--text-primary, #e8ecf8); border: 1px solid var(--border, rgba(255,255,255,.12));
-  backdrop-filter: blur(18px) saturate(150%); box-shadow: 0 22px 48px -18px rgba(0, 0, 0, .55); font-size: 12.5px; line-height: 1.45;
-  animation: ip-in .14s ease-out; }
-#info-pop::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 3px; border-radius: 14px 14px 0 0;
-  background: linear-gradient(90deg, #3987e5, #9085e9, #199e70); }
-#info-pop .ip-title { font-weight: 650; font-size: 13.5px; margin-bottom: 8px; letter-spacing: .01em; }
-#info-pop .ip-row { display: grid; grid-template-columns: 96px 1fr; gap: 10px; padding: 5px 0; border-top: 1px dashed color-mix(in srgb, var(--border, #fff) 70%, transparent); }
-#info-pop .ip-k { color: var(--text-muted, #95a0bd); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; padding-top: 1px; }
+
+/* the help panel */
+#info-pop { position: fixed; z-index: 9999; pointer-events: none; max-width: calc(100vw - 24px); padding: 13px 15px 9px; border-radius: 16px;
+  color: var(--tip-text); font-size: 12.5px; line-height: 1.5; border: 1px solid transparent;
+  background: var(--tip-tint) padding-box, linear-gradient(var(--tip-bg), var(--tip-bg)) padding-box, var(--tip-edge) border-box;
+  backdrop-filter: blur(20px) saturate(160%); -webkit-backdrop-filter: blur(20px) saturate(160%); box-shadow: var(--tip-shadow);
+  animation: ip-in .16s cubic-bezier(.2, .8, .2, 1); }
+#info-pop::after { content: ""; position: absolute; left: var(--ax, 24px); width: 12px; height: 12px; margin-left: -6px; transform: rotate(45deg);
+  background: linear-gradient(var(--tip-bg), var(--tip-bg)) padding-box, var(--tip-edge) border-box; border: 1px solid transparent; }
+#info-pop[data-side="below"]::after { top: -7px; border-right: 0; border-bottom: 0; border-radius: 3px 0 0 0; }
+#info-pop[data-side="above"]::after { bottom: -7px; border-left: 0; border-top: 0; border-radius: 0 0 3px 0; }
+#info-pop .ip-title { font: 650 14px/1.3 "Space Grotesk", "Inter", sans-serif; letter-spacing: .01em; margin: 0 0 9px; padding-right: 4px;
+  background: var(--brand-text, linear-gradient(90deg, #7ab3f4, #b0a7f4 55%, #4fd1a5)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+#info-pop .ip-row { display: grid; grid-template-columns: 104px 1fr; gap: 10px; padding: 6px 0; border-top: 1px solid var(--tip-line); }
+#info-pop .ip-k { display: flex; gap: 7px; align-items: baseline; color: var(--tip-sub); font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
+#info-pop .ip-k::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--c, var(--tip-k1)); box-shadow: 0 0 10px var(--c, var(--tip-k1)); transform: translateY(-1px); }
+#info-pop .ip-row.k1 { --c: var(--tip-k1); } #info-pop .ip-row.k2 { --c: var(--tip-k2); }
+#info-pop .ip-row.k3 { --c: var(--tip-k3); } #info-pop .ip-row.k4 { --c: var(--tip-k4); }
+#info-pop .ip-row.dev { --c: var(--tip-k5); } #info-pop .ip-row.dev .ip-v { font: 11.5px/1.5 var(--mono); color: var(--tip-sub); }
 #info-pop .ip-v { font-variant-numeric: tabular-nums; }
-:root[data-theme="light"] #info-pop { background: rgba(255, 255, 255, .97); color: #0b1324; box-shadow: 0 22px 48px -20px rgba(40, 60, 120, .35); }
-@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) #info-pop { background: rgba(255, 255, 255, .97); color: #0b1324; } }
-@media (max-width: 560px) { #info-pop .ip-row { grid-template-columns: 1fr; gap: 2px; } }
+@media (max-width: 560px) { #info-pop .ip-row { grid-template-columns: 1fr; gap: 2px; } #info-pop::after { display: none; } }
 @media (prefers-reduced-motion: reduce) { #info-pop { animation: none; } }
-@keyframes ip-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes ip-in { from { opacity: 0; transform: translateY(var(--ip-dy, 5px)) scale(.985); } to { opacity: 1; transform: none; } }
+#info-pop[data-side="above"] { --ip-dy: -5px; }
+
+/* chart tooltips: same gradient edge and tint */
+:root[data-theme] .tooltip, :root .tooltip { color: var(--tip-text) !important; border: 1px solid transparent !important; border-radius: 12px !important;
+  background: var(--tip-tint) padding-box, linear-gradient(var(--tip-bg), var(--tip-bg)) padding-box, var(--tip-edge) border-box !important;
+  box-shadow: var(--tip-shadow) !important; backdrop-filter: blur(18px) saturate(160%); -webkit-backdrop-filter: blur(18px) saturate(160%); }
+:root[data-theme] .tooltip b { color: var(--tip-text); }
+:root[data-theme] .tooltip .muted, :root[data-theme] .tooltip small { color: var(--tip-sub) !important; }

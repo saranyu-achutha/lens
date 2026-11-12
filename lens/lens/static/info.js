@@ -50,7 +50,7 @@
     "at a glance": I("The headline numbers for the period's songs.", "Totals at the end of the last completed day; the chip shows that day's gain.", LAST_DAY, "The four numbers to quote."),
     "youtube views": I("Total YouTube views of all uploads of the period's songs: videos, lyric videos, audio uploads and Shorts.", "Sum of each upload's latest view count from the YouTube Data API.", "Every 8 hours in an upload's first 7 days, then once a day.", "YouTube is where most Indian film music is first heard.", "sync_youtube.py → snapshot → song_daily.yt_views."),
     "audio streams": I("Spotify + YouTube Music + JioSaavn plays of the period's songs.", "Sum of each linked track's latest play count. Counted apart from YouTube views (a stream and a video view are different things).", DAILY, "Measures real listening on audio services.", "Spotify from the public track page, YouTube Music and JioSaavn from their track data."),
-    "songs released": I("Songs first uploaded on the labels' YouTube channels in the period.", "One song = its uploads grouped together. 'Confirmed new on Spotify' = released on Spotify at most 30 days before its first YouTube upload.", "New songs appear within hours.", "The release pipeline of all seven labels.", PERIOD),
+    "songs released": I("Songs first uploaded on the labels' YouTube channels in the period.", "One song = its uploads grouped together. 'Confirmed new on Spotify' = released on Spotify at most 30 days before its first YouTube upload.", "New songs appear within hours.", "The release pipeline of all seven labels. " + PERIOD),
     "ratio": I("One platform's number per 100 of another's (Spotify per 100 YouTube views by default).", "Total of the first ÷ total of the second × 100. Pick any two platforms or all audio streams; the choice is kept in this browser.", LAST_DAY, "Shows how audio listening converts relative to video reach."),
     "audio streams by platform": I("Each audio platform's total plays, the last day's gain and its share of all audio streams.", "Share = the platform's plays ÷ (Spotify + YouTube Music + JioSaavn) plays. 'On N songs' = songs linked there.", LAST_DAY, "Which audio platform carries the songs."),
     "youtube views by label": I("Each label's part of the period's YouTube views.", "Sum of the label's songs' views ÷ all views. Switch Donut / Bars / Stacked bar.", LAST_DAY, "Who leads on video reach."),
@@ -452,20 +452,23 @@
   if (document.body) document.body.appendChild(pop);
 
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  const ROWK = { "What it is": 1, "How it's worked out": 2, "When it updates": 3, "Why it matters": 4, "Here": 1 };
   function render(el, e) {
     const title = keyOf(el).replace(/\s+/g, " ").trim();
     const rows = [["What it is", e.what], ["How it's worked out", e.how], ["When it updates", e.when], ["Why it matters", e.why]];
     if (isDev() && e.dev) rows.push(["Under the hood (developer)", e.dev]);
     if (el.dataset.infoTitle) rows.push(["Here", el.dataset.infoTitle]);
     pop.innerHTML = `<div class="ip-title">${esc(title.length > 60 ? title.slice(0, 57) + "…" : title)}</div>` +
-      rows.map(([k, v]) => [k, v && clientText(v)]).filter(([, v]) => v).map(([k, v]) => `<div class="ip-row"><div class="ip-k">${k}</div><div class="ip-v">${esc(v)}</div></div>`).join("");
+      rows.map(([k, v]) => [k, v && clientText(v)]).filter(([, v]) => v).map(([k, v]) => `<div class="ip-row ${k.startsWith("Under the hood") ? "dev" : "k" + (ROWK[k] || 1)}"><div class="ip-k">${k.replace(" (developer)", "")}</div><div class="ip-v">${esc(v)}</div></div>`).join("");
   }
   function place(el) {
     const r = el.getBoundingClientRect(), w = Math.min(380, window.innerWidth - 24);
     pop.style.width = w + "px"; pop.hidden = false;
     const h = pop.offsetHeight;
-    let top = r.bottom + 8; if (top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - 8);
-    let left = Math.min(Math.max(8, r.left), window.innerWidth - w - 8);
+    let top = r.bottom + 11, side = "below"; if (top + h > window.innerHeight - 8) { top = Math.max(8, r.top - h - 11); side = "above"; }
+    const anchor = r.left + Math.min(28, r.width / 2);   // the arrow points at the start of the hovered item
+    let left = Math.min(Math.max(8, anchor - 26), window.innerWidth - w - 8);
+    pop.dataset.side = side; pop.style.setProperty("--ax", Math.max(16, Math.min(w - 16, anchor - left)) + "px");
     pop.style.top = top + "px"; pop.style.left = left + "px";
   }
   let timer = null, cur = null;
