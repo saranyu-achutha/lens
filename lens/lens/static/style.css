@@ -1662,3 +1662,23 @@ body.info-off .has-info, body.info-off .has-info .label, body.info-off .has-info
 .sh-presets .sh-pre.best:not(.on) { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tip-k4, #f5c26b) 55%, transparent); }
 .sh-presets .sh-pre.thin:not(.on) { opacity: .72; }
 .sh-history { font-size: 12px; margin-top: 6px; max-width: 760px; }
+
+/* Client logins: no CSV downloads (2026-11-12; the server refuses them too) */
+body.role-client a[href*=".csv"], body.role-client #rp-csv, body.role-client #ld-csv, body.role-client #lm-csv, body.role-client #dd-csv,
+body.role-client #dd-csv2, body.role-client #pd-csv, body.role-client #out-dl { display: none !important; }
+
+/* Copy protection for client logins (2026-11-12, with protect.js): no selecting, no long-press menu, no dragging out,
+   no printing. Text fields stay usable. */
+body.role-client { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+body.role-client *:not(input):not(textarea):not(select) { -webkit-user-select: none !important; user-select: none !important; -webkit-touch-callout: none; }
+body.role-client input, body.role-client textarea, body.role-client select { -webkit-user-select: text; user-select: text; }
+body.role-client img, body.role-client svg, body.role-client canvas, body.role-client a { -webkit-user-drag: none; }
+body.role-client ::selection { background: transparent; }
+body.role-client input::selection, body.role-client textarea::selection { background: var(--accent-soft); }
+@media print {
+  body.role-client > * { display: none !important; }
+  body.role-client::before { content: "Printing is turned off for this login. Please view Market Lens in the Console."; display: block !important;
+    font: 14pt/1.5 Inter, sans-serif; color: #111; padding: 40mm 20mm; text-align: center; }
+  body.role-client { background: #fff !important; display: block !important; }
+  body.role-client::before { width: auto !important; max-width: none !important; }
+}

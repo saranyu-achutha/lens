@@ -39,8 +39,9 @@ PASSWORD = None  # client login: any username with STUDIO_PASSWORD
 DEV_LOGIN = (None, None)  # developer login: DEVELOPER_USERNAME + DEVELOPER_PASSWORD (.env)
 # What the client login may read: its dashboard, platforms, reports, daily data and songs. Everything else
 # (developer pages, raw data, review, runs, settings, docs) and every change (POST) is for the developer login only.
-CLIENT_GET = {"/api/status", "/api/client", "/api/platform", "/api/report", "/api/report.csv", "/api/labels/report", "/api/labels/report.csv", "/api/market_share", "/api/management", "/api/daily", "/api/daily.csv", "/api/shorts",
-              "/api/song/compare", "/api/tracks", "/api/track", "/api/search", "/api/insights/song", "/api/meta/detail", "/api/export.csv"}
+# Client logins read on screen only: no CSV downloads (user rule, 2026-11-12); every *.csv / download path is refused below too.
+CLIENT_GET = {"/api/status", "/api/client", "/api/platform", "/api/report", "/api/labels/report", "/api/market_share", "/api/management", "/api/daily", "/api/shorts",
+              "/api/song/compare", "/api/tracks", "/api/track", "/api/search", "/api/insights/song", "/api/meta/detail"}
 
 SORTS = {"song_date": "song_date", "release_date": "release_date", "title": "title", "artists": "artists",
          "yt_views": "yt_views", "yt_delta": "yt_delta", "yt_likes": "yt_likes", "yt_comments": "yt_comments",
@@ -2287,6 +2288,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Robots-Tag", ROBOTS_TAG)  # never indexed or followed by search engines
+        self.send_header("X-Frame-Options", "DENY")  # no other site may embed the Console (and copy from it)
+        self.send_header("Content-Security-Policy", "frame-ancestors 'none'")
+        self.send_header("X-Content-Type-Options", "nosniff")
         for k, v in (extra or {}).items():
             self.send_header(k, v)
         self.end_headers()
@@ -2334,6 +2338,11 @@ class Handler(BaseHTTPRequestHandler):
         self._client = role == "client"
         url = urllib.parse.urlparse(self.path)
         qs = {k: v[-1] for k, v in urllib.parse.parse_qs(url.query).items()}
+        if role == "client" and url.path.startswith("/api/") and (self.headers.get("X-ML-App") != "1" or self.headers.get("Sec-Fetch-Dest") == "document"):
+            # client data feeds only for the Console itself, not opened directly in the browser (no copying of raw data)
+            return self._send(403, {"error": "open the Console to see this data"})
+        if role == "client" and (url.path.endswith((".csv", ".csv.gz")) or "download" in url.path or "/archive/" in url.path):
+            return self._send(403, {"error": "downloads are not available for this login"})
         if role == "client" and ((url.path.startswith("/api/") and url.path not in CLIENT_GET) or url.path.startswith("/docs/")):
             return self._send(403, {"error": "not available for this login"})
         if url.path == "/api/job":

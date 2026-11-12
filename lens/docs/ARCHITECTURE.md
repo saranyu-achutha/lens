@@ -16,37 +16,38 @@ Market Lens tracks new Indian film and music releases across platforms. It finds
 ## 1. The big picture
 
 ```
-                 ┌──────────────────────── SOURCES ────────────────────────┐
-                 │ YouTube Data API   Spotify API (IDs only)   Deezer API  │
-                 │ iTunes Search      MusicBrainz              JioSaavn    │
-                 │ Public pages (headless Chrome): Spotify track pages,     │
-                 │ YouTube Shorts sound pages, Instagram audio pages,       │
-                 │ open.spotify.com search, Spotify embeds                 │
-                 └───────────────────────────┬──────────────────────────────┘
-                                             │  connectors (lens/*.py)
-                                             ▼
-┌──────────────┐   starts jobs    ┌──────────────────────┐   readers + fallbacks   ┌──────────────┐
-│ Worker /     │ ───────────────▶ │ Jobs (two lanes)     │ ──────────────────────▶ │ heal.py      │
-│ scheduler    │                  │  API lane            │                          │ (self-heal,  │
-│ (jobs.py)    │ ◀─ watchdog ──── │  Browser lane        │                          │  guards)     │
-└──────────────┘   freshness.py   └──────────┬───────────┘                          └──────────────┘
-                                             │ writes (commit before every network call)
-                                             ▼
-                          ┌──────────────────────────────────────┐
-                          │ SQLite  data/lens.db  (WAL mode)     │
-                          │ track · platform_item · snapshot ·   │
-                          │ song_daily · review_decision · state │
-                          └──────────┬───────────────────────────┘
-                                     │ read-only queries
-                                     ▼
-                 ┌────────────────────────────────────────────────┐
-                 │ Console  (studio.py: HTTP server + JSON API)   │
-                 │ static/index.html · app.js · style.css         │
-                 │ Client pages · Developer pages · CSV downloads │
-                 └───────────────────────┬────────────────────────┘
-                                         │ HTTPS (nginx) + Basic auth
-                                         ▼
-                  Times Music / Times Now (client)   ·   Saranyu team (developer)
+                ┌────────────────────────── SOURCES ───────────────────────────┐
+                │ YouTube Data API     Spotify API (IDs only)     Deezer API   │
+                │ iTunes Search        MusicBrainz                JioSaavn     │
+                │ Public pages in headless Chrome: Spotify track pages,        │
+                │ YouTube Shorts sound pages, Instagram audio pages,           │
+                │ open.spotify.com search, Spotify embeds                      │
+                └───────────────────────────────┬──────────────────────────────┘
+                                                │  connectors (lens/*.py)
+                                                ▼
+                  starts jobs                                  readers + fallbacks
+┌──────────────┐                    ┌──────────────────────┐                   ┌──────────────┐
+│ Worker /     │                    │ Jobs (two lanes)     │                   │ heal.py      │
+│ scheduler    │ ─────────────────▶ │  API lane            │ ────────────────▶ │ (self-heal,  │
+│ (jobs.py)    │ ◀───────────────── │  Browser lane        │                   │  guards)     │
+└──────────────┘                    └───────────┬──────────┘                   └──────────────┘
+                  watchdog: freshness.py        │  writes (commit before every network call)
+                                                ▼
+                            ┌──────────────────────────────────────┐
+                            │ SQLite  data/lens.db  (WAL mode)     │
+                            │ track · platform_item · snapshot ·   │
+                            │ song_daily · review_decision · state │
+                            └───────────────────┬──────────────────┘
+                                                │  read-only queries
+                                                ▼
+                     ┌────────────────────────────────────────────────────┐
+                     │ Console  (studio.py: HTTP server + JSON API)       │
+                     │ static/: index.html · app.js · style.css · info.js │
+                     │ Client pages · Developer pages · CSV downloads     │
+                     └──────────────────────────┬─────────────────────────┘
+                                                │  HTTPS (nginx) + Basic auth
+                                                ▼
+           Times Music / Times Now (client)    ·    Saranyu team (developer)
 ```
 
 ---
@@ -167,7 +168,7 @@ There are 31 automated tests (`python3 -m unittest discover lens/tests`, run fro
 | Named client | Own username and password, e.g. `timesnow` (`logins.py`; only a PBKDF2 hash is stored) | Same as the shared client login; each account can be removed on its own |
 | Developer | `DEVELOPER_USERNAME` / `DEVELOPER_PASSWORD` | Everything: Review, Runs, Job control, Missed readings, Daily additions, Sources, Settings, Outputs |
 
-The server checks every API: a client calling a developer API gets 403, and every POST request is developer-only. Instagram data is stripped from every client reply and CSV.
+The server checks every API: a client calling a developer API gets 403, and every POST request is developer-only. Instagram data is stripped from every client reply, and client logins cannot download CSV files (on-screen only).
 
 **Hover help:** hovering any title, number, column or button explains what it is, how it is worked out, when it updates and why it matters (developers also see the technical detail).
 

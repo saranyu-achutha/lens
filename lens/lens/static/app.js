@@ -17,7 +17,8 @@ const monthLabel = (ym) => (ym && ym.length >= 7 ? `${MONTHS[+ym.slice(5, 7) - 1
 // "Include older songs" box is ticked; it starts unticked on every load and is not remembered.
 let FOCUS_ALL = false;
 async function api(path, body) {
-  const opt = body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
+  // X-ML-App marks the Console's own requests: the server refuses client data feeds opened directly in the browser
+  const opt = body === undefined ? { headers: { "X-ML-App": "1" } } : { method: "POST", headers: { "Content-Type": "application/json", "X-ML-App": "1" }, body: JSON.stringify(body) };
   if (body === undefined && FOCUS_ALL && path.startsWith("/api/")) path += (path.includes("?") ? "&" : "?") + "focus=all";
   const r = await fetch(path, opt);
   const data = await r.json().catch(() => ({}));
@@ -2120,6 +2121,7 @@ $("#rev-table").addEventListener("click", async (e) => {
 /* ---------- Outputs ---------- */
 // navigator.clipboard only exists on HTTPS/localhost; the studio is often served over plain HTTP.
 function copyText(text) {
+  if (isClient()) return toast("Copying is turned off for this login.");
   if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(text).then(() => toast("Copied")); return; }
   const ta = document.createElement("textarea");
   ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
