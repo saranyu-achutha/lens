@@ -1682,3 +1682,27 @@ body.role-client input::selection, body.role-client textarea::selection { backgr
   body.role-client { background: #fff !important; display: block !important; }
   body.role-client::before { width: auto !important; max-width: none !important; }
 }
+
+/* Side menu always reachable (2026-11-12). The developer menu is taller than many screens and desktop had overflow: hidden,
+   so the last items were cut off. Without changing the look: on shorter screens the spacing tightens a little so every
+   item fits; only when it still doesn't fit does the menu scroll, and its scrollbar stays invisible until hovered. */
+nav.side { overflow-y: auto !important; overflow-x: hidden !important; overscroll-behavior: contain; scrollbar-width: none; }
+nav.side:hover { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--accent) 40%, transparent) transparent; }
+nav.side > * { flex-shrink: 0; }
+nav.side::-webkit-scrollbar { width: 0; }
+nav.side:hover::-webkit-scrollbar { width: 5px; }
+nav.side::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--accent) 40%, transparent); border-radius: 6px; }
+@media (min-width: 1101px) and (max-height: 900px) {
+  nav.side { padding-top: 14px !important; padding-bottom: 14px !important; gap: 2px; }
+  nav.side .brand { padding-bottom: 12px !important; }
+  nav.side a.nav { padding-top: 5px !important; padding-bottom: 5px !important; }
+  nav.side .nav-sec { margin-top: 10px !important; margin-bottom: 4px !important; }
+  html.side-mini nav.side:not(:hover) .nav-sec { margin: 8px 8px !important; }
+  html.side-mini nav.side:not(:hover) a.nav { padding-top: 7px !important; padding-bottom: 7px !important; }
+}
+@media (min-width: 1101px) and (max-height: 760px) {
+  nav.side a.nav { padding-top: 3px !important; padding-bottom: 3px !important; font-size: 13px !important; }
+  nav.side .nav-sec { margin-top: 7px !important; margin-bottom: 2px !important; }
+  html.side-mini nav.side:not(:hover) a.nav { padding-top: 5px !important; padding-bottom: 5px !important; }
+  html.side-mini nav.side:not(:hover) a.nav svg { width: 17px !important; height: 17px !important; }
+}

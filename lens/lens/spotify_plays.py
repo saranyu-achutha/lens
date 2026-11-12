@@ -398,26 +398,42 @@ def import_file(conn, path, log=print, only=None):
         dur = int(meta["duration_s"]) * 1000 if str(meta.get("duration_s") or "").isdigit() else None
         conn.execute("""UPDATE platform_item SET published_at=COALESCE(NULLIF(published_at, ''), ?), duration_ms=COALESCE(duration_ms, ?)
                         WHERE platform='spotify' AND platform_id=?""", (meta.get("release_date"), dur, tid))
-    # Guard: tracks that showed a count on their last reading (5,000+) and now show none mean the page changed, not
-    # that their counts were hidden; a jump in the share of hidden pages means the same.
-    known = [t for t in list(plays) + hidden if any((heal.last_snapshot(conn, i, "plays", day) or 0) >= 5000 for i in items[t])]
-    known_empty = sum(1 for t in known if t in hidden)
-    held = heal.known_guard(conn, "spotify_plays", len(known), known_empty) or \
-        heal.mass_guard(conn, "spotify_plays", "hidden", len(hidden), len(plays) + len(hidden))
+    # Guard (rewritten 2026-11-12): judged on the whole day's evidence, not on one batch. A batch of small new songs is
+    # naturally mostly "hidden" (Spotify hides counts under 1,000), and the old share-of-hidden check held such batches,
+    # then re-read only the hidden tracks (~100% hidden again) and held them again all day (19,768 held on 11 Nov while
+    # the reader worked). Evidence that the page changed: tracks that showed 1,000+ plays before (counts only grow, so
+    # they must still show one) now mostly show none, or no count at all was read today. A single track that showed a
+    # count before and now shows none is not trusted as hidden either: it is read again, not marked.
+    day_plays, day_hidden = res["plays"], set(res.get("hidden", []))
+    before = dict(conn.execute("""SELECT p.platform_id, max(s.value) FROM snapshot s JOIN platform_item p ON p.id=s.platform_item_id
+                                  WHERE p.platform='spotify' AND s.metric='plays' AND s.capture_date < ? GROUP BY p.platform_id""", (day,)).fetchall())
+    known = [t for t in list(day_plays) + list(day_hidden) if (before.get(t) or 0) >= 1000]
+    known_empty = sum(1 for t in known if t in day_hidden)
+    held = heal.known_guard(conn, "spotify_plays", len(known), known_empty) or (len(day_plays) < 5 and len(day_hidden) >= 20)
     if held:
+        if len(day_plays) < 5 and not (len(known) >= 5 and known_empty / len(known) >= 0.5):
+            heal.record(conn, "spotify_plays", "guard", len(hidden), day)
         conn.execute("INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)", (f"heal_held:spotify_plays:{day}", ts))
-        log(f"  GUARD: {len(hidden)} pages showed no count ({known_empty} of {len(known)} tracks that had one); the page may have "
-            f"changed, so none is marked as read (they are retried). See Missed readings → Page readers.")
+        log(f"  GUARD: {len(day_hidden)} pages showed no count today ({known_empty} of {len(known)} tracks that showed one before); "
+            f"the page may have changed, so none is marked as read (they are retried). See Missed readings → Page readers.")
+        trusted = []
+    else:
+        conn.execute("DELETE FROM state WHERE key=?", (f"heal_held:spotify_plays:{day}",))  # the page works: stop re-reading
+        # every hidden outcome of the day (earlier held batches too), except tracks that showed a count before
+        trusted = [t for t in day_hidden if (before.get(t) or 0) < 1000]
+        odd = [t for t in hidden if (before.get(t) or 0) >= 1000]
+        if odd:
+            log(f"  {len(odd)} tracks that showed a count before showed none today: read again, not marked as hidden")
     # reads that gave no number still count as read (the 24-hour check, lens/freshness.py): hidden counts, pages gone
-    marks = ([] if held else [(t, "hidden") for t in hidden]) + \
+    marks = [(t, "hidden") for t in trusted] + \
         [(t, "gone") for t, why in (res.get("missing") or {}).items() if pick(t) and str(why).startswith("gone")]
     for tid, outcome in marks:
         for (item_id,) in conn.execute("SELECT id FROM platform_item WHERE platform='spotify' AND platform_id=?", (tid,)).fetchall():
             freshness.mark(conn, item_id, "plays", outcome, ts)
     # Tracks found under 1,000 plays (Spotify hides the count): drop any value stored for them that day,
-    # so an earlier wrong reading cannot stay (not while the guard holds the "hidden" outcomes).
+    # so an earlier wrong reading cannot stay (only for trusted hidden outcomes).
     gone = 0
-    for tid in ([] if held else hidden):
+    for tid in trusted:
         gone += conn.execute("""DELETE FROM snapshot WHERE metric='plays' AND capture_date=? AND platform_item_id IN
                                 (SELECT id FROM platform_item WHERE platform='spotify' AND platform_id=?)""", (day, tid)).rowcount
     # strategy counts and the learned marker (only for the values of this batch)

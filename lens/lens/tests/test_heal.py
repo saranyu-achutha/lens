@@ -210,6 +210,33 @@ class SpotifyImport(unittest.TestCase):
         rows = [tuple(r) for r in self.conn.execute("SELECT platform_item_id, outcome FROM read_mark").fetchall()]
         self.assertEqual(rows, [(11, "gone")])  # T11 (a page that did not show) is retried, never marked
 
+    def _small(self, n):  # new tracks never read before (small songs: Spotify hides counts under 1,000)
+        ts = db.now_iso()
+        for i in range(n):
+            self.conn.execute("INSERT INTO platform_item (platform, platform_id, title, first_seen_at) VALUES ('spotify', ?, ?, ?)", (f"N{i}", f"n{i}", ts))
+        self.conn.commit()
+        return [f"N{i}" for i in range(n)]
+
+    def test_batch_of_small_songs_is_not_held(self):
+        # 12 Nov: a batch mostly of small new songs is mostly "hidden" while known tracks still show their counts;
+        # the old share-of-hidden check held it (and then held its re-reads all day)
+        small = self._small(30)
+        p = self.write({f"T{i}": 101_000 + i for i in range(12)}, small)
+        self.conn.execute("INSERT INTO state (key, value) VALUES ('heal_held:spotify_plays:2026-11-10', 'x')")  # held earlier today
+        spotify_plays.import_file(self.conn, p, log=lambda m: None, only=set(small))  # a batch of only those songs
+        self.assertEqual(self.marks(), 30)  # trusted: marked as read
+        self.assertIsNone(self.conn.execute("SELECT 1 FROM state WHERE key='heal_held:spotify_plays:2026-11-10'").fetchone())  # loop ended
+
+    def test_track_that_showed_a_count_is_not_trusted_as_hidden(self):
+        p = self.write({f"T{i}": 101_000 + i for i in range(11)}, ["T11"])
+        spotify_plays.import_file(self.conn, p, log=lambda m: None)
+        self.assertEqual(self.marks(), 0)  # T11 had 100,011 plays: no count now is odd, so it is not marked read
+
+    def test_nothing_read_today_holds(self):
+        p = self.write({}, self._small(25))
+        spotify_plays.import_file(self.conn, p, log=lambda m: None)
+        self.assertEqual(self.marks(), 0)  # no count anywhere today: no evidence the reader works
+
 
 def _chrome():
     try:
