@@ -20,7 +20,6 @@ from . import config
 MEASURES = (("yt", "YouTube views", "yt_views"), ("audio", "Audio streams", None), ("sp", "Spotify plays", "sp_plays"),
             ("ytm", "YouTube Music plays", "ytm_plays"), ("js", "JioSaavn plays", "js_plays"))
 AUDIO = ("sp", "ytm", "js")
-PRESETS = (7, 14, 30, 60, 90)
 
 
 def settings(cfg=None):
@@ -131,17 +130,60 @@ def compute(conn, days=None, since=None, until=None, cfg=None):
                 a[p["x"]] += p["y"]
         if a:
             curves.setdefault("audio", {})[lab] = [{"x": n, "y": round(v)} for n, v in sorted(a.items())]
+    presets, history = _presets(out_songs, report_day, started, N, s["days"])
     for r in out_songs:
         r.pop("first_read", None)
     out_songs.sort(key=lambda r: -(r["yt"] or 0))
     months = sorted({r["release"][:7] for r in out_songs}, reverse=True) if since == p_since and until == p_until else None
-    return {"days": N, "default_days": s["days"], "presets": PRESETS, "focus_label": s["focus_label"],
+    return {"days": N, "default_days": s["days"], "presets": [p["days"] for p in presets], "preset_info": presets, "history": history,
+            "focus_label": s["focus_label"],
             "since": since, "until": until, "period": [p_since, p_until], "report_day": report_day,
             "measures": [{"key": k, "name": n} for k, n, _ in MEASURES], "total": total, "total_songs": total_songs, "labels": by_label, "started": started,
             "counts": {"songs": len(out_songs), "final": sum(r["status"] == "final" for r in out_songs),
                        "provisional": sum(r["status"] == "provisional" for r in out_songs),
                        "not_measurable": sum(r["status"] == "not measurable" for r in out_songs)},
             "curves": curves, "songs": out_songs[:400], "months": months}
+
+
+def _presets(out_songs, report_day, started, N, default):
+    """Day choices built from the data we have (2026-11-12): how many days of daily readings exist (H, from the first
+    YouTube reading to the last completed day) and, for candidate days, how many songs can be measured there.
+    A song counts at day n when it has lived n days and was read by its day n (final); younger songs are provisional.
+    Candidates: 7, 14, 21, 30, 45, 60, 90 up to H, plus H itself, the default and the current choice. The candidate
+    with the most final songs is marked best."""
+    rd = date.fromisoformat(report_day)
+    yt0 = started.get("youtube")
+    H = (rd - date.fromisoformat(yt0)).days + 1 if yt0 else 0
+    oldest = max((r["age"] for r in out_songs), default=0)
+    info = []
+    for r in out_songs:
+        firsts = [d for d in (r.get("first_read") or {}).values() if d]
+        info.append((r["age"], date.fromisoformat(r["release"]), min(firsts) if firsts else None))
+    def count(n):
+        fin = prov = 0
+        for age, rel, first in info:
+            if not first:
+                continue
+            if age >= n:
+                fin += first <= (rel + timedelta(days=n - 1)).isoformat()
+            else:
+                prov += 1
+        return fin, prov
+    sp0 = started.get("spotify")
+    Hsp = (rd - date.fromisoformat(sp0)).days + 1 if sp0 else 0
+    cands = {d for d in (7, 14, 21, 30, 45, 60, 90) if d <= max(H, 7)} | ({H} if H >= 3 else set()) | ({Hsp} if 3 <= Hsp < H else set()) | {N, default}
+    cands = sorted(d for d in cands if 1 <= d <= 365)
+    rows = []
+    for d in cands:
+        fin, prov = count(d)
+        rows.append({"days": d, "final": fin, "provisional": prov, "full_history": d <= H,
+                     "tag": "all data" if d == H else "all Spotify data" if d == Hsp else ("default" if d == default else "")})
+    if rows:
+        best = max(rows, key=lambda x: (x["final"], -x["days"]))
+        best["best"] = True
+    history = {"days": H, "since": yt0, "report_day": report_day, "oldest_song_days": oldest,
+               "platforms": {p: ((rd - date.fromisoformat(d)).days + 1 if d else 0) for p, d in started.items()}}
+    return rows, history
 
 
 def data_started(conn):

@@ -260,6 +260,13 @@
     "stacked columns": I("Daily columns split by platform; the column height is the day's total.", "", "", ""),
   };
 
+  INFO["measure each song at day"] = I("N: every song is measured at the same age, its day N (day 1 = its first YouTube upload), so old and new releases compare fairly.",
+    "The choices are built from how many days of daily readings we have (shown below the buttons) plus 7/14/21/30… up to that history. Each shows how many songs are final at that day: songs that have lived N days and were read by their day N. ★ marks the day with the most measurable songs. Or type any number from 1 to 365.",
+    "Recounted every time the page opens; the history grows by a day each day.",
+    "A short N measures many songs but only their launch; a long N shows staying power but on fewer songs until the history builds up.",
+    "market_share._presets(): H = last completed day − first YouTube reading + 1; Spotify history added as its own choice; best = most final songs.");
+  INFO["sh-preset"] = I("Measure every song at this day of its life.", "Final = lived this many days and read by then; provisional = younger songs, shown with their latest value.", "Recounted on every page open.", "Pick the day with enough final songs for a fair share; ★ has the most.");
+  INFO["sh-custom"] = I("Type your own day N (1–365).", "The page recounts the songs measurable at that day and recalculates every share.", "At once.", "For any comparison window you need, e.g. 10 or 45 days.");
   /* page-specific meanings of common words */
   Object.assign(INFO, {
     "dashboard|songs": I("Top songs and fastest-growing songs, by YouTube views or audio streams.", "Switch with the buttons; views and streams are never mixed.", LAST_DAY, ""),
@@ -454,10 +461,11 @@
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
   const ROWK = { "What it is": 1, "How it's worked out": 2, "When it updates": 3, "Why it matters": 4, "Here": 1 };
   function render(el, e) {
-    const title = keyOf(el).replace(/\s+/g, " ").trim();
+    const title = (el.dataset.info ? (el.dataset.infoLabel || el.textContent) : keyOf(el)).replace(/\s+/g, " ").trim() || e.label || "";
     const rows = [["What it is", e.what], ["How it's worked out", e.how], ["When it updates", e.when], ["Why it matters", e.why]];
     if (isDev() && e.dev) rows.push(["Under the hood (developer)", e.dev]);
     if (el.dataset.infoTitle) rows.push(["Here", el.dataset.infoTitle]);
+    if (el.dataset.tip) rows.unshift(["Here", el.dataset.tip]);
     pop.innerHTML = `<div class="ip-title">${esc(title.length > 60 ? title.slice(0, 57) + "…" : title)}</div>` +
       rows.map(([k, v]) => [k, v && clientText(v)]).filter(([, v]) => v).map(([k, v]) => `<div class="ip-row ${k.startsWith("Under the hood") ? "dev" : "k" + (ROWK[k] || 1)}"><div class="ip-k">${k.replace(" (developer)", "")}</div><div class="ip-v">${esc(v)}</div></div>`).join("");
   }

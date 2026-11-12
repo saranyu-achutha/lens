@@ -348,8 +348,9 @@
     <div class="page-head"><div><h1>Market share</h1><p>Each song followed day by day from its release; its performance by day N of its life, shared out by label.</p></div>
       <span class="spacer"></span><span class="pill ok" id="sh-asof"></span></div>
     <div class="card" style="margin-bottom:6px"><div class="row" style="flex-wrap:wrap;gap:14px;align-items:flex-end">
-      <label class="field" style="margin:0"><span>Measure each song at day</span><div class="row" style="gap:8px;align-items:center">
-        <div class="seg" id="sh-presets"></div><input id="sh-days" type="number" min="1" max="365" style="width:84px" title="any number of days"></div></label>
+      <label class="field" style="margin:0"><span data-info="measure each song at day" data-info-label="Measure each song at day" class="has-info-label">Measure each song at day</span><div class="row" style="gap:8px;align-items:center">
+        <div class="seg sh-presets" id="sh-presets"></div><input id="sh-days" type="number" min="1" max="365" style="width:84px" placeholder="days" title="any number of days" data-info="sh-custom"></div>
+        <div class="muted sh-history" id="sh-history"></div></label>
       <label class="field" style="margin:0"><span>Songs</span><select id="sh-month"></select></label>
       <span class="spacer"></span><span class="muted" id="sh-default" style="font-size:12px"></span>
       <button class="small primary" id="sh-save" style="display:none">Save as default</button>

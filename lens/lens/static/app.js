@@ -2556,7 +2556,15 @@ async function loadShare() {
   $("#sh-started").innerHTML = `<b>Official daily readings started:</b> ${startedLine(d.started)}. Songs released before then could not be read from their first day,
     and many labels' Spotify tracks were linked only recently, so the Spotify and audio shares rest on fewer days for those labels for now
     (see "readings since" in the table). They even out as the songs build up history; YouTube views have the longest history.`;
-  $("#sh-presets").innerHTML = d.presets.map((n) => `<button class="small${n === N ? " on" : ""}" data-n="${n}">${n} days</button>`).join("");
+  // day choices built from the data we have: each shows how many songs can be measured there (final at that day)
+  const pinfo = d.preset_info || d.presets.map((n) => ({ days: n }));
+  $("#sh-presets").innerHTML = pinfo.map((p) => `<button class="small sh-pre${p.days === N ? " on" : ""}${p.best ? " best" : ""}${p.full_history === false ? " thin" : ""}" data-n="${p.days}"
+      data-info="sh-preset" data-info-label="Measure at day ${p.days}" data-tip="${p.final != null ? `Day ${p.days}: ${fmt(p.final)} songs final (lived ${p.days} days and read by then), ${fmt(p.provisional)} younger songs provisional.` : ""}${p.best ? " Most songs measurable." : ""}${p.full_history === false ? " Longer than our daily history, so it rests on older songs read late or interpolated." : ""}">
+      <span class="pre-d"><b>${p.days}</b> days</span>${p.final != null ? `<span class="pre-n">${compact(p.final)} songs</span>` : ""}${p.best ? '<span class="pre-tag best">★ most songs</span>' : p.tag ? `<span class="pre-tag">${esc(p.tag)}</span>` : ""}</button>`).join("");
+  const h = d.history;
+  if (h) $("#sh-history").innerHTML = `<b>${fmt(h.days)} days</b> of daily readings so far (YouTube since ${dayLabel(h.since)}` +
+    `${h.platforms.spotify ? `; Spotify ${h.platforms.spotify} days` : ""}${h.platforms.ytmusic ? `, YouTube Music ${h.platforms.ytmusic}` : ""}${h.platforms.jiosaavn ? `, JioSaavn ${h.platforms.jiosaavn}` : ""}).
+     The choices above come from that history, each with the number of songs measurable there; type any number from 1 to 365 for your own.`;
   $("#sh-presets").querySelectorAll("button").forEach((b) => (b.onclick = () => { MS.days = +b.dataset.n; loadShare(); }));
   $("#sh-days").value = N;
   $("#sh-default").textContent = `Default: ${d.default_days} days`;
