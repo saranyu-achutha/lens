@@ -102,7 +102,7 @@ function renderFocus() {
 }
 document.addEventListener("change", (e) => {
   if (e.target.id !== "focus-older") return;
-  FOCUS_ALL = e.target.checked;
+  FOCUS_ALL = e.target.checked && !isClient();  // older songs are never shown to client logins (the server ignores it too)
   route();
 });
 renderFocus();

@@ -11,7 +11,6 @@ import argparse
 import base64
 import csv
 import hmac
-import html
 import io
 import json
 import mimetypes
@@ -2362,6 +2361,8 @@ class Handler(BaseHTTPRequestHandler):
         self._enc_key = None
         url = urllib.parse.urlparse(self.path)
         qs = {k: v[-1] for k, v in urllib.parse.parse_qs(url.query).items()}
+        if role == "client":
+            qs.pop("focus", None)  # "Include older songs" is developer only: client logins always see the period's songs
         if role == "client":  # anti-scraping shield (lens/shield.py): no bots or scripts, browser session, rate and volume limits
             ua, ip = self.headers.get("User-Agent", ""), shield.client_ip(self.headers, self.client_address[0])
             cuser = self._login_user()
@@ -2460,8 +2461,7 @@ class Handler(BaseHTTPRequestHandler):
             if not key or key == shield.ENDED:  # (an ended one: opening the page again takes the login over here)  # (a reload must not count as another browser and sign out the login's other devices)
                 cookie, key = shield.make_cookie(cuser, ua, https, ip)
                 extra = {"Set-Cookie": cookie}
-            mark = html.escape(f"{cuser} · {ip}", quote=True)
-            data = data.replace(b"</head>", f'<meta name="ml-k" content="{key}"><meta name="ml-w" content="{mark}"></head>'.encode(), 1)
+            data = data.replace(b"</head>", f'<meta name="ml-k" content="{key}"></head>'.encode(), 1)
         self._send(200, data, mimetypes.guess_type(f.name)[0] or "application/octet-stream", extra)
 
     def do_POST(self):
