@@ -1138,7 +1138,7 @@ def api_cast_detail(conn, qs):
     from . import cast_report
     if not qs.get("key"):
         raise ValueError("key is required")
-    return cast_report.detail(conn, qs["key"], days=int(qs.get("days") or 30))
+    return cast_report.detail(conn, qs["key"], days=int(qs.get("days") or 30), field=qs.get("field") or "cast")  # any credit role (developer)
 
 
 def api_live(conn, qs):

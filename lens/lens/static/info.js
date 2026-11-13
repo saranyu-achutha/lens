@@ -294,6 +294,14 @@
     "releases": I("How many of their songs are in the period, how many are new releases, and when the first and latest came out.", "", "Updates with new releases.", ""),
     "works with": I("Co-stars, singers and music directors on the same songs, with the number of songs together.", "From the YouTube credits.", "", "Click a co-star to open their page."),
     "growth so far": INFO["ca-curve"],
+    "growth explorer": I("One chart, any view: pick the measure (YouTube, audio, Spotify, YouTube Music, JioSaavn, Shorts) and how to see it — daily columns, daily line, total so far, each top song as its own line, or audio split by platform.", "Daily figures are each day's growth of their songs; total so far is the running total.", "Daily (last completed day).", "Spot launches, spikes and which song drives them."),
+    "songs compared": I("Each of their songs' growth on the chosen measure, as ranked bars, a donut or one stacked bar.", "Growth over the chosen days.", "Daily.", "Shows whether one song carries them or several."),
+    "song × day": I("A grid of their top songs × the last 21 days; darker = more growth that day.", "Daily YouTube views or audio streams gained per song.", "Daily.", "When each song took off and how long it lasted."),
+    "video vs audio": I("Each song as a bubble: further right = more YouTube views gained, higher = more audio streams gained; bubble size = total views so far; colour = label. The lines are the medians.", "Square-root scales so small songs stay visible. Click a bubble to open the song.", "Daily.", "Separates video-led songs from audio-led ones."),
+    "where the growth comes from": I("Their YouTube growth split by label or by language.", "Sum of their songs' growth per label / language.", "Daily.", ""),
+    "nearest peers": I("The people just above and below them in the ranking for the same role (YouTube views gained).", "Click one to open their page.", "Daily.", "Puts the numbers in context."),
+    "share of all growth": I("Their songs' share of the YouTube (and audio) growth of every song of the period.", "Their songs' growth ÷ all songs' growth.", "Daily.", ""),
+    "audio vs video": I("Audio streams per 100 YouTube views for their songs, against the market's ratio.", "", "Daily.", "Above the market = their songs convert video reach into listening."),
   });
   /* page-specific meanings of common words */
   Object.assign(INFO, {

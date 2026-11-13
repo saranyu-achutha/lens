@@ -1772,3 +1772,15 @@ body.role-client.ml-away::before { content: "Click anywhere to continue viewing.
 #cad-songs th.sortable { cursor: pointer; user-select: none; }
 #cad-songs .t2 { font-size: 11px; color: var(--text-muted); }
 @media (max-width: 700px) { .ca-hero-side { align-items: flex-start; width: 100%; } .ca-name { font-size: 22px; } .ca-avatar { width: 56px; height: 56px; font-size: 20px; } }
+/* person page for every credit role (2026-11-13) */
+.ca-fact { display: flex; gap: 10px; align-items: flex-start; }
+.ca-fi { flex: none; font-size: 16px; line-height: 1.2; }
+.ca-role { background: var(--brand-grad-2) !important; color: #fff !important; border: 0 !important; }
+.ca-mseg { flex-wrap: wrap; }
+.ca-mseg button { padding: 3px 9px; font-size: 12px; }
+#cad-peers tr.ca-me td { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.ca-loading { display: flex; gap: 16px; align-items: center; padding: 24px; }
+.ca-avatar.sk { opacity: .35; animation: none; }
+.ca-scatter { display: block; overflow: visible; }
+.ca-sdot { cursor: pointer; } .ca-sdot:hover circle { stroke: var(--accent); stroke-width: 2.5; }
+#gx-chart, #sc-chart, #hm-chart { min-height: 220px; }

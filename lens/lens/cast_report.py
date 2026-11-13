@@ -31,6 +31,14 @@ PLATFORMS = (("yt", "yt_views", "yt_views_gain", "YouTube views"),
 AUDIO = ("sp", "ytm", "js")
 SORTS = {"yt", "sp", "ytm", "js", "audio", "shorts", "ig_reels", "songs", "momentum", "per_song", "audio_per_100", "name"}
 DAY_CHOICES = (7, 14, 30, 60, 90)
+# Every credit role a song shows (song_meta fields): the person page works for each (2026-11-13), cast keeps its list page.
+ROLES = {"cast": ("cast member", "cast members", "Cast & featuring"), "singer": ("singer", "singers", "Singer"),
+         "music_director": ("music director", "music directors", "Music director"), "lyricist": ("lyricist", "lyricists", "Lyricist"),
+         "director": ("film director", "film directors", "Film director"), "producer": ("producer", "producers", "Producer"),
+         "video_director": ("video director", "video directors", "Video director"), "arranger": ("arranger", "arrangers", "Arranger"),
+         "mix_master": ("mix & master engineer", "mix & master engineers", "Mix & master"), "choreographer": ("choreographer", "choreographers", "Choreographer"),
+         "spotify_artist": ("Spotify artist", "Spotify artists", "Spotify artist"), "apple_artist": ("Apple Music artist", "Apple Music artists", "Apple Music artist")}
+COLLAB = ("cast", "singer", "music_director", "lyricist")
 MIN_SONGS_RANKED = 2          # rules that compare people need at least this many songs (one song is luck, not a pattern)
 
 
@@ -94,7 +102,7 @@ def _build(conn, days, cfg):
     start = (date.fromisoformat(end) - timedelta(days=days - 1)).isoformat()
     songs, since = _period_songs(conn, cfg)
     ids = set(songs)
-    meta = _meta(conn, ids, ("cast", "label", "language", "film", "singer", "music_director"))
+    meta = _meta(conn, ids, ("label", "language", "film") + tuple(ROLES))
     # read at least 14 days so "this week vs the week before" works for a 7-day window too; window sums use start..end
     gains, totals, dz = _daily(conn, ids, min(start, (date.fromisoformat(end) - timedelta(days=13)).isoformat()), end)
     span = _days(start, end)
@@ -118,11 +126,11 @@ def _build(conn, days, cfg):
             "meta": meta, "gains": gains}
 
 
-def _people(B, label=None, language=None):
-    """One row per cast member over the window (songs filtered by label / language)."""
+def _people(B, label=None, language=None, field="cast"):
+    """One row per person credited in `field` (cast by default) over the window (songs filtered by label / language)."""
     songs, meta = B["songs"], B["meta"]
     people = {}
-    for sid, cast in meta["cast"].items():
+    for sid, cast in meta[field].items():
         s = songs.get(sid)
         if not s or (label and s["label"] != label) or (language and s["language"] != language):
             continue
@@ -179,6 +187,17 @@ def _series(B, ids, keys):
                 for d_, v in B["gains"].get(sid, {}).get(pk, {}).items():
                     acc[d_] += v
         out[k] = [{"x": d_, "y": acc.get(d_, 0)} for d_ in B["span"]]
+    return out
+
+
+def _series_by_song(B, ids):
+    """Daily YouTube and audio growth of each of these songs over the window: [{id, yt:[{x,y}], audio:[{x,y}]}]."""
+    out = []
+    for sid in ids:
+        g = B["gains"].get(sid, {})
+        out.append({"id": sid, "title": B["songs"][sid]["title"],
+                    "yt": [{"x": d_, "y": g.get("yt", {}).get(d_, 0)} for d_ in B["span"]],
+                    "audio": [{"x": d_, "y": sum(g.get(k, {}).get(d_, 0) for k in AUDIO)} for d_ in B["span"]]})
     return out
 
 
@@ -372,13 +391,16 @@ def compute(conn, days=30, label=None, language=None, sort="yt", order="desc", q
             "total": total, "offset": off, "limit": lim, "sort": key, "order": "desc" if rev else "asc", "rows": page}
 
 
-def detail(conn, key, days=30, cfg=None):
+def detail(conn, key, days=30, cfg=None, field="cast"):
+    if field not in ROLES:
+        raise ValueError("unknown credit")
+    one, many, title = ROLES[field]
     B = _build(conn, days, cfg)
     songs, meta = B["songs"], B["meta"]
-    all_rows = _people(B)
+    all_rows = _people(B, field=field)
     me = next((r for r in all_rows if r["key"] == key), None)
     if not me:
-        raise ValueError("no songs credit this cast member in the period")
+        raise ValueError(f"no songs of the period credit this {one}")
     ids = me["song_ids"]
     # rank among everyone, per platform
     ranks = {}
@@ -395,11 +417,11 @@ def detail(conn, key, days=30, cfg=None):
                           **{f"{k}_total": s["total"][k] for k, *_ in PLATFORMS}})
     # collaborators on their songs: co-stars, singers, music directors (song count and the views those shared songs gained)
     collab = {}
-    for f in ("cast", "singer", "music_director"):
+    for f in COLLAB:
         acc = {}
         for sid in ids:
             for k_, v_ in meta[f].get(sid, []):
-                if f == "cast" and k_ == key:
+                if f == field and k_ == key:
                     continue
                 a = acc.setdefault(k_, {"key": k_, "name": v_, "songs": 0, "yt": 0, "audio": 0})
                 a["songs"] += 1
@@ -422,9 +444,9 @@ def detail(conn, key, days=30, cfg=None):
     avg = {k: round(sum(r[k] for r in all_rows) / len(all_rows)) for k in ("yt", "audio")} if all_rows else {"yt": 0, "audio": 0}
     facts = []
     if ranks["yt"]:
-        facts.append(f"#{ranks['yt']} of {len(all_rows):,} cast members on YouTube views gained" + (f", #{ranks['audio']} on audio streams." if ranks["audio"] else "."))
+        facts.append(f"#{ranks['yt']} of {len(all_rows):,} {many} on YouTube views gained" + (f", #{ranks['audio']} on audio streams." if ranks["audio"] else "."))
     if avg["yt"]:
-        facts.append(f"{me['yt'] / avg['yt']:.1f}× the average cast member's YouTube gain" + (f" and {me['audio'] / avg['audio']:.1f}× their audio gain." if avg["audio"] else "."))
+        facts.append(f"{me['yt'] / avg['yt']:.1f}× the average {one}'s YouTube gain" + (f" and {me['audio'] / avg['audio']:.1f}× their audio gain." if avg["audio"] else "."))
     over = [m for m in mix if m["index"] and m["index"] >= 130 and m["value"] > 0]
     names = {"yt": "YouTube", "sp": "Spotify", "ytm": "YouTube Music", "js": "JioSaavn"}
     if over:
@@ -460,7 +482,36 @@ def detail(conn, key, days=30, cfg=None):
     rel = sorted(r["release"] for r in song_rows if r["release"])
     best_yt = max(song_rows, key=lambda r: r["yt"], default=None)
     best_audio = max(song_rows, key=lambda r: r["audio"], default=None)
-    extra = {"curve": curve, "peaks": peaks, "week": week, "first_release": rel[0] if rel else None, "latest_release": rel[-1] if rel else None,
+    # more views of the same data (2026-11-13): each top song's daily growth, nearest peers, language split, share of all
+    top_ids = [r["id"] for r in song_rows[:10]]
+    per_song = _series_by_song(B, top_ids)
+    order = sorted(all_rows, key=lambda r: r["yt"], reverse=True)
+    pos = next(i for i, r in enumerate(order) if r["key"] == key)
+    peers = [{"key": r["key"], "name": r["name"], "rank": i + 1, "songs": r["songs"], "yt": r["yt"], "audio": r["audio"], "me": r["key"] == key}
+             for i, r in enumerate(order) if abs(i - pos) <= 3]
+    langs = defaultdict(lambda: {"songs": 0, "yt": 0, "audio": 0})
+    for sid in ids:
+        L = langs[songs[sid]["language"] or "Unknown"]
+        L["songs"] += 1; L["yt"] += songs[sid]["gain"]["yt"]; L["audio"] += songs[sid]["gain"]["audio"]
+    all_yt, all_audio = sum(s["gain"]["yt"] for s in songs.values()), sum(s["gain"]["audio"] for s in songs.values())
+    share_all = {"yt": round(100 * me["yt"] / all_yt, 2) if all_yt else None, "audio": round(100 * me["audio"] / all_audio, 2) if all_audio else None}
+    market_per_100 = round(100 * all_audio / all_yt, 1) if all_yt else None
+    gains_yt = sorted(r["yt"] for r in song_rows)
+    if share_all["yt"]:
+        facts.append(f"Their songs brought {share_all['yt']}% of all YouTube growth of the period's songs" + (f" and {share_all['audio']}% of the audio growth." if share_all["audio"] else "."))
+    if me["audio_per_100"] is not None and market_per_100:
+        rel_ = me["audio_per_100"] / market_per_100
+        facts.append(f"{me['audio_per_100']} audio streams per 100 YouTube views ({'more' if rel_ >= 1 else 'less'} audio-led than the market's {market_per_100}: {rel_:.1f}×).")
+    if len(song_rows) >= 3 and gains_yt[-1]:
+        med = gains_yt[len(gains_yt) // 2]
+        facts.append("Steady across songs: the typical song gains " + f"{100 * med / gains_yt[-1]:.0f}% of the top song's views." if med >= 0.3 * gains_yt[-1]
+                     else "Hit-driven: the typical song gains " + f"{100 * med / gains_yt[-1]:.0f}% of the top song's views.")
+    if len(langs) > 1:
+        top_l = max(langs.items(), key=lambda kv: kv[1]["yt"])
+        facts.append(f"Works in {len(langs)} languages; {top_l[0]} brings the most YouTube growth.")
+    extra = {"curve": curve, "per_song": per_song, "peers": peers, "share_all": share_all, "market_per_100": market_per_100,
+             "languages": [{"name": n, **v} for n, v in sorted(langs.items(), key=lambda kv: kv[1]["yt"], reverse=True)],
+             "role": {"field": field, "one": one, "many": many, "title": title}, "rank_of": len(all_rows), "peaks": peaks, "week": week, "first_release": rel[0] if rel else None, "latest_release": rel[-1] if rel else None,
              "best_yt": {"id": best_yt["id"], "title": best_yt["title"], "value": best_yt["yt"], "share": best_yt["share_yt"]} if best_yt and best_yt["yt"] else None,
              "best_audio": {"id": best_audio["id"], "title": best_audio["title"], "value": best_audio["audio"], "share": best_audio["share_audio"]} if best_audio and best_audio["audio"] else None,
              "new_songs": sum(1 for r in song_rows if r["new"]), "films": sorted({r["film"] for r in song_rows if r["film"]})}
