@@ -2834,6 +2834,9 @@ async function loadCast() {
 // compared, song × day heatmap, video vs audio map, release timeline, platform mix vs the market, labels and languages,
 // nearest peers, who they work with, and every song (sortable, totals and share).
 const CA_SONG = { sort: "yt", order: "desc" };
+// metrics shown on the person page besides CA_PLAT (YouTube likes and comments, Deezer rank)
+const CA_EXTRA = { likes: { name: "YouTube likes", short: "Likes", color: "#f0617a" }, comments: { name: "YouTube comments", short: "Comments", color: "#f29a3a" },
+  dz: { name: "Deezer rank", short: "Deezer", color: "var(--pv-deezer, #a855f7)" } };
 const PSV = { measure: "yt", view: "daily", cmp: "yt", heat: "yt", split: "label" };  // the person page's chosen views
 const ROLE_NAMES = { cast: "Cast & featuring", singer: "Singer", music_director: "Music director", lyricist: "Lyricist", director: "Film director",
   producer: "Producer", video_director: "Video director", arranger: "Arranger", mix_master: "Mix & master", choreographer: "Choreographer",
@@ -2849,7 +2852,7 @@ async function openCast(key, keepScroll) {
   try { x = await api(`/api/cast/detail?${new URLSearchParams({ key, days: CA.days, field })}`); }
   catch (e) { box.innerHTML = `<div class="empty">${esc(e.message || "Could not load this person.")} <button class="small" id="ca-close">✕ Close</button></div>`; $("#ca-close").onclick = closeCast; return; }
   if (CA.key !== key) return;  // another person was opened meanwhile
-  const P = CA_PLAT, p = x.person, r = x.ranks, e = x.extra || {}, wk = e.week || {}, role = e.role || { one: "cast member", many: "cast members", title: "Cast & featuring" };
+  const P = { ...CA_PLAT, ...CA_EXTRA }, p = x.person, r = x.ranks, e = x.extra || {}, wk = e.week || {}, role = e.role || { one: "cast member", many: "cast members", title: "Cast & featuring" };
   const initials = x.name.replace(/\(.*?\)/g, "").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
   const fmtK = (k, v) => (k === "yt" || k === "shorts" || k === "ig_reels" ? compact : compact1)(v || 0);
   const chg = (w) => !w ? "" : w.change == null ? (w.now ? `<span class="ca-wk up">new this week</span>` : "")
@@ -2873,7 +2876,8 @@ async function openCast(key, keepScroll) {
   ].filter(Boolean).join("");
   const crumb = field === "cast" ? `<a href="#cast" id="ca-all">Cast &amp; featuring</a>` : `<span>${esc(ROLE_NAMES[field] || role.title)}</span>`;
   const back = CA.from ? `<button class="small" id="ca-back-song">← Back to song</button>` : "";
-  const MEAS = [["yt", "YouTube"], ["audio", "Audio"], ["sp", "Spotify"], ["ytm", "YT Music"], ["js", "JioSaavn"], ["shorts", "Shorts"]];
+  const MEAS = [["yt", "YouTube"], ["likes", "Likes"], ["comments", "Comments"], ["audio", "Audio"], ["sp", "Spotify"], ["ytm", "YT Music"], ["js", "JioSaavn"], ["shorts", "Shorts"]];
+  const eg = e.engagement || {};
   const seg = (id, opts, cur) => `<div class="seg ca-mseg" id="${id}">${opts.map(([k, n]) => `<button class="small${k === cur ? " on" : ""}" data-k="${k}">${n}</button>`).join("")}</div>`;
   box.innerHTML = `
     <div class="ca-hero">
@@ -2890,9 +2894,20 @@ async function openCast(key, keepScroll) {
     ${x.facts.length ? `<div class="ca-facts2">${x.facts.map((f, i) => `<div class="ca-fact"><span class="ca-fi">${["🏆", "📈", "🎧", "⚡", "🎯", "🌐", "🎵", "🗣"][i % 8]}</span>${esc(f)}</div>`).join("")}</div>` : ""}
     <div class="grid g4 glance" style="margin-top:14px">${tiles.join("")}</div>
     <div class="grid g3" style="margin-top:14px">${highlights}</div>
+    <div class="card" style="margin-top:16px"><div class="card-head"><h2 data-info="every platform">Every platform, day by day</h2><span class="spacer"></span><span class="muted" style="font-size:12px">growth over ${x.days} days · click a card to explore it</span></div>
+      <div class="ca-multi" id="ca-multi"></div></div>
     <div class="card" style="margin-top:16px"><div class="card-head" style="flex-wrap:wrap;gap:10px"><h2 data-info="growth explorer">Growth explorer</h2><span class="spacer"></span>
         ${seg("gx-m", MEAS, PSV.measure)}${seg("gx-v", [["daily", "Daily · columns"], ["line", "Daily · line"], ["total", "Total so far"], ["songs", "By song"], ["stack", "Audio by platform"]], PSV.view)}</div>
       <div class="chart" id="gx-chart"></div><div class="legend" id="gx-legend"></div></div>
+    <div class="grid g2" style="margin-top:16px">
+      <div class="card"><div class="card-head" style="flex-wrap:wrap;gap:8px"><h2 data-info="first days after release">First days after release</h2><span class="spacer"></span>${seg("lf-m", [["yt", "YouTube"], ["audio", "Audio"]], PSV.life || "yt")}</div>
+        <div class="chart" id="lf-chart"></div><div class="legend" id="lf-legend"></div></div>
+      <div class="card"><div class="card-head"><h2 data-info="engagement">Engagement</h2><span class="spacer"></span><span class="muted" style="font-size:12px">per 1,000 YouTube views, all their uploads</span></div><div id="eg-box"></div></div>
+    </div>
+    <div class="grid g2" style="margin-top:16px">
+      <div class="card"><div class="card-head"><h2 data-info="song × platform">Song × platform</h2><span class="spacer"></span><span class="muted" style="font-size:12px">each song's share of their growth on a platform</span></div><div id="spm-chart"></div></div>
+      <div class="card"><div class="card-head"><h2 data-info="audio share over time">Audio share over time</h2><span class="spacer"></span><span class="muted" style="font-size:12px">each day's audio streams split by platform</span></div><div class="chart" id="as-chart"></div></div>
+    </div>
     <div class="grid g2" style="margin-top:16px">
       <div class="card"><div class="card-head" style="flex-wrap:wrap;gap:8px"><h2>Songs compared</h2><span class="spacer"></span>${seg("sc-m", MEAS, PSV.cmp)}<span id="sc-sw"></span></div><div id="sc-chart"></div></div>
       <div class="card"><div class="card-head" style="flex-wrap:wrap;gap:8px"><h2 data-info="song × day">Song × day</h2><span class="spacer"></span>${seg("hm-m", [["yt", "YouTube"], ["audio", "Audio"]], PSV.heat)}</div><div id="hm-chart"></div></div>
@@ -2905,6 +2920,7 @@ async function openCast(key, keepScroll) {
       <div class="card"><div class="card-head"><h2>Platform mix vs the market</h2><span class="spacer"></span><span id="mx-sw"></span></div><div id="cad-mix"></div></div>
       <div class="card"><div class="card-head" style="flex-wrap:wrap;gap:8px"><h2>Where the growth comes from</h2><span class="spacer"></span>${seg("sp-m", [["label", "By label"], ["language", "By language"]], PSV.split)}<span id="cad-lab-sw"></span></div><div id="cad-lab"></div></div>
     </div>
+    <div class="card" style="margin-top:16px"><div class="card-head"><h2 data-info="deezer rank trend">Deezer rank trend</h2><span class="spacer"></span><span class="muted" style="font-size:12px">their best-ranked song each day · lower is better</span></div><div class="chart" id="dz-chart"></div></div>
     <div class="grid g2" style="margin-top:16px">
       <div class="card flush"><h2 style="padding:16px 16px 0" data-info="nearest peers">Nearest peers</h2><div class="table-wrap"><table id="cad-peers"></table></div></div>
       <div class="card"><h2>Works with</h2><div id="cad-collab" class="ca-collab-grid"></div></div>
@@ -2937,6 +2953,52 @@ async function openCast(key, keepScroll) {
     } else stackColumns(el, ["sp", "ytm", "js"].map((k2) => ({ name: P[k2].short, color: P[k2].color, points: x.series[k2] })), { height: 260, vfmt: compact1 });
   };
   wire("gx-m", "measure", drawGX); wire("gx-v", "view", drawGX); drawGX();
+  // every platform: one small card per metric (growth, total, rank, week on week, mini daily chart); click = explore it
+  const multi = [["yt", p.yt, p.yt_total, r.yt], ["likes", eg.likes, eg.likes_total], ["comments", eg.comments, eg.comments_total], ["sp", p.sp, p.sp_total, r.sp],
+    ["ytm", p.ytm, p.ytm_total, r.ytm], ["js", p.js, p.js_total, r.js], ["shorts", p.shorts, p.shorts_total, r.shorts]];
+  if (!isClient() && p.ig_reels != null) multi.push(["ig_reels", p.ig_reels, p.ig_reels_total, r.ig_reels]);
+  const dzNow = (e.dz_trend || []).filter((q) => q.y).slice(-1)[0];
+  $("#ca-multi").innerHTML = multi.map(([k, g, t, rk]) => `<div class="ca-mini${["yt", "likes", "comments", "sp", "ytm", "js", "shorts"].includes(k) ? " click" : ""}" data-k="${k}" style="--mc:${P[k].color}">
+      <div class="ca-mini-h"><span class="ca-dot" style="background:${P[k].color}"></span>${esc(P[k].name)}</div>
+      <div class="ca-mini-v">+${fmtK(k, g)}</div><div class="ca-mini-s">${t != null ? `${fmtK(k, t)} total` : ""}${rk ? ` · #${fmt(rk)}` : ""} ${chg(wk[k])}</div>
+      <div class="ca-mini-c" id="mini-${k}"></div></div>`).join("") +
+    `<div class="ca-mini" style="--mc:${P.dz.color}"><div class="ca-mini-h"><span class="ca-dot" style="background:${P.dz.color}"></span>Deezer rank</div>
+      <div class="ca-mini-v">${dzNow ? "#" + fmt(dzNow.y) : "–"}</div><div class="ca-mini-s">${p.dz_best ? `best ${fmt(p.dz_best)} · ` : ""}lower is better</div><div class="ca-mini-c" id="mini-dz"></div></div>`;
+  multi.forEach(([k]) => { const pts = (x.series[k] || []).map(day);
+    barChart($("#mini-" + k), pts, { height: 70, color: P[k].color, hover: P[k].color, tip: (b) => `<b>${esc(dayLabel(b.x))}</b><br>+${fmtK(k, b.value)}` }); });
+  multiLine($("#mini-dz"), [{ name: "Deezer rank", color: P.dz.color, points: (e.dz_trend || []).filter((q) => q.y) }], { height: 70, dots: false, empty: "No Deezer rank." });
+  $("#ca-multi").querySelectorAll(".ca-mini.click").forEach((c) => (c.onclick = () => {
+    PSV.measure = c.dataset.k; PSV.view = "daily"; box.querySelectorAll("#gx-m button").forEach((b) => b.classList.toggle("on", b.dataset.k === PSV.measure));
+    box.querySelectorAll("#gx-v button").forEach((b) => b.classList.toggle("on", b.dataset.k === "daily")); drawGX(); $("#gx-chart").scrollIntoView({ behavior: "smooth", block: "center" }); }));
+  // first days after release: their average song vs the period's average song (songs read from their first days only)
+  const drawLF = () => { const k = PSV.life || "yt", L = (e.life || []).filter((q) => (q.mk_songs || 0) >= 20 || q[k] != null);
+    const pad = (n) => "D" + String(n).padStart(2, "0");
+    multiLine($("#lf-chart"), [{ name: "Their songs", color: P[k].color, points: L.filter((q) => q[k] != null).map((q) => ({ x: pad(q.n), y: q[k] })) },
+      { name: "Average song", color: "var(--text-muted)", points: L.filter((q) => q["mk_" + k] != null).map((q) => ({ x: pad(q.n), y: q["mk_" + k] })) }].filter((l) => l.points.length),
+      { height: 240, xfmt: (v) => v, yfmt: k === "yt" ? compact : compact1, empty: "None of their songs was read from its first days." });
+    const n7 = (e.life || []).find((q) => q.n === 7);
+    $("#lf-legend").innerHTML = `<span><i class="ca-dot" style="background:${P[k].color}"></i>Their songs (${n7 ? n7.yt_songs : 0} read from day 1–3)</span> <span><i class="ca-dot" style="background:var(--text-muted)"></i>Average song of the period (${n7 ? fmt(n7.mk_songs) : 0})</span> <span class="muted">day 1 = first YouTube upload</span>`; };
+  wire("lf-m", "life", drawLF); drawLF();
+  // engagement: likes and comments per 1,000 views vs the market
+  const ebar = (label, me, mk, color) => { const mx = Math.max(me || 0, mk || 0, 0.01);
+    return `<div class="ca-eg"><div class="ca-eg-h">${label}</div>
+      <div class="ca-eg-row"><span>${esc(x.name.split(" ")[0])}</span><span class="ca-eg-track"><span style="width:${(100 * (me || 0)) / mx}%;background:${color}"></span></span><b>${me ?? "–"}</b></div>
+      <div class="ca-eg-row"><span>Market</span><span class="ca-eg-track"><span style="width:${(100 * (mk || 0)) / mx}%;background:var(--text-muted)"></span></span><b>${mk ?? "–"}</b></div></div>`; };
+  $("#eg-box").innerHTML = ebar("Likes per 1,000 views", eg.likes_per_1k, eg.mk_likes_per_1k, P.likes.color) + ebar("Comments per 1,000 views", eg.comments_per_1k, eg.mk_comments_per_1k, P.comments.color) +
+    `<div class="muted" style="font-size:12px;margin-top:10px">+${compact(eg.likes || 0)} likes and +${compact(eg.comments || 0)} comments in ${x.days} days · ${compact(eg.likes_total || 0)} likes, ${compact(eg.comments_total || 0)} comments in all</div>`;
+  // song × platform: each song's share of their growth on each platform
+  const plats = [["yt", "YouTube"], ["likes", "Likes"], ["sp", "Spotify"], ["ytm", "YT Music"], ["js", "JioSaavn"], ["shorts", "Shorts"]];
+  const totP = Object.fromEntries(plats.map(([k]) => [k, x.songs.reduce((a, q) => a + Math.max(0, q[k] || 0), 0)]));
+  const topS = x.songs.slice(0, 12);
+  heatmap($("#spm-chart"), topS.map((q) => q.title + "\u0001" + q.id), plats.map(([k]) => k),
+    (row, k) => { const q = topS.find((z) => row.endsWith("\u0001" + z.id)); return q && totP[k] ? Math.round(1000 * Math.max(0, q[k] || 0) / totP[k]) / 10 : null; },
+    { vfmt: (v) => v + "%", rowLabel: (row) => esc(row.split("\u0001")[0].slice(0, 28)), colLabel: (k) => esc(plats.find((z) => z[0] === k)[1]), hue: "var(--accent-2)", title: "share" });
+  // audio share over time: each day's audio split by platform (100%)
+  const asPts = (k2) => (x.series[k2] || []).map((pt, i) => { const tot = ["sp", "ytm", "js"].reduce((a, kk) => a + Math.max(0, (x.series[kk][i] || {}).y || 0), 0);
+    return { x: pt.x, y: tot ? Math.round(1000 * Math.max(0, pt.y || 0) / tot) / 10 : 0 }; });
+  stackColumns($("#as-chart"), ["sp", "ytm", "js"].map((k2) => ({ name: P[k2].short, color: P[k2].color, points: asPts(k2) })), { height: 230, vfmt: (v) => v + "%" });
+  // Deezer rank trend (lower is better)
+  multiLine($("#dz-chart"), [{ name: "Best Deezer rank", color: P.dz.color, points: (e.dz_trend || []).filter((q) => q.y) }], { height: 200, yfmt: (v) => "#" + compact(v), empty: "None of their songs has a Deezer rank yet." });
   // 2. songs compared: the chosen measure per song, as bars, donut or one stacked bar
   const drawSC = () => { const k = PSV.cmp;
     partsChart($("#sc-sw"), $("#sc-chart"), "cad-songs-parts", x.songs.map((s, i) => ({ name: s.title, value: Math.max(0, s[k] || 0), color: ["#3987e5", "#9085e9", "#199e70", "#e5a139", "#e5527a", "#3cc5d6", "#8bb84a", "#c06ad8"][i % 8] })),
@@ -3045,11 +3107,17 @@ function castTimeline(el, songs, first, end) {
   const X = (d) => L + ((t(d) - a) / (b - a)) * (W - L - R);
   const ticks = []; for (let i = 0; i <= 4; i++) { const ms = a + (i / 4) * (b - a); ticks.push(new Date(ms).toISOString().slice(0, 10)); }
   const lanes = {}; // stagger songs released close together
+  // names only for the biggest songs, and never on top of another name (every song still shows on hover)
+  const named = new Set(pts.slice().sort((p, q) => (q.yt || 0) - (p.yt || 0)).slice(0, 8).map((s) => s.id)), taken = [];
   const dots = pts.sort((p, q) => p.release.localeCompare(q.release)).map((s) => {
     const x = X(s.release), lane = Object.keys(lanes).filter((k) => Math.abs(lanes[k] - x) < 18).length; lanes[s.id] = x;
     const rr = 5 + 13 * Math.sqrt((s.yt || 0) / maxv), y = base - 18 - (lane % 3) * 26;
+    const txt = (s.title || "").slice(0, 20), w = txt.length * 5.6, anchor = x < 70 ? "start" : x > W - 70 ? "end" : "middle";
+    const x0 = anchor === "start" ? x : anchor === "end" ? x - w : x - w / 2, ty = y - rr - 4;
+    const fits = named.has(s.id) && !taken.some((t) => x0 < t.x1 + 6 && x0 + w > t.x0 - 6 && Math.abs(ty - t.y) < 12);
+    if (fits) taken.push({ x0, x1: x0 + w, y: ty });
     return `<g class="ca-tdot" data-id="${s.id}"><line x1="${x}" x2="${x}" y1="${y}" y2="${base}" stroke="var(--grid)"/><circle cx="${x}" cy="${y}" r="${rr}" fill="${labelColor(s.label)}" fill-opacity=".85" stroke="var(--surface-1)" stroke-width="1.5"/>
-      <text x="${x}" y="${y - rr - 4}" text-anchor="${x < 70 ? "start" : x > W - 70 ? "end" : "middle"}" font-size="10" fill="var(--text-secondary)">${esc((s.title || "").slice(0, 22))}</text></g>`;
+      ${fits ? `<text x="${x}" y="${ty}" text-anchor="${anchor}" font-size="10" fill="var(--text-secondary)">${esc(txt)}</text>` : ""}</g>`;
   }).join("");
   el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" class="ca-timeline"><line x1="${L}" x2="${W - R}" y1="${base}" y2="${base}" stroke="var(--border)"/>
     ${ticks.map((d) => `<g><line x1="${X(d)}" x2="${X(d)}" y1="${base}" y2="${base + 5}" stroke="var(--border)"/><text x="${X(d)}" y="${base + 18}" text-anchor="middle" font-size="10" fill="var(--text-muted)">${esc(dayLabel(d))}</text></g>`).join("")}

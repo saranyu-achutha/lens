@@ -29,6 +29,8 @@ PLATFORMS = (("yt", "yt_views", "yt_views_gain", "YouTube views"),
              ("shorts", "yt_shorts", "yt_shorts_gain", "YouTube Shorts made"),
              ("ig_reels", "ig_reels", "ig_reels_gain", "Instagram Reels made"))
 AUDIO = ("sp", "ytm", "js")
+# read alongside the platforms for the person page (not list columns): YouTube likes and comments
+ENGAGE = (("likes", "yt_likes", "yt_likes_gain", "YouTube likes"), ("comments", "yt_comments", "yt_comments_gain", "YouTube comments"))
 SORTS = {"yt", "sp", "ytm", "js", "audio", "shorts", "ig_reels", "songs", "momentum", "per_song", "audio_per_100", "name"}
 DAY_CHOICES = (7, 14, 30, 60, 90)
 # Every credit role a song shows (song_meta fields): the person page works for each (2026-11-13), cast keeps its list page.
@@ -74,19 +76,23 @@ def _daily(conn, ids, start, end):
     gains = defaultdict(lambda: defaultdict(dict))   # song -> key -> {day: gain}
     totals = defaultdict(dict)                        # song -> key -> total
     best_dz = {}
-    cols = ", ".join(f"{c}, {g}" for _, c, g, _ in PLATFORMS)
+    dz_days = defaultdict(dict)                       # song -> {day: Deezer rank}
+    cols = ", ".join(f"{c}, {g}" for _, c, g, _ in PLATFORMS + ENGAGE)
     for row in conn.execute(f"SELECT song_id, day, dz_rank, {cols} FROM song_daily WHERE day <= ? ORDER BY day", (end,)):
         sid, day = row[0], row[1]
         if sid not in ids:
             continue
         if row[2] and day == end:
             best_dz[sid] = row[2]
-        for i, (k, _, _, _) in enumerate(PLATFORMS):
+        if row[2] and day >= start:
+            dz_days[sid][day] = row[2]
+        for i, (k, _, _, _) in enumerate(PLATFORMS + ENGAGE):
             tot, g = row[3 + 2 * i], row[4 + 2 * i]
             if tot is not None:
                 totals[sid][k] = tot           # rows come in day order: the last one wins
             if g is not None and day >= start:
                 gains[sid][k][day] = g
+    gains["__dz__"] = dz_days  # Deezer ranks by day ride along (not a song id)
     return gains, totals, best_dz
 
 
@@ -113,9 +119,9 @@ def _build(conn, days, cfg):
         s["language"] = (meta["language"].get(sid) or [(None, None)])[0][1]
         s["film"] = (meta["film"].get(sid) or [(None, None)])[0][1]
         g = gains.get(sid, {})
-        s["gain"] = {k: sum(v for d_, v in g.get(k, {}).items() if d_ >= start) for k, *_ in PLATFORMS}
+        s["gain"] = {k: sum(v for d_, v in g.get(k, {}).items() if d_ >= start) for k, *_ in PLATFORMS + ENGAGE}
         s["gain"]["audio"] = sum(s["gain"][k] for k in AUDIO)
-        s["total"] = {k: totals.get(sid, {}).get(k) for k, *_ in PLATFORMS}
+        s["total"] = {k: totals.get(sid, {}).get(k) for k, *_ in PLATFORMS + ENGAGE}
         s["dz_rank"] = dz.get(sid)
         s["has_cast"] = sid in meta["cast"]
         s["new"] = s["release"] >= start
@@ -123,7 +129,7 @@ def _build(conn, days, cfg):
         s["wk"] = {k: sum(v for d_, v in g.get(k, {}).items() if d_ >= mid) for k in ("yt",) + AUDIO}
         s["pwk"] = {k: sum(v for d_, v in g.get(k, {}).items() if prev[0] <= d_ <= prev[1]) for k in ("yt",) + AUDIO}
     return {"cfg": cfg, "days": days, "start": start, "end": end, "since": since, "span": span, "songs": songs,
-            "meta": meta, "gains": gains}
+            "meta": meta, "gains": gains, "dz_days": gains.pop("__dz__", {})}
 
 
 def _people(B, label=None, language=None, field="cast"):
@@ -187,6 +193,54 @@ def _series(B, ids, keys):
                 for d_, v in B["gains"].get(sid, {}).get(pk, {}).items():
                     acc[d_] += v
         out[k] = [{"x": d_, "y": acc.get(d_, 0)} for d_ in B["span"]]
+    return out
+
+
+_LIFE_CACHE = {}
+
+
+def _life(conn, B, ids, max_n=30):
+    """How songs grow in their first days: the average total YouTube views / audio streams at day n of a song's life
+    (day 1 = first YouTube upload), for these songs and for every song of the period (cached per last day). Only songs
+    read on that exact day of life count for that day, so songs released before readings began join later."""
+    def curves(sids):
+        # only songs read from their first 3 days of life (a consistent set: songs released before readings began would
+        # join the average late, with only their later, bigger days)
+        acc = defaultdict(lambda: [0, 0, 0, 0])   # n -> [yt sum, yt songs, audio sum, audio songs]
+        rel = {i: date.fromisoformat(B["songs"][i]["release"]) for i in sids if B["songs"][i]["release"]}
+        if not rel:
+            return {}
+        ph = ",".join("?" * len(rel))
+        rows = conn.execute(f"SELECT song_id, day, yt_views, sp_plays, ytm_plays, js_plays FROM song_daily WHERE song_id IN ({ph}) AND day <= ?",
+                            (*rel, B["end"])).fetchall()
+        first = {}
+        for sid, day, yt, *_ in rows:
+            if yt is not None:
+                n = (date.fromisoformat(day) - rel[sid]).days + 1
+                first[sid] = min(first.get(sid, 10 ** 6), n)
+        for sid, day, yt, sp, ytm, js in rows:
+            if first.get(sid, 99) > 3:
+                continue
+            n = (date.fromisoformat(day) - rel[sid]).days + 1
+            if 1 <= n <= max_n:
+                a = acc[n]
+                if yt is not None:
+                    a[0] += yt; a[1] += 1
+                if any(v is not None for v in (sp, ytm, js)):
+                    a[2] += (sp or 0) + (ytm or 0) + (js or 0); a[3] += 1
+        return acc
+    key = (B["end"], len(B["songs"]), max_n)
+    if key not in _LIFE_CACHE:
+        _LIFE_CACHE.clear()
+        _LIFE_CACHE[key] = curves(list(B["songs"]))
+    mk, me = _LIFE_CACHE[key], curves(ids)
+    out = []
+    for n in range(1, max_n + 1):
+        a, b = me.get(n), mk.get(n)
+        out.append({"n": n, "yt": round(a[0] / a[1]) if a and a[1] else None, "yt_songs": a[1] if a else 0,
+                    "audio": round(a[2] / a[3]) if a and a[3] else None,
+                    "mk_yt": round(b[0] / b[1]) if b and b[1] else None, "mk_audio": round(b[2] / b[3]) if b and b[3] else None,
+                    "mk_songs": b[1] if b else 0})
     return out
 
 
@@ -504,12 +558,34 @@ def detail(conn, key, days=30, cfg=None, field="cast"):
         facts.append(f"{me['audio_per_100']} audio streams per 100 YouTube views ({'more' if rel_ >= 1 else 'less'} audio-led than the market's {market_per_100}: {rel_:.1f}×).")
     if len(song_rows) >= 3 and gains_yt[-1]:
         med = gains_yt[len(gains_yt) // 2]
-        facts.append("Steady across songs: the typical song gains " + f"{100 * med / gains_yt[-1]:.0f}% of the top song's views." if med >= 0.3 * gains_yt[-1]
-                     else "Hit-driven: the typical song gains " + f"{100 * med / gains_yt[-1]:.0f}% of the top song's views.")
+        pc = 100 * med / gains_yt[-1]
+        pct_txt = "under 1%" if pc < 1 else f"{pc:.0f}%"
+        facts.append(("Steady across songs" if med >= 0.3 * gains_yt[-1] else "Hit-driven") + f": the typical song gains {pct_txt} of the top song's views.")
     if len(langs) > 1:
         top_l = max(langs.items(), key=lambda kv: kv[1]["yt"])
         facts.append(f"Works in {len(langs)} languages; {top_l[0]} brings the most YouTube growth.")
-    extra = {"curve": curve, "per_song": per_song, "peers": peers, "share_all": share_all, "market_per_100": market_per_100,
+    eng = _series(B, ids, ["likes", "comments"])
+    series.update(eng)
+    dz_trend = [{"x": d_, "y": min((B["dz_days"].get(i, {}).get(d_) for i in ids if B["dz_days"].get(i, {}).get(d_)), default=None)} for d_ in B["span"]]
+    tot = lambda sids, k: sum(songs[i]["total"].get(k) or 0 for i in sids)
+    me_v, mk_v = tot(ids, "yt"), tot(songs, "yt")
+    engagement = {"likes_per_1k": round(1000 * tot(ids, "likes") / me_v, 2) if me_v else None, "comments_per_1k": round(1000 * tot(ids, "comments") / me_v, 2) if me_v else None,
+                  "mk_likes_per_1k": round(1000 * tot(songs, "likes") / mk_v, 2) if mk_v else None, "mk_comments_per_1k": round(1000 * tot(songs, "comments") / mk_v, 2) if mk_v else None,
+                  "likes": sum(songs[i]["gain"].get("likes") or 0 for i in ids), "comments": sum(songs[i]["gain"].get("comments") or 0 for i in ids),
+                  "likes_total": tot(ids, "likes"), "comments_total": tot(ids, "comments")}
+    for k in ("likes", "comments"):
+        ys = [pt["y"] or 0 for pt in series[k]]
+        week[k] = {"now": sum(ys[-7:]), "before": sum(ys[-14:-7]), "change": round(100 * (sum(ys[-7:]) - sum(ys[-14:-7])) / sum(ys[-14:-7])) if len(ys) >= 14 and sum(ys[-14:-7]) else None} if len(ys) >= 14 else None
+    for r in song_rows:
+        r["likes"], r["comments"] = songs[r["id"]]["gain"].get("likes") or 0, songs[r["id"]]["gain"].get("comments") or 0
+    life = _life(conn, B, ids)
+    if engagement["likes_per_1k"] and engagement["mk_likes_per_1k"]:
+        rel_ = engagement["likes_per_1k"] / engagement["mk_likes_per_1k"]
+        facts.append(f"{engagement['likes_per_1k']} likes per 1,000 views ({rel_:.1f}× the market's {engagement['mk_likes_per_1k']}): {'a more engaged' if rel_ >= 1.1 else 'a less engaged' if rel_ <= 0.9 else 'about as engaged an'} audience.")
+    d7 = next((p_ for p_ in life if p_["n"] == 7), None)
+    if d7 and d7["yt"] and d7["mk_yt"] and d7["yt_songs"] >= 1:
+        facts.append(f"By day 7 their songs average {d7['yt']:,} views vs {d7['mk_yt']:,} for the period's average song ({d7['yt'] / d7['mk_yt']:.1f}×; songs read from their first days: {d7['yt_songs']} of theirs, {d7['mk_songs']:,} in all).")
+    extra = {"curve": curve, "per_song": per_song, "dz_trend": dz_trend, "engagement": engagement, "life": life, "peers": peers, "share_all": share_all, "market_per_100": market_per_100,
              "languages": [{"name": n, **v} for n, v in sorted(langs.items(), key=lambda kv: kv[1]["yt"], reverse=True)],
              "role": {"field": field, "one": one, "many": many, "title": title}, "rank_of": len(all_rows), "peaks": peaks, "week": week, "first_release": rel[0] if rel else None, "latest_release": rel[-1] if rel else None,
              "best_yt": {"id": best_yt["id"], "title": best_yt["title"], "value": best_yt["yt"], "share": best_yt["share_yt"]} if best_yt and best_yt["yt"] else None,
