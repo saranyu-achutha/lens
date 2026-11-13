@@ -385,7 +385,7 @@ def detail(conn, key, days=30, cfg=None):
     for k in ("yt", "audio", "sp", "ytm", "js", "shorts", "ig_reels"):
         order = sorted(all_rows, key=lambda r: r[k], reverse=True)
         ranks[k] = next(i + 1 for i, r in enumerate(order) if r["key"] == key) if me[k] > 0 else None
-    series = _series(B, ids, ["yt", "sp", "ytm", "js", "shorts", "ig_reels"])
+    series = _series(B, ids, ["yt", "sp", "ytm", "js", "shorts", "ig_reels", "audio"])
     song_rows = []
     for sid in sorted(ids, key=lambda i: (songs[i]["gain"]["yt"], songs[i]["gain"]["audio"]), reverse=True):
         s = songs[sid]
@@ -433,7 +433,38 @@ def detail(conn, key, days=30, cfg=None):
         facts.append(f"YouTube views {me['momentum']:+d}% this week vs the week before" + (f"; audio {me['audio_momentum']:+d}%." if me["audio_momentum"] is not None else "."))
     if me["top_share"] is not None and me["songs"] > 1:
         facts.append(f"Top song brings {me['top_share']}% of the YouTube gain.")
-    return {"key": key, "name": me["name"], "days": B["days"], "start": B["start"], "end": B["end"],
+    # the person page (2026-11-13): growth curve, peaks, week on week per platform, best songs, release span
+    def cumulative(k, end_total):
+        pts, run = series[k], end_total
+        out = []
+        for pt in reversed(pts):  # the total at the end of each day = the end total minus what came after that day
+            out.append({"x": pt["x"], "y": run})
+            run -= pt["y"] or 0
+        return out[::-1]
+    curve = {"yt": cumulative("yt", me["yt_total"]), "audio": cumulative("audio", me["audio_total"])}
+    peaks = {}
+    for k in ("yt", "audio", "sp", "ytm", "js", "shorts"):
+        best = max(series[k], key=lambda pt: pt["y"] or 0, default=None)
+        peaks[k] = {"day": best["x"], "value": best["y"]} if best and best["y"] else None
+    week = {}
+    for k in ("yt", "audio", "sp", "ytm", "js", "shorts"):
+        ys = [pt["y"] or 0 for pt in series[k]]
+        if len(ys) >= 14:
+            now, before = sum(ys[-7:]), sum(ys[-14:-7])
+            week[k] = {"now": now, "before": before, "change": round(100 * (now - before) / before) if before else None}
+        else:
+            week[k] = None
+    for r in song_rows:
+        r["share_yt"] = round(100 * r["yt"] / me["yt"], 1) if me["yt"] else 0
+        r["share_audio"] = round(100 * r["audio"] / me["audio"], 1) if me["audio"] else 0
+    rel = sorted(r["release"] for r in song_rows if r["release"])
+    best_yt = max(song_rows, key=lambda r: r["yt"], default=None)
+    best_audio = max(song_rows, key=lambda r: r["audio"], default=None)
+    extra = {"curve": curve, "peaks": peaks, "week": week, "first_release": rel[0] if rel else None, "latest_release": rel[-1] if rel else None,
+             "best_yt": {"id": best_yt["id"], "title": best_yt["title"], "value": best_yt["yt"], "share": best_yt["share_yt"]} if best_yt and best_yt["yt"] else None,
+             "best_audio": {"id": best_audio["id"], "title": best_audio["title"], "value": best_audio["audio"], "share": best_audio["share_audio"]} if best_audio and best_audio["audio"] else None,
+             "new_songs": sum(1 for r in song_rows if r["new"]), "films": sorted({r["film"] for r in song_rows if r["film"]})}
+    return {"key": key, "name": me["name"], "days": B["days"], "start": B["start"], "end": B["end"], "extra": extra,
             "person": {k: v for k, v in me.items() if k != "song_ids"}, "ranks": ranks, "people": len(all_rows),
             "series": series, "songs": song_rows, "collaborators": collab,
             "labels": [{"name": n, **v} for n, v in sorted(labels.items(), key=lambda x: x[1]["yt"], reverse=True)],

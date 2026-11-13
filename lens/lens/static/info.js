@@ -285,6 +285,16 @@
     "Every data request of a client login is counted. Blocks: bots or scripts, requests without the Console's browser session, too fast, over the daily caps, wrong passwords and lockouts.",
     "Live; counts reset at midnight UTC.", "Spots misuse early, e.g. a shared password (several IPs, many browsers) or bulk copying (blocks).",
     "lens/shield.py → data/shield.db (shield_access, shield_session, shield_event); settings config.json → shield.");
+  INFO["ca-curve"] = I("Their songs' total YouTube views (left axis) and audio streams (right axis) at the end of each day.", "Today's total minus the growth that came after each day; Spotify + YouTube Music + JioSaavn for audio.", "Daily (last completed day).", "Shows whether their songs are still climbing or levelling off.");
+  Object.assign(INFO, {
+    "release timeline": I("Each of their songs on its release day (first YouTube upload); bigger dot = more YouTube growth in the period, colour = label.", "Hover a dot for the song's growth; click it to open the song.", "Updates with new releases.", "Shows how busy they are and which release carried them."),
+    "best song on youtube": I("The song that brought them the most YouTube views in the period, and its share of their YouTube growth.", "", "Daily.", "A high share means one song carries them."),
+    "best song in audio": I("The song with the most audio streams gained (Spotify + YouTube Music + JioSaavn) in the period.", "", "Daily.", ""),
+    "biggest youtube day": I("The day their songs together gained the most YouTube views, and the audio peak.", "Sum of the songs' daily view gains.", "Daily.", "Usually a release or a viral moment."),
+    "releases": I("How many of their songs are in the period, how many are new releases, and when the first and latest came out.", "", "Updates with new releases.", ""),
+    "works with": I("Co-stars, singers and music directors on the same songs, with the number of songs together.", "From the YouTube credits.", "", "Click a co-star to open their page."),
+    "growth so far": INFO["ca-curve"],
+  });
   /* page-specific meanings of common words */
   Object.assign(INFO, {
     "dashboard|songs": I("Top songs and fastest-growing songs, by YouTube views or audio streams.", "Switch with the buttons; views and streams are never mixed.", LAST_DAY, ""),

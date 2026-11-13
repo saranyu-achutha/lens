@@ -1455,7 +1455,15 @@ $("#ex-next").onclick = () => { EX.offset += EX.limit; fetchExplore(); };
 document.addEventListener("click", (e) => {
   const m = e.target.closest("[data-meta-key]");
   if (!m || e.target.closest("[data-open], a[href^='http'], button")) return;
-  e.preventDefault(); openMeta(m.dataset.metaField, m.dataset.metaKey);
+  e.preventDefault();
+  if (m.dataset.metaField === "cast") {  // a cast member opens their own page on Cast & featuring, with a way back to the song
+    CA.from = $("#drawer").classList.contains("open") ? (window.__trackId || null) : null;
+    closeDrawer();
+    const h = `#cast?key=${encodeURIComponent(m.dataset.metaKey)}`;
+    if (location.hash === h) openCast(m.dataset.metaKey); else location.hash = h;
+    return;
+  }
+  openMeta(m.dataset.metaField, m.dataset.metaKey);
 });
 async function openMeta(field, key) {
   const d = await api(`/api/meta/detail?${new URLSearchParams({ field, key })}`);
@@ -1510,6 +1518,7 @@ $("#drawer-bg").onclick = closeDrawer;
 document.addEventListener("keydown", (e) => e.key === "Escape" && closeDrawer());
 function closeDrawer() { $("#drawer").classList.remove("open", "wide"); $("#drawer-bg").classList.remove("open"); }
 async function openTrack(id) {
+  window.__trackId = id;  // remembered so a cast page can lead back to this song
   // One-glance song profile: who/what/when, every platform's numbers with the last day's gain, cross-platform split,
   // details and credits, performance vs similar songs, trend, uploads, versions. Same layout for every song.
   const [d, cmp] = await Promise.all([api(`/api/track?id=${id}`), api(`/api/song/compare?id=${id}`).catch(() => null)]);
@@ -2747,6 +2756,9 @@ let caTimer;
 async function loadCast() {
   const hp = new URLSearchParams(location.hash.split("?")[1] || "");
   if (hp.get("key") && hp.get("key") !== CA.key) CA.key = hp.get("key");
+  if (!hp.get("key") && CA.key) { CA.key = null; CA.from = null; }
+  if (CA.key) { $("#page-cast").classList.add("ca-open"); $("#ca-detail").style.display = ""; }  // a person's page: straight to it
+  else $("#page-cast").classList.remove("ca-open");
   const qs = new URLSearchParams({ days: CA.days, platform: CA.platform, sort: CA.sort, order: CA.order, offset: CA.offset, limit: CA.limit });
   if (CA.label) qs.set("label", CA.label); if (CA.language) qs.set("language", CA.language); if (CA.q) qs.set("q", CA.q);
   const d = await api("/api/cast?" + qs);
@@ -2816,29 +2828,58 @@ async function loadCast() {
     <b>Streams per 100 views</b> shows how much of the video reach turns into listening. <b>Week vs week before</b> compares the last 7 days with the 7 before. Songs of the period only (first uploaded from ${dayLabel(d.since)}, not released earlier). Insights are fixed rules over these numbers, not AI.`;
   if (CA.key) openCast(CA.key, true); else $("#ca-detail").style.display = "none";
 }
-// one cast member: KPIs per platform, daily charts, platform mix vs market, labels, songs, collaborators
+// One cast member as a full page (2026-11-13; opened from the Cast list, a co-star chip, or a cast name on a song):
+// who they are, growth on every platform with rank and week-on-week change, highlights, growth curve, daily charts,
+// release timeline, platform mix vs the market, labels, every song (sortable, totals and share) and who they work with.
+const CA_SONG = { sort: "yt", order: "desc" };
 async function openCast(key, keepScroll) {
   CA.key = key;
-  const box = $("#ca-detail");
+  const page = $("#page-cast"), box = $("#ca-detail");
+  page.classList.add("ca-open");
   box.style.display = ""; box.innerHTML = `<div class="empty">Loading…</div>`;
-  if (!keepScroll) box.scrollIntoView({ behavior: "smooth", block: "start" });
+  if (!keepScroll) window.scrollTo({ top: 0, behavior: "smooth" });
   let x;
   try { x = await api(`/api/cast/detail?key=${encodeURIComponent(key)}&days=${CA.days}`); }
-  catch (e) { box.innerHTML = `<div class="empty">${esc(e.message || "Could not load this cast member.")} <button class="small" id="ca-close">Close</button></div>`; $("#ca-close").onclick = closeCast; return; }
-  const P = CA_PLAT, p = x.person, r = x.ranks;
-  const tile = (k, v, rank, extra = "") => `<div class="card kpi" style="--kpi-c:${P[k].color}"><div class="label">${esc(P[k].name)}</div><div class="value">${k === "yt" ? compact(v) : compact1(v)}</div>
-    <div class="gainline">${rank ? `<span class="gain-chip">#${fmt(rank)} of ${fmt(x.people)}</span>` : '<span class="gain-chip none">no growth</span>'}</div><div class="explain">${extra}</div></div>`;
-  const tiles = [tile("yt", p.yt, r.yt, `Total ${compact(p.yt_total)} · ${compact(p.per_song)} a song`), tile("audio", p.audio, r.audio, `${p.audio_per_100 ?? "–"} streams per 100 views`),
+  catch (e) { box.innerHTML = `<div class="empty">${esc(e.message || "Could not load this cast member.")} <button class="small" id="ca-close">← All cast</button></div>`; $("#ca-close").onclick = closeCast; return; }
+  const P = CA_PLAT, p = x.person, r = x.ranks, e = x.extra || {}, wk = e.week || {};
+  const initials = x.name.replace(/\(.*?\)/g, "").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
+  const chg = (w) => !w ? "" : w.change == null ? (w.now ? `<span class="ca-wk up">new this week</span>` : "")
+    : `<span class="ca-wk ${w.change >= 0 ? "up" : "down"}">${w.change >= 0 ? "▲" : "▼"} ${Math.abs(w.change) > 300 ? (w.now / Math.max(1, w.before)).toFixed(1) + "×" : Math.abs(w.change) + "%"} vs week before</span>`;
+  const tile = (k, v, rank, extra = "") => `<div class="card kpi" style="--kpi-c:${P[k].color}"><div class="label">${esc(P[k].name)}</div><div class="value">+${k === "yt" || k === "shorts" ? compact(v) : compact1(v)}</div>
+    <div class="gainline">${rank ? `<span class="gain-chip">#${fmt(rank)} of ${fmt(x.people)}</span>` : '<span class="gain-chip none">no growth</span>'} ${chg(wk[k])}</div><div class="explain">${extra}</div></div>`;
+  const tiles = [tile("yt", p.yt, r.yt, `Total ${compact(p.yt_total)} · ${compact(p.per_song)} a song`), tile("audio", p.audio, r.audio, `Total ${compact1(p.audio_total)} · ${p.audio_per_100 ?? "–"} streams per 100 views`),
     tile("sp", p.sp, r.sp, `Total ${compact1(p.sp_total)}`), tile("ytm", p.ytm, r.ytm, `Total ${compact1(p.ytm_total)}`), tile("js", p.js, r.js, `Total ${compact1(p.js_total)}`),
-    tile("shorts", p.shorts, r.shorts, `Total ${compact(p.shorts_total)} Shorts`)];
+    tile("shorts", p.shorts, r.shorts, `Total ${compact(p.shorts_total)} Shorts made with the songs' audio`)];
   if (!isClient() && p.ig_reels != null) tiles.push(tile("ig_reels", p.ig_reels, r.ig_reels, `Total ${compact(p.ig_reels_total)} Reels`));
-  box.innerHTML = `<div class="card-head"><div><h2 style="font-size:20px">${esc(x.name)}</h2>
-      <div class="t2" style="margin-top:4px">${p.labels.map(labelTag).join(" ")} ${p.languages.map((l) => `<span class="pill">${esc(l)}</span>`).join(" ")}
-      ${p.films.length ? `<span class="muted">Films: ${esc(p.films.join(", "))}</span>` : ""} · ${fmt(p.songs)} song${p.songs === 1 ? "" : "s"}${p.dz_best ? ` · best Deezer rank ${fmt(p.dz_best)}` : ""}</div></div>
-      <span class="spacer"></span><button class="small" id="ca-close">✕ Close</button></div>
-    <div class="grid g4 glance" style="margin-top:12px">${tiles.join("")}</div>
-    ${x.facts.length ? `<ul class="ca-facts">${x.facts.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>` : ""}
-    <div class="grid g2" style="margin-top:12px">
+  const hl = (title, main, sub, id) => `<div class="card ca-hl${id ? " click" : ""}"${id ? ` data-id="${id}"` : ""}><div class="label">${title}</div><div class="ca-hl-main">${main}</div><div class="muted">${sub}</div></div>`;
+  const span = e.first_release ? (e.first_release === e.latest_release ? dayLabel(e.first_release) + " " + e.first_release.slice(0, 4) : `${dayLabel(e.first_release)} – ${dayLabel(e.latest_release)} ${e.latest_release.slice(0, 4)}`) : "–";
+  const highlights = [
+    e.best_yt ? hl("Best song on YouTube", esc(e.best_yt.title), `+${compact(e.best_yt.value)} views · ${e.best_yt.share}% of their YouTube growth`, e.best_yt.id) : "",
+    e.best_audio ? hl("Best song in audio", esc(e.best_audio.title), `+${compact1(e.best_audio.value)} streams · ${e.best_audio.share}% of their audio growth`, e.best_audio.id) : "",
+    e.peaks && e.peaks.yt ? hl("Biggest YouTube day", `+${compact(e.peaks.yt.value)} views`, `on ${esc(dayLabel(e.peaks.yt.day))}${e.peaks.audio ? ` · audio peak +${compact1(e.peaks.audio.value)} on ${esc(dayLabel(e.peaks.audio.day))}` : ""}`) : "",
+    hl("Releases", `${fmt(p.songs)} song${p.songs === 1 ? "" : "s"}${e.new_songs ? ` · ${fmt(e.new_songs)} new` : ""}`, `${esc(span)}${(e.films || []).length ? ` · ${(e.films || []).length} film${e.films.length === 1 ? "" : "s"}` : ""}`),
+  ].join("");
+  const back = CA.from ? `<button class="small" id="ca-back-song">← Back to song</button>` : "";
+  box.innerHTML = `
+    <div class="ca-hero">
+      <div class="ca-avatar">${esc(initials || "?")}</div>
+      <div class="ca-hero-main"><div class="ca-crumb"><a href="#cast" id="ca-all">Cast &amp; featuring</a> › ${esc(x.name)}</div>
+        <h1 class="ca-name">${esc(x.name)}</h1>
+        <div class="ca-tags">${p.labels.map(labelTag).join(" ")} ${p.languages.map((l) => `<span class="pill">${esc(l)}</span>`).join(" ")}
+          <span class="pill">${fmt(p.songs)} song${p.songs === 1 ? "" : "s"}</span>${p.dz_best ? `<span class="pill">best Deezer rank ${fmt(p.dz_best)}</span>` : ""}</div>
+        ${(e.films || []).length ? `<div class="muted ca-films">Films: ${esc(e.films.join(", "))}</div>` : ""}</div>
+      <div class="ca-hero-side"><div class="row" style="gap:8px;justify-content:flex-end">${back}<button class="small" id="ca-close">✕ All cast</button></div>
+        <div class="seg" id="cad-days">${[7, 14, 30, 60, 90].map((d) => `<button class="small${d === x.days ? " on" : ""}" data-d="${d}">${d} days</button>`).join("")}</div>
+        <div class="muted" style="font-size:12px">growth ${esc(dayLabel(x.start))} – ${esc(dayLabel(x.end))}</div></div>
+    </div>
+    ${x.facts.length ? `<div class="ca-facts2">${x.facts.map((f) => `<div class="ca-fact">${esc(f)}</div>`).join("")}</div>` : ""}
+    <div class="grid g4 glance" style="margin-top:14px">${tiles.join("")}</div>
+    <div class="grid g4" style="margin-top:14px">${highlights}</div>
+    <div class="grid g2" style="margin-top:16px">
+      <div class="card"><div class="card-head"><h2 data-info="ca-curve">Growth so far</h2><span class="spacer"></span><span class="muted" style="font-size:12px">total at the end of each day · YouTube left, audio right</span></div><div class="chart" id="cad-curve"></div><div class="legend" id="cad-curve-lg"></div></div>
+      <div class="card"><div class="card-head"><h2>Release timeline</h2><span class="spacer"></span><span class="muted" style="font-size:12px">each song on its release day · size = YouTube growth</span></div><div id="cad-time"></div></div>
+    </div>
+    <div class="grid g2" style="margin-top:16px">
       <div class="card"><div class="card-head"><h2>YouTube views per day</h2></div><div class="chart" id="cad-yt"></div></div>
       <div class="card"><div class="card-head"><h2>Audio streams per day</h2><span class="spacer"></span><span class="muted" style="font-size:12px">Spotify + YouTube Music + JioSaavn</span></div><div class="chart" id="cad-audio"></div></div>
     </div>
@@ -2846,27 +2887,80 @@ async function openCast(key, keepScroll) {
       <div class="card"><div class="card-head"><h2>Platform mix vs the market</h2><span class="spacer"></span><span class="muted" style="font-size:12px">share of the gain · index 100 = same as the market</span></div><div id="cad-mix"></div></div>
       <div class="card"><div class="card-head"><h2>By label</h2><span class="spacer"></span><span id="cad-lab-sw"></span></div><div id="cad-lab"></div></div>
     </div>
-    <div class="grid g2" style="margin-top:16px">
-      <div class="card flush"><h2 style="padding:16px 16px 0">Songs</h2><div class="table-wrap" style="max-height:420px"><table id="cad-songs"></table></div></div>
-      <div class="card"><h2>Works with</h2><div id="cad-collab"></div></div>
-    </div>`;
+    <div class="card flush" style="margin-top:16px"><div class="card-head" style="padding:16px 16px 0"><h2>Songs</h2><span class="spacer"></span><span class="muted" style="font-size:12px">growth over ${x.days} days, total so far below · click a column to sort, a song to open it</span></div>
+      <div class="table-wrap" style="max-height:560px"><table id="cad-songs"></table></div></div>
+    <div class="card" style="margin-top:16px"><h2>Works with</h2><div id="cad-collab" class="ca-collab-grid"></div></div>`;
   $("#ca-close").onclick = closeCast;
+  $("#ca-all").onclick = (ev) => { ev.preventDefault(); closeCast(); };
+  if (CA.from) $("#ca-back-song").onclick = () => { const id = CA.from; openTrack(id); };
+  box.querySelectorAll("#cad-days button").forEach((b) => (b.onclick = () => { CA.days = +b.dataset.d; openCast(key, true); }));
+  box.querySelectorAll(".ca-hl[data-id]").forEach((c) => (c.onclick = () => openTrack(c.dataset.id)));
+  // growth curve: YouTube (left axis) and audio (right axis)
+  const curve = e.curve || {};
+  multiLine($("#cad-curve"), [{ name: "YouTube views", color: P.yt.color, points: curve.yt || [] }, { name: "Audio streams", color: P.audio.color, axis: "right", points: curve.audio || [] }].filter((l) => l.points.length), { height: 230, dots: false });
+  $("#cad-curve-lg").innerHTML = [["YouTube views", P.yt.color], ["Audio streams", P.audio.color]].map(([n, c]) => `<span><i class="ca-dot" style="background:${c}"></i>${n}</span>`).join(" ");
   const day = (pt) => ({ label: pt.x.slice(5), value: Math.max(0, pt.y || 0), x: pt.x });
   barChart($("#cad-yt"), x.series.yt.map(day), { color: P.yt.color, tip: (b) => `<b>${esc(dayLabel(b.x))}</b><br>+${fmt(b.value)} views` });
   stackColumns($("#cad-audio"), ["sp", "ytm", "js"].map((k) => ({ name: P[k].short, color: P[k].color, points: x.series[k] })), { height: 230, vfmt: compact1 });
+  castTimeline($("#cad-time"), x.songs, e.first_release, x.end);
   $("#cad-mix").innerHTML = `<table class="ca-mixtbl"><thead><tr><th>Platform</th><th>${esc(x.name.split(" ")[0])}</th><th>Market</th><th class="num">Index</th></tr></thead><tbody>` +
     x.mix.map((m) => `<tr><td><i class="ca-dot" style="background:${P[m.key].color}"></i>${esc(P[m.key].short)}</td>
       <td><span class="share-bar" style="--w:${m.share}%;--c:${P[m.key].color}">${m.share}%</span></td><td><span class="share-bar" style="--w:${m.market_share}%;--c:var(--text-muted)">${m.market_share}%</span></td>
       <td class="num">${m.index == null ? "–" : `<b class="${m.index >= 130 ? "delta-up" : m.index <= 70 ? "delta-down" : ""}">${m.index}</b>`}</td></tr>`).join("") + "</tbody></table>";
   partsChart($("#cad-lab-sw"), $("#cad-lab"), "cad-lab", x.labels.map((l) => ({ name: l.name, tag: labelTag(l.name), value: l.yt, color: labelColor(l.name) })), { vfmt: compact, center: "YouTube views" });
-  $("#cad-songs").innerHTML = `<thead><tr><th></th><th>Song</th><th class="num">YouTube</th><th class="num">Spotify</th><th class="num">YT Music</th><th class="num">JioSaavn</th><th class="num">Shorts</th></tr></thead><tbody>` +
-    x.songs.map((s) => `<tr class="click" data-id="${s.id}">${playOne(s)}<td><div class="t1">${esc(s.title)}${labelTag(s.label)}</div><div class="t2">${esc(s.release)}${s.film ? ` · ${esc(s.film)}` : ""}${s.new ? ' · <span class="pill ok" style="padding:0 6px">new</span>' : ""}</div></td>
-      <td class="num"><b>+${compact(s.yt)}</b></td><td class="num">+${compact1(s.sp)}</td><td class="num">+${compact1(s.ytm)}</td><td class="num">+${compact1(s.js)}</td><td class="num">${s.shorts ? "+" + compact(s.shorts) : "–"}</td></tr>`).join("") + "</tbody>";
-  const grp = (title, xs, clickable) => xs.length ? `<div class="ca-collab"><div class="muted" style="font-size:12px;margin:8px 0 4px">${title}</div><div class="ca-chips">${xs.map((c) =>
+  const renderSongs = () => {
+    const cols = [["title", "Song", false], ["yt", "YouTube", true], ["share_yt", "Share", true], ["sp", "Spotify", true], ["ytm", "YT Music", true], ["js", "JioSaavn", true], ["shorts", "Shorts", true]];
+    const rows = x.songs.slice().sort((a, b) => { const k = CA_SONG.sort, av = a[k] ?? 0, bv = b[k] ?? 0;
+      const c = typeof av === "string" ? av.localeCompare(bv) : av - bv; return CA_SONG.order === "asc" ? c : -c; });
+    const tot = (v, f) => v == null ? "" : `<div class="t2">${f(v)} total</div>`;
+    $("#cad-songs").innerHTML = `<thead><tr><th></th>${cols.map(([k, n, num]) => `<th class="${num ? "num " : ""}sortable" data-csort="${k}">${n}${CA_SONG.sort === k ? (CA_SONG.order === "asc" ? " ▲" : " ▼") : ""}</th>`).join("")}</tr></thead><tbody>` +
+      rows.map((s) => `<tr class="click" data-id="${s.id}">${playOne(s)}<td><div class="t1">${esc(s.title)} ${labelTag(s.label)}</div><div class="t2">${esc(s.release || "")}${s.film ? ` · ${esc(s.film)}` : ""}${s.language ? ` · ${esc(s.language)}` : ""}${s.new ? ' · <span class="pill ok" style="padding:0 6px">new</span>' : ""}</div></td>
+        <td class="num"><b>+${compact(s.yt)}</b>${tot(s.yt_total, compact)}</td>
+        <td class="num"><span class="share-bar" style="--w:${Math.min(100, s.share_yt || 0)}%;--c:${P.yt.color}">${s.share_yt ?? 0}%</span></td>
+        <td class="num">+${compact1(s.sp)}${tot(s.sp_total, compact1)}</td><td class="num">+${compact1(s.ytm)}${tot(s.ytm_total, compact1)}</td><td class="num">+${compact1(s.js)}${tot(s.js_total, compact1)}</td>
+        <td class="num">${s.shorts ? "+" + compact(s.shorts) : "–"}${tot(s.shorts_total, compact)}</td></tr>`).join("") + "</tbody>";
+    $("#cad-songs").querySelectorAll("th[data-csort]").forEach((th) => (th.onclick = (ev) => { ev.stopPropagation(); const k = th.dataset.csort;
+      CA_SONG.order = CA_SONG.sort === k && CA_SONG.order === "desc" ? "asc" : k === "title" ? "asc" : "desc"; CA_SONG.sort = k; renderSongs(); }));
+  };
+  renderSongs();
+  const grp = (title, xs, clickable) => xs.length ? `<div class="ca-collab"><div class="muted" style="font-size:12px;margin:8px 0 6px">${title}</div><div class="ca-chips">${xs.map((c) =>
     `<${clickable ? `button class="chip ca-person" data-key="${esc(c.key)}"` : 'span class="chip"'} title="${fmt(c.songs)} songs together · +${compact(c.yt)} views, +${compact1(c.audio)} streams">${esc(c.name)} <span class="muted">${c.songs}</span></${clickable ? "button" : "span"}>`).join("")}</div></div>` : "";
   $("#cad-collab").innerHTML = (grp("Co-stars", x.collaborators.cast, true) + grp("Singers", x.collaborators.singer) + grp("Music directors", x.collaborators.music_director)) || `<div class="empty">No other credits on these songs.</div>`;
 }
-function closeCast() { CA.key = null; $("#ca-detail").style.display = "none"; if (location.hash.includes("key=")) history.replaceState(null, "", "#cast"); }
+// Release timeline: each song as a dot on its release day, size by its YouTube growth, colour by label; click opens it.
+function castTimeline(el, songs, first, end) {
+  const pts = songs.filter((s) => s.release);
+  if (!pts.length) { el.innerHTML = `<div class="empty">No release dates.</div>`; return; }
+  const t = (d) => new Date(d + "T00:00:00Z").getTime();
+  let a = t(first || pts.map((s) => s.release).sort()[0]), b = t(end);
+  if (b - a < 14 * 864e5) a = b - 14 * 864e5;
+  const W = 640, H = 170, L = 16, R = 16, top = 26, base = 120, maxv = Math.max(1, ...pts.map((s) => s.yt || 0));
+  const X = (d) => L + ((t(d) - a) / (b - a)) * (W - L - R);
+  const ticks = []; for (let i = 0; i <= 4; i++) { const ms = a + (i / 4) * (b - a); ticks.push(new Date(ms).toISOString().slice(0, 10)); }
+  const lanes = {}; // stagger songs released close together
+  const dots = pts.sort((p, q) => p.release.localeCompare(q.release)).map((s) => {
+    const x = X(s.release), lane = Object.keys(lanes).filter((k) => Math.abs(lanes[k] - x) < 18).length; lanes[s.id] = x;
+    const rr = 5 + 13 * Math.sqrt((s.yt || 0) / maxv), y = base - 18 - (lane % 3) * 26;
+    return `<g class="ca-tdot" data-id="${s.id}"><line x1="${x}" x2="${x}" y1="${y}" y2="${base}" stroke="var(--grid)"/><circle cx="${x}" cy="${y}" r="${rr}" fill="${labelColor(s.label)}" fill-opacity=".85" stroke="var(--surface-1)" stroke-width="1.5"/>
+      <text x="${x}" y="${y - rr - 4}" text-anchor="${x < 70 ? "start" : x > W - 70 ? "end" : "middle"}" font-size="10" fill="var(--text-secondary)">${esc((s.title || "").slice(0, 22))}</text></g>`;
+  }).join("");
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" class="ca-timeline"><line x1="${L}" x2="${W - R}" y1="${base}" y2="${base}" stroke="var(--border)"/>
+    ${ticks.map((d) => `<g><line x1="${X(d)}" x2="${X(d)}" y1="${base}" y2="${base + 5}" stroke="var(--border)"/><text x="${X(d)}" y="${base + 18}" text-anchor="middle" font-size="10" fill="var(--text-muted)">${esc(dayLabel(d))}</text></g>`).join("")}
+    ${dots}</svg><div class="tooltip" style="display:none"></div>`;
+  const tip = el.querySelector(".tooltip"); el.style.position = "relative";
+  el.querySelectorAll(".ca-tdot").forEach((g) => {
+    const s = pts.find((q) => String(q.id) === g.dataset.id);
+    g.onmouseenter = (ev) => { tip.style.display = "block"; tip.innerHTML = `<b>${esc(s.title)}</b><br>${esc(s.release)} · ${esc(s.label || "")}<br>+${compact(s.yt)} views · +${compact1(s.audio)} streams`;
+      const r = el.getBoundingClientRect(), c = g.querySelector("circle").getBoundingClientRect(); tip.style.left = (c.left - r.left + c.width / 2) + "px"; tip.style.top = (c.top - r.top) + "px"; };
+    g.onmouseleave = () => { tip.style.display = "none"; };
+    g.onclick = () => openTrack(s.id);
+  });
+}
+function closeCast() {
+  CA.key = null; CA.from = null; $("#ca-detail").style.display = "none"; $("#page-cast").classList.remove("ca-open");
+  if (location.hash.includes("key=")) history.replaceState(null, "", "#cast");
+  window.scrollTo({ top: 0 });
+}
 document.querySelectorAll("#ca-days button").forEach((b) => (b.onclick = () => { CA.days = +b.dataset.d; CA.offset = 0; loadCast(); }));
 $("#ca-label").onchange = (e) => { CA.label = e.target.value; CA.offset = 0; loadCast(); };
 $("#ca-language").onchange = (e) => { CA.language = e.target.value; CA.offset = 0; loadCast(); };
