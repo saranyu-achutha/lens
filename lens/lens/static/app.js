@@ -56,7 +56,7 @@ let STATUS = null;
 /* ---------- Router ---------- */
 const PAGES = ["overview", "dashboard", "mgmt", "share", "cast", "dev", "status", "missed", "added", "crawl", "apis", "charts", "schedule", "platforms", "reports", "daily", "pdata", "catalogue", "explore", "insights", "review", "runs", "outputs", "sources", "settings"];
 // The client login sees only these pages (the server refuses everything else for it).
-const CLIENT_PAGES = ["dashboard", "mgmt", "share", "cast", "platforms", "reports", "daily", "catalogue"];
+const CLIENT_PAGES = ["dashboard", "mgmt", "share", "platforms", "reports", "daily", "catalogue"];  // Cast & featuring: developer only (2026-11-13)
 // A developer can switch to "Client view" to see exactly what the client sees (menu, pages, header); not remembered.
 let CLIENT_VIEW = false;
 const isClient = () => STATUS?.role === "client" || CLIENT_VIEW;
@@ -1456,7 +1456,7 @@ document.addEventListener("click", (e) => {
   const m = e.target.closest("[data-meta-key]");
   if (!m || e.target.closest("[data-open], a[href^='http'], button")) return;
   e.preventDefault();
-  if (m.dataset.metaField === "cast") {  // a cast member opens their own page on Cast & featuring, with a way back to the song
+  if (m.dataset.metaField === "cast" && !isClient()) {  // developer: a cast member opens their page on Cast & featuring (clients: the simple metrics view)
     CA.from = $("#drawer").classList.contains("open") ? (window.__trackId || null) : null;
     closeDrawer();
     const h = `#cast?key=${encodeURIComponent(m.dataset.metaKey)}`;
