@@ -2732,14 +2732,14 @@ async function loadMgmt() {
 
 /* ---------- Cast & featuring (client + developer): the credited cast's performance on every platform ---------- */
 const CA = { days: 30, label: "", language: "", q: "", platform: "yt", sort: "yt", order: "desc", offset: 0, limit: 50, key: null };
-const CA_PLAT = {  // key -> name, colour (platform colours as everywhere else)
-  yt: { name: "YouTube views", short: "YouTube", color: PCOLOR.youtube },
+const CA_PLAT = {  // key -> name, colour (the 8 distinct platform colours --pv-*, so YouTube and YouTube Music never look alike)
+  yt: { name: "YouTube views", short: "YouTube", color: `var(--pv-youtube, ${PCOLOR.youtube})` },
   audio: { name: "Audio streams", short: "Audio", color: "var(--accent-2)" },
-  sp: { name: "Spotify plays", short: "Spotify", color: PCOLOR.spotify },
-  ytm: { name: "YouTube Music plays", short: "YT Music", color: PCOLOR.ytmusic },
-  js: { name: "JioSaavn plays", short: "JioSaavn", color: PCOLOR.jiosaavn },
+  sp: { name: "Spotify plays", short: "Spotify", color: `var(--pv-spotify, ${PCOLOR.spotify})` },
+  ytm: { name: "YouTube Music plays", short: "YT Music", color: `var(--pv-ytmusic, ${PCOLOR.ytmusic})` },
+  js: { name: "JioSaavn plays", short: "JioSaavn", color: `var(--pv-jiosaavn, ${PCOLOR.jiosaavn})` },
   shorts: { name: "Shorts made", short: "Shorts", color: "var(--warning)" },
-  ig_reels: { name: "Instagram Reels made", short: "Reels", color: PCOLOR.instagram, dev: true },
+  ig_reels: { name: "Instagram Reels made", short: "Reels", color: `var(--pv-instagram, ${PCOLOR.instagram})`, dev: true },
 };
 const CA_SERIES = ["#6366f1", "#ef4444", "#10b981", "#f59e0b", "#06b6d4"];
 const caPlats = () => Object.keys(CA_PLAT).filter((k) => !(CA_PLAT[k].dev && isClient()));
