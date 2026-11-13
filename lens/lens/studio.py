@@ -41,7 +41,8 @@ DEV_LOGIN = (None, None)  # developer login: DEVELOPER_USERNAME + DEVELOPER_PASS
 # (developer pages, raw data, review, runs, settings, docs) and every change (POST) is for the developer login only.
 # Client logins read on screen only: no CSV downloads (user rule, 2026-11-12); every *.csv / download path is refused below too.
 CLIENT_GET = {"/api/status", "/api/client", "/api/platform", "/api/report", "/api/labels/report", "/api/market_share", "/api/management", "/api/daily", "/api/shorts",
-              "/api/song/compare", "/api/tracks", "/api/track", "/api/search", "/api/insights/song", "/api/meta/detail"}
+              "/api/song/compare", "/api/tracks", "/api/track", "/api/search", "/api/insights/song", "/api/meta/detail",
+              "/api/cast", "/api/cast/detail"}
 
 SORTS = {"song_date": "song_date", "release_date": "release_date", "title": "title", "artists": "artists",
          "yt_views": "yt_views", "yt_delta": "yt_delta", "yt_likes": "yt_likes", "yt_comments": "yt_comments",
@@ -1122,6 +1123,23 @@ def api_management(conn, qs):
     g = "apple" if qs.get("genre") == "apple" else "category"
     m = qs.get("method") if qs.get("method") in management.GENRE_METHODS else "split"
     return management.compute(conn, g, m)
+
+
+def api_cast(conn, qs):
+    """Cast & featuring: every cast member's growth on each platform, charts and rule-based insights (client + developer)."""
+    from . import cast_report
+    return cast_report.compute(conn, days=int(qs.get("days") or 30), label=qs.get("label") or None,
+                               language=qs.get("language") or None, sort=qs.get("sort") or "yt", order=qs.get("order") or "desc",
+                               q=(qs.get("q") or "").strip()[:80] or None, limit=int(qs.get("limit") or 50),
+                               offset=int(qs.get("offset") or 0), platform=qs.get("platform") or "yt")
+
+
+def api_cast_detail(conn, qs):
+    """One cast member: platform KPIs and ranks, daily series per platform, songs, platform mix vs market, collaborators."""
+    from . import cast_report
+    if not qs.get("key"):
+        raise ValueError("key is required")
+    return cast_report.detail(conn, qs["key"], days=int(qs.get("days") or 30))
 
 
 def api_live(conn, qs):
@@ -2217,6 +2235,7 @@ def fmt_n(n):
 
 GET = {"/api/coverage": api_coverage, "/api/insights": api_insights, "/api/insights/song": api_insights_song, "/api/ai/status": api_ai_status, "/api/ai/assist": api_ai_assist,
        "/api/meta/top": api_meta_top, "/api/meta/detail": api_meta_detail,
+       "/api/cast": api_cast, "/api/cast/detail": api_cast_detail,
        "/api/merge/suggestions": api_merge_suggestions, "/api/status": api_status, "/api/overview": api_overview, "/api/crawl": api_crawl, "/api/client": api_client, "/api/search": api_search, "/api/dev": api_dev, "/api/tracks": api_tracks,
        "/api/track": api_track, "/api/platform": api_platform, "/api/report": api_report, "/api/daily": api_daily, "/api/shorts": api_shorts, "/api/system": lambda conn, qs: sysstats.api(conn), "/api/alerts": api_alerts, "/api/live": api_live, "/api/management": api_management, "/api/market_share": api_market_share, "/api/labels/report": api_label_report, "/api/freshness": api_freshness, "/api/additions": api_additions, "/api/heal": api_heal, "/api/shield": api_shield, "/api/charts": lambda conn, qs: alerts.charts_status(conn),
        "/api/collection": lambda conn, qs: collection.estimate(conn, overrides={k: qs[k] for k in collection.CHOICES if qs.get(k)}), "/api/items": api_items, "/api/song/compare": api_song_compare, "/api/items/history": api_item_history, "/api/runs": api_runs, "/api/seeds": api_seeds,

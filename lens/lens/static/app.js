@@ -54,9 +54,9 @@ function toast(msg, bad = false) {
 let STATUS = null;
 
 /* ---------- Router ---------- */
-const PAGES = ["overview", "dashboard", "mgmt", "share", "dev", "status", "missed", "added", "crawl", "apis", "charts", "schedule", "platforms", "reports", "daily", "pdata", "catalogue", "explore", "insights", "review", "runs", "outputs", "sources", "settings"];
+const PAGES = ["overview", "dashboard", "mgmt", "share", "cast", "dev", "status", "missed", "added", "crawl", "apis", "charts", "schedule", "platforms", "reports", "daily", "pdata", "catalogue", "explore", "insights", "review", "runs", "outputs", "sources", "settings"];
 // The client login sees only these pages (the server refuses everything else for it).
-const CLIENT_PAGES = ["dashboard", "mgmt", "share", "platforms", "reports", "daily", "catalogue"];
+const CLIENT_PAGES = ["dashboard", "mgmt", "share", "cast", "platforms", "reports", "daily", "catalogue"];
 // A developer can switch to "Client view" to see exactly what the client sees (menu, pages, header); not remembered.
 let CLIENT_VIEW = false;
 const isClient = () => STATUS?.role === "client" || CLIENT_VIEW;
@@ -88,7 +88,7 @@ function route() {
   const sec = p === "apis" ? "crawl" : p;  // Crawl stats and API stats share one page layout
   document.querySelectorAll("section.page").forEach((s) => s.classList.toggle("active", s.id === `page-${sec}`));
   document.querySelectorAll("a.nav").forEach((a) => a.classList.toggle("active", a.getAttribute("href") === `#${p}`));
-  pageGuard(sec, ({ overview: loadOverview, dashboard: loadClient, dev: loadDev, crawl: loadCrawl, apis: loadCrawl, charts: loadCharts, schedule: loadSchedule, status: loadStatus, missed: loadMissed, added: loadAdded, share: loadShare, mgmt: loadMgmt, platforms: loadPlatform, reports: loadReport, daily: loadDaily, pdata: loadPData, catalogue: loadCatalogue, explore: loadExplore, insights: loadInsights, review: loadReview, runs: loadRuns, outputs: loadOutputs, sources: loadSources, settings: loadSettings })[p]);
+  pageGuard(sec, ({ overview: loadOverview, dashboard: loadClient, dev: loadDev, crawl: loadCrawl, apis: loadCrawl, charts: loadCharts, schedule: loadSchedule, status: loadStatus, missed: loadMissed, added: loadAdded, share: loadShare, mgmt: loadMgmt, cast: loadCast, platforms: loadPlatform, reports: loadReport, daily: loadDaily, pdata: loadPData, catalogue: loadCatalogue, explore: loadExplore, insights: loadInsights, review: loadReview, runs: loadRuns, outputs: loadOutputs, sources: loadSources, settings: loadSettings })[p]);
   const track = new URLSearchParams(location.hash.split("?")[1] || "").get("track");
   if (track) openTrack(track);
   const meta = new URLSearchParams(location.hash.split("?")[1] || "").get("meta");  // e.g. #explore?meta=singer:arijit singh
@@ -2728,6 +2728,158 @@ async function loadMgmt() {
   $("#mg-how").innerHTML = `<b>How to read this.</b> Everything is ranked by <b>Spotify plays gained</b> in the week (${wk}, the last 7 completed days); YouTube views are shown alongside, not used for ranking.
     A gain is each track's reading minus its own previous reading, so late Spotify counts land on the next reading and nothing is lost. Language-wise growth uses each song's detected language.`;
 }
+
+
+/* ---------- Cast & featuring (client + developer): the credited cast's performance on every platform ---------- */
+const CA = { days: 30, label: "", language: "", q: "", platform: "yt", sort: "yt", order: "desc", offset: 0, limit: 50, key: null };
+const CA_PLAT = {  // key -> name, colour (platform colours as everywhere else)
+  yt: { name: "YouTube views", short: "YouTube", color: PCOLOR.youtube },
+  audio: { name: "Audio streams", short: "Audio", color: "var(--accent-2)" },
+  sp: { name: "Spotify plays", short: "Spotify", color: PCOLOR.spotify },
+  ytm: { name: "YouTube Music plays", short: "YT Music", color: PCOLOR.ytmusic },
+  js: { name: "JioSaavn plays", short: "JioSaavn", color: PCOLOR.jiosaavn },
+  shorts: { name: "Shorts made", short: "Shorts", color: "var(--warning)" },
+  ig_reels: { name: "Instagram Reels made", short: "Reels", color: PCOLOR.instagram, dev: true },
+};
+const CA_SERIES = ["#6366f1", "#ef4444", "#10b981", "#f59e0b", "#06b6d4"];
+const caPlats = () => Object.keys(CA_PLAT).filter((k) => !(CA_PLAT[k].dev && isClient()));
+let caTimer;
+async function loadCast() {
+  const hp = new URLSearchParams(location.hash.split("?")[1] || "");
+  if (hp.get("key") && hp.get("key") !== CA.key) CA.key = hp.get("key");
+  const qs = new URLSearchParams({ days: CA.days, platform: CA.platform, sort: CA.sort, order: CA.order, offset: CA.offset, limit: CA.limit });
+  if (CA.label) qs.set("label", CA.label); if (CA.language) qs.set("language", CA.language); if (CA.q) qs.set("q", CA.q);
+  const d = await api("/api/cast?" + qs);
+  const P = CA_PLAT, k = d.kpi, pk = P[d.platform] || P.yt;
+  $("#ca-window").innerHTML = `<span class="dot"></span>${dayLabel(d.start)} – ${dayLabel(d.end)} · growth over ${d.days} days`;
+  $("#ca-sub").textContent = `Actors and featured artists credited on the songs (from the YouTube credits), and how their songs grow on YouTube and the audio platforms.${d.label ? ` ${d.label} only.` : ""}${d.language ? ` ${d.language} songs only.` : ""}`;
+  document.querySelectorAll("#ca-days button").forEach((b) => b.classList.toggle("on", +b.dataset.d === d.days));
+  $("#ca-label").innerHTML = `<option value="">All labels</option>` + d.labels.map((l) => `<option${l === CA.label ? " selected" : ""}>${esc(l)}</option>`).join("");
+  $("#ca-language").innerHTML = `<option value="">All languages</option>` + d.languages.map((l) => `<option${l === CA.language ? " selected" : ""}>${esc(l)}</option>`).join("");
+  const share = (a, b) => (b ? `${Math.round((100 * a) / b)}%` : "–");
+  const lead = d.top[0];
+  $("#ca-kpis").innerHTML = `
+    <div class="card kpi" style="--kpi-c:var(--accent)"><div class="label">Cast members</div><div class="value">${fmt(k.people)}</div>
+      <div class="gainline"><span class="gain-chip none">${fmt(k.people_active)} with growth</span></div><div class="explain">On ${fmt(k.songs)} songs: ${share(k.songs, k.period_songs)} of the ${fmt(k.period_songs)} songs credit a cast.</div></div>
+    <div class="card kpi" style="--kpi-c:${P.yt.color}"><div class="label">YouTube views gained</div><div class="value">${compact(k.yt)}</div>
+      <div class="gainline"><span class="gain-chip">${share(k.yt, k.yt_all)} of all views</span></div><div class="explain">Songs with a credited cast, ${d.days} days.</div></div>
+    <div class="card kpi" style="--kpi-c:${P.audio.color}"><div class="label">Audio streams gained</div><div class="value">${compact1(k.audio)}</div>
+      <div class="gainline"><span class="gain-chip">${share(k.audio, k.audio_all)} of all streams</span></div><div class="explain">Spotify ${compact1(k.sp)} · YT Music ${compact1(k.ytm)} · JioSaavn ${compact1(k.js)}.</div></div>
+    <div class="card kpi" style="--kpi-c:var(--good)"><div class="label">Streams per 100 views</div><div class="value">${k.audio_per_100 ?? "–"}</div>
+      <div class="gainline"><span class="gain-chip none">cast songs</span></div><div class="explain">How much of the video reach turns into listening. Shorts made: +${compact(k.shorts)}.</div></div>
+    <div class="card kpi" style="--kpi-c:var(--warning)"><div class="label">Top by ${esc(pk.short)}</div><div class="value" style="font-size:20px">${esc(lead?.name || "–")}</div>
+      <div class="gainline"><span class="gain-chip">+${compact1(lead?.[d.platform])}</span></div><div class="explain">${lead ? `${fmt(lead.songs)} song${lead.songs === 1 ? "" : "s"} · ${esc(lead.labels.slice(0, 2).join(", "))}` : ""}</div></div>`;
+  // insights: rule-based cards, people chips open their detail
+  $("#ca-ins-title").textContent = d.focus_label ? `Insights for ${d.focus_label}` : "Insights";
+  $("#ca-insights").innerHTML = d.insights.length ? d.insights.map((x) => `<div class="card ca-ins ${x.tone}"><div class="ca-ins-h">${esc(x.title)}</div>
+      <div class="ca-ins-t">${esc(x.text)}</div>${x.people.length ? `<div class="ca-chips">${x.people.map((p) => `<button class="chip ca-person" data-key="${esc(p.key)}" title="${p.also.length ? esc("Same songs: " + p.also.join(", ")) : "Open"}">${esc(p.name)}${p.also.length ? ` <span class="muted">+${p.also.length}</span>` : ""}</button>`).join("")}</div>` : ""}</div>`).join("")
+    : `<div class="card empty">${CA.q ? "Insights are worked out over everyone; clear the search to see them." : "Not enough data for insights yet."}</div>`;
+  // platform switch (Reels for developers only)
+  $("#ca-plat").innerHTML = caPlats().map((p) => `<button class="small${p === d.platform ? " on" : ""}" data-p="${p}">${esc(P[p].short)}</button>`).join("");
+  $("#ca-plat").querySelectorAll("button").forEach((b) => (b.onclick = () => { CA.platform = b.dataset.p; if (CA.sort === "yt" || caPlats().includes(CA.sort)) CA.sort = CA.platform; CA.offset = 0; loadCast(); }));
+  // top 12 by the platform: ranked bars / donut / one stacked bar (shares of the top 12)
+  $("#ca-top-title").textContent = `Top 12 by ${pk.name.toLowerCase()}`;
+  const parts = d.top.filter((r) => r[d.platform] > 0).map((r, i) => ({ name: r.name, value: r[d.platform], color: LABEL_COLORS[i % LABEL_COLORS.length] }));
+  chartSwitch($("#ca-top-sw"), "ca-top", ["bars", "donut", "seg"], (kind) => (kind === "donut" ? donutChart : kind === "bars" ? rankBars : segBar)($("#ca-top"), parts, { vfmt: compact1, center: pk.short }));
+  // daily growth of the top 5
+  $("#ca-trend-title").textContent = `Daily growth, top 5 · ${pk.name}`;
+  const series = d.trend.map((t, i) => ({ name: t.name, color: CA_SERIES[i % CA_SERIES.length], points: t.points }));
+  multiLine($("#ca-trend"), series, { height: 250 });
+  $("#ca-trend-legend").innerHTML = series.map((s) => `<span><span style="display:inline-block;width:12px;height:3px;background:${s.color};vertical-align:middle;margin-right:5px"></span>${esc(s.name)}</span>`).join("");
+  // platform mix (100% bars) of the 10 biggest, with the market's mix on top for comparison
+  const mixKeys = ["yt", "sp", "ytm", "js"], mixRow = (name, r, cls = "") => { const t = mixKeys.reduce((a, x) => a + (r[x] || 0), 0);
+    return `<div class="ca-mix-row ${cls}"><span class="ca-mix-name" title="${esc(name)}">${esc(name)}</span><span class="ca-mix-bar">${t ? mixKeys.map((x) => { const pc = (100 * (r[x] || 0)) / t;
+      return pc > 0 ? `<i style="flex:${pc};background:${P[x].color}" title="${esc(P[x].short)}: ${compact1(r[x])} (${pc.toFixed(1)}%)">${pc >= 12 ? Math.round(pc) + "%" : ""}</i>` : ""; }).join("") : '<i class="muted" style="flex:1">no growth</i>'}</span></div>`; };
+  $("#ca-mix").innerHTML = mixRow("All songs (market)", d.market_mix, "market") + d.mix.map((r) => mixRow(r.name, r)).join("") +
+    `<div class="ch-legend" style="margin-top:10px">${mixKeys.map((x) => `<div class="ch-leg"><i style="background:${P[x].color}"></i><span class="ch-name">${esc(P[x].short)}</span></div>`).join("")}</div>`;
+  $("#ca-mix").querySelectorAll(".ca-mix-row:not(.market)").forEach((el, i) => { el.classList.add("click"); el.onclick = () => openCast(d.mix[i].key); });
+  // heatmap: top 12 x last 14 days
+  $("#ca-heat-title").textContent = `Last 14 days, top 12 · ${pk.short}`;
+  heatmap($("#ca-heat"), d.heat.map((h) => h.name), d.heat_days, (r, c) => d.heat.find((h) => h.name === r)?.days[c],
+    { vfmt: compact1, colLabel: (c) => esc(c.slice(8)), hue: pk.color });
+  // the full table
+  const cols = [["name", "Cast member"], ["songs", "Songs"], ["yt", "YouTube views"], ["sp", "Spotify"], ["ytm", "YT Music"], ["js", "JioSaavn"],
+    ["audio_per_100", "Streams / 100 views"], ["shorts", "Shorts"], ...(isClient() ? [] : [["ig_reels", "Reels"]]), ["momentum", "Week vs week before"]];
+  const arrow = (c) => (CA.sort === c ? (CA.order === "desc" ? " ▾" : " ▴") : "");
+  $("#ca-count").textContent = d.total ? `${fmt(d.offset + 1)}–${fmt(Math.min(d.offset + d.limit, d.total))} of ${fmt(d.total)}` : "";
+  $("#ca-prev").disabled = d.offset <= 0; $("#ca-next").disabled = d.offset + d.limit >= d.total;
+  $("#ca-table").innerHTML = `<thead><tr><th>#</th>${cols.map(([c, n]) => `<th class="sortable${c === "name" ? "" : " num"}" data-sort="${c}">${n}${arrow(c)}</th>`).join("")}<th></th><th>Top song</th></tr></thead><tbody>` +
+    (d.rows.length ? d.rows.map((r) => `<tr class="ca-row" data-key="${esc(r.key)}"><td class="muted num">${r.rank}</td>
+      <td><div class="t1"><b>${esc(r.name)}</b></div><div class="t2">${r.labels.slice(0, 2).map(labelTag).join(" ")}${r.films.length ? ` <span class="muted">${esc(r.films.slice(0, 2).join(", "))}</span>` : ""}</div></td>
+      <td class="num"><div>${fmt(r.songs)}</div>${r.new ? `<div class="t2" title="first uploaded in these days">${fmt(r.new)} new</div>` : ""}</td>
+      <td class="num"><b>+${compact(r.yt)}</b></td><td class="num">+${compact1(r.sp)}</td><td class="num">+${compact1(r.ytm)}</td><td class="num">+${compact1(r.js)}</td>
+      <td class="num">${r.audio_per_100 ?? "–"}</td><td class="num">${r.shorts ? "+" + compact(r.shorts) : "–"}</td>${isClient() ? "" : `<td class="num">${r.ig_reels ? "+" + compact(r.ig_reels) : "–"}</td>`}
+      <td class="num">${chg(r.momentum)}</td>${playOne({ yt_video_id: r.top_song.yt_video_id, title: r.top_song.title })}<td class="muted" style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.top_song.title)}</td></tr>`).join("")
+      : `<tr><td colspan="14" class="empty">No cast member matches.</td></tr>`) + "</tbody>";
+  $("#ca-how").innerHTML = `<b>How to read this.</b> Cast comes from the credits in the songs' YouTube descriptions ("Cast", "Starring", "Featuring"); a song with several cast members counts in full for each of them, so the people do not add up to the total.
+    Every figure is <b>growth over the ${d.days} days</b> ending ${dayLabel(d.end)} (the last completed day), not lifetime totals: each item's reading minus its own previous reading. YouTube views and audio streams (Spotify + YouTube Music + JioSaavn) are never added together.
+    <b>Streams per 100 views</b> shows how much of the video reach turns into listening. <b>Week vs week before</b> compares the last 7 days with the 7 before. Songs of the period only (first uploaded from ${dayLabel(d.since)}, not released earlier). Insights are fixed rules over these numbers, not AI.`;
+  if (CA.key) openCast(CA.key, true); else $("#ca-detail").style.display = "none";
+}
+// one cast member: KPIs per platform, daily charts, platform mix vs market, labels, songs, collaborators
+async function openCast(key, keepScroll) {
+  CA.key = key;
+  const box = $("#ca-detail");
+  box.style.display = ""; box.innerHTML = `<div class="empty">Loading…</div>`;
+  if (!keepScroll) box.scrollIntoView({ behavior: "smooth", block: "start" });
+  let x;
+  try { x = await api(`/api/cast/detail?key=${encodeURIComponent(key)}&days=${CA.days}`); }
+  catch (e) { box.innerHTML = `<div class="empty">${esc(e.message || "Could not load this cast member.")} <button class="small" id="ca-close">Close</button></div>`; $("#ca-close").onclick = closeCast; return; }
+  const P = CA_PLAT, p = x.person, r = x.ranks;
+  const tile = (k, v, rank, extra = "") => `<div class="card kpi" style="--kpi-c:${P[k].color}"><div class="label">${esc(P[k].name)}</div><div class="value">${k === "yt" ? compact(v) : compact1(v)}</div>
+    <div class="gainline">${rank ? `<span class="gain-chip">#${fmt(rank)} of ${fmt(x.people)}</span>` : '<span class="gain-chip none">no growth</span>'}</div><div class="explain">${extra}</div></div>`;
+  const tiles = [tile("yt", p.yt, r.yt, `Total ${compact(p.yt_total)} · ${compact(p.per_song)} a song`), tile("audio", p.audio, r.audio, `${p.audio_per_100 ?? "–"} streams per 100 views`),
+    tile("sp", p.sp, r.sp, `Total ${compact1(p.sp_total)}`), tile("ytm", p.ytm, r.ytm, `Total ${compact1(p.ytm_total)}`), tile("js", p.js, r.js, `Total ${compact1(p.js_total)}`),
+    tile("shorts", p.shorts, r.shorts, `Total ${compact(p.shorts_total)} Shorts`)];
+  if (!isClient() && p.ig_reels != null) tiles.push(tile("ig_reels", p.ig_reels, r.ig_reels, `Total ${compact(p.ig_reels_total)} Reels`));
+  box.innerHTML = `<div class="card-head"><div><h2 style="font-size:20px">${esc(x.name)}</h2>
+      <div class="t2" style="margin-top:4px">${p.labels.map(labelTag).join(" ")} ${p.languages.map((l) => `<span class="pill">${esc(l)}</span>`).join(" ")}
+      ${p.films.length ? `<span class="muted">Films: ${esc(p.films.join(", "))}</span>` : ""} · ${fmt(p.songs)} song${p.songs === 1 ? "" : "s"}${p.dz_best ? ` · best Deezer rank ${fmt(p.dz_best)}` : ""}</div></div>
+      <span class="spacer"></span><button class="small" id="ca-close">✕ Close</button></div>
+    <div class="grid g4 glance" style="margin-top:12px">${tiles.join("")}</div>
+    ${x.facts.length ? `<ul class="ca-facts">${x.facts.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>` : ""}
+    <div class="grid g2" style="margin-top:12px">
+      <div class="card"><div class="card-head"><h2>YouTube views per day</h2></div><div class="chart" id="cad-yt"></div></div>
+      <div class="card"><div class="card-head"><h2>Audio streams per day</h2><span class="spacer"></span><span class="muted" style="font-size:12px">Spotify + YouTube Music + JioSaavn</span></div><div class="chart" id="cad-audio"></div></div>
+    </div>
+    <div class="grid g2" style="margin-top:16px">
+      <div class="card"><div class="card-head"><h2>Platform mix vs the market</h2><span class="spacer"></span><span class="muted" style="font-size:12px">share of the gain · index 100 = same as the market</span></div><div id="cad-mix"></div></div>
+      <div class="card"><div class="card-head"><h2>By label</h2><span class="spacer"></span><span id="cad-lab-sw"></span></div><div id="cad-lab"></div></div>
+    </div>
+    <div class="grid g2" style="margin-top:16px">
+      <div class="card flush"><h2 style="padding:16px 16px 0">Songs</h2><div class="table-wrap" style="max-height:420px"><table id="cad-songs"></table></div></div>
+      <div class="card"><h2>Works with</h2><div id="cad-collab"></div></div>
+    </div>`;
+  $("#ca-close").onclick = closeCast;
+  const day = (pt) => ({ label: pt.x.slice(5), value: Math.max(0, pt.y || 0), x: pt.x });
+  barChart($("#cad-yt"), x.series.yt.map(day), { color: P.yt.color, tip: (b) => `<b>${esc(dayLabel(b.x))}</b><br>+${fmt(b.value)} views` });
+  stackColumns($("#cad-audio"), ["sp", "ytm", "js"].map((k) => ({ name: P[k].short, color: P[k].color, points: x.series[k] })), { height: 230, vfmt: compact1 });
+  $("#cad-mix").innerHTML = `<table class="ca-mixtbl"><thead><tr><th>Platform</th><th>${esc(x.name.split(" ")[0])}</th><th>Market</th><th class="num">Index</th></tr></thead><tbody>` +
+    x.mix.map((m) => `<tr><td><i class="ca-dot" style="background:${P[m.key].color}"></i>${esc(P[m.key].short)}</td>
+      <td><span class="share-bar" style="--w:${m.share}%;--c:${P[m.key].color}">${m.share}%</span></td><td><span class="share-bar" style="--w:${m.market_share}%;--c:var(--text-muted)">${m.market_share}%</span></td>
+      <td class="num">${m.index == null ? "–" : `<b class="${m.index >= 130 ? "delta-up" : m.index <= 70 ? "delta-down" : ""}">${m.index}</b>`}</td></tr>`).join("") + "</tbody></table>";
+  partsChart($("#cad-lab-sw"), $("#cad-lab"), "cad-lab", x.labels.map((l) => ({ name: l.name, tag: labelTag(l.name), value: l.yt, color: labelColor(l.name) })), { vfmt: compact, center: "YouTube views" });
+  $("#cad-songs").innerHTML = `<thead><tr><th></th><th>Song</th><th class="num">YouTube</th><th class="num">Spotify</th><th class="num">YT Music</th><th class="num">JioSaavn</th><th class="num">Shorts</th></tr></thead><tbody>` +
+    x.songs.map((s) => `<tr class="click" data-id="${s.id}">${playOne(s)}<td><div class="t1">${esc(s.title)}${labelTag(s.label)}</div><div class="t2">${esc(s.release)}${s.film ? ` · ${esc(s.film)}` : ""}${s.new ? ' · <span class="pill ok" style="padding:0 6px">new</span>' : ""}</div></td>
+      <td class="num"><b>+${compact(s.yt)}</b></td><td class="num">+${compact1(s.sp)}</td><td class="num">+${compact1(s.ytm)}</td><td class="num">+${compact1(s.js)}</td><td class="num">${s.shorts ? "+" + compact(s.shorts) : "–"}</td></tr>`).join("") + "</tbody>";
+  const grp = (title, xs, clickable) => xs.length ? `<div class="ca-collab"><div class="muted" style="font-size:12px;margin:8px 0 4px">${title}</div><div class="ca-chips">${xs.map((c) =>
+    `<${clickable ? `button class="chip ca-person" data-key="${esc(c.key)}"` : 'span class="chip"'} title="${fmt(c.songs)} songs together · +${compact(c.yt)} views, +${compact1(c.audio)} streams">${esc(c.name)} <span class="muted">${c.songs}</span></${clickable ? "button" : "span"}>`).join("")}</div></div>` : "";
+  $("#cad-collab").innerHTML = (grp("Co-stars", x.collaborators.cast, true) + grp("Singers", x.collaborators.singer) + grp("Music directors", x.collaborators.music_director)) || `<div class="empty">No other credits on these songs.</div>`;
+}
+function closeCast() { CA.key = null; $("#ca-detail").style.display = "none"; if (location.hash.includes("key=")) history.replaceState(null, "", "#cast"); }
+document.querySelectorAll("#ca-days button").forEach((b) => (b.onclick = () => { CA.days = +b.dataset.d; CA.offset = 0; loadCast(); }));
+$("#ca-label").onchange = (e) => { CA.label = e.target.value; CA.offset = 0; loadCast(); };
+$("#ca-language").onchange = (e) => { CA.language = e.target.value; CA.offset = 0; loadCast(); };
+$("#ca-q").addEventListener("input", (e) => { clearTimeout(caTimer); caTimer = setTimeout(() => { CA.q = e.target.value.trim(); CA.offset = 0; loadCast(); }, 300); });
+$("#ca-prev").onclick = () => { CA.offset = Math.max(0, CA.offset - CA.limit); loadCast(); };
+$("#ca-next").onclick = () => { CA.offset += CA.limit; loadCast(); };
+$("#ca-table").addEventListener("click", (e) => {
+  const th = e.target.closest("th[data-sort]");
+  if (th) { const c = th.dataset.sort; CA.order = CA.sort === c && CA.order === "desc" ? "asc" : c === "name" ? "asc" : "desc"; CA.sort = c; CA.offset = 0; return loadCast(); }
+  if (e.target.closest(".play-cell")) return;  // the play button plays, it does not open the person
+  const tr = e.target.closest("tr.ca-row"); if (tr) openCast(tr.dataset.key);
+});
+document.getElementById("page-cast").addEventListener("click", (e) => { const b = e.target.closest(".ca-person"); if (b) openCast(b.dataset.key); });
 
 
 /* ---------- Daily additions (developer): songs added each day, and on each platform ---------- */

@@ -37,6 +37,7 @@
   <a class="nav" href="#dashboard"><svg viewBox="0 0 24 24"><path d="M3 12l9-8 9 8"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></svg>Dashboard</a>
   <a class="nav" href="#mgmt"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Management</a>
   <a class="nav" href="#share"><svg viewBox="0 0 24 24"><path d="M12 3v9l7.8 4.5"/><circle cx="12" cy="12" r="9"/></svg>Market share</a>
+  <a class="nav" href="#cast"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M17.5 4.5l1 2.1 2.3.3-1.7 1.6.4 2.3-2-1.1-2 1.1.4-2.3-1.7-1.6 2.3-.3z"/></svg>Cast &amp; featuring</a>
   <a class="nav" href="#reports"><svg viewBox="0 0 24 24"><path d="M4 4h16v16H4z"/><path d="M8 15l3-3 2 2 4-5"/></svg>Reports</a>
   <div class="nav-sec">Data</div>
   <a class="nav" href="#platforms"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 15v3M11 11v7M15 7v11M19 13v5"/></svg>Platforms</a>
@@ -346,6 +347,37 @@
       <div class="card notice" id="mg-genre-check" style="margin:0"></div>
     </div>
     <div class="card howto" style="margin-top:16px" id="mg-how"></div>
+  </section>
+
+  <!-- CAST & FEATURING (client + developer): the credited cast's performance on every platform -->
+  <section class="page" id="page-cast">
+    <div class="page-head"><div><h1>Cast &amp; featuring</h1><p id="ca-sub">How the actors and featured artists credited on the songs perform on every platform.</p></div>
+      <span class="spacer"></span><span class="pill ok" id="ca-window"></span></div>
+    <div class="card" style="margin-bottom:16px"><div class="row" style="gap:14px;flex-wrap:wrap;align-items:flex-end">
+      <label class="field"><span>Days</span><div class="seg" id="ca-days"><button class="small" data-d="7">7</button><button class="small" data-d="14">14</button><button class="small" data-d="30">30</button><button class="small" data-d="60">60</button><button class="small" data-d="90">90</button></div></label>
+      <label class="field"><span>Label</span><select id="ca-label" style="min-width:180px"></select></label>
+      <label class="field"><span>Language</span><select id="ca-language" style="min-width:150px"></select></label>
+      <label class="field" style="flex:1;min-width:200px"><span>Find a cast member or film</span><input id="ca-q" type="search" placeholder="e.g. Keerthy, Suriya, Parvati"></label>
+    </div></div>
+    <div class="card ca-detail" id="ca-detail" style="display:none"></div>
+    <div class="grid g5 glance" id="ca-kpis"></div>
+    <div class="sec-title"><h2 id="ca-ins-title">Insights</h2><span class="muted">rule-based, from the numbers on this page</span></div>
+    <div class="grid g3 ca-insights" id="ca-insights"></div>
+    <div class="sec-title"><h2>Top cast by platform</h2><span class="spacer"></span><div class="seg" id="ca-plat"></div></div>
+    <div class="grid g2">
+      <div class="card"><div class="card-head"><h2 id="ca-top-title">Top 12</h2><span class="spacer"></span><span id="ca-top-sw"></span></div><div id="ca-top"></div></div>
+      <div class="card"><div class="card-head"><h2 id="ca-trend-title">Daily growth, top 5</h2></div>
+        <div class="chart" id="ca-trend"></div><div id="ca-trend-legend" class="row" style="gap:14px;flex-wrap:wrap;margin-top:6px;font-size:12px"></div></div>
+    </div>
+    <div class="grid g2" style="margin-top:16px">
+      <div class="card"><div class="card-head"><h2>Where each star's audience is</h2><span class="spacer"></span><span class="muted" style="font-size:12px">platform mix of the gain, top 10</span></div>
+        <div id="ca-mix"></div></div>
+      <div class="card"><div class="card-head"><h2 id="ca-heat-title">Last 14 days</h2><span class="spacer"></span><span class="muted" style="font-size:12px">daily gain, darker = more</span></div><div id="ca-heat"></div></div>
+    </div>
+    <div class="sec-title"><h2>All cast members</h2><span class="muted" id="ca-count"></span><span class="spacer"></span>
+      <button class="small" id="ca-prev">‹ Previous</button><button class="small" id="ca-next" style="margin-left:6px">Next ›</button></div>
+    <div class="card flush"><div class="table-wrap" style="max-height:640px"><table id="ca-table"></table></div></div>
+    <div class="card howto" style="margin-top:16px" id="ca-how"></div>
   </section>
 
   <section class="page" id="page-share">
