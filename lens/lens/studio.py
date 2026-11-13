@@ -41,7 +41,8 @@ DEV_LOGIN = (None, None)  # developer login: DEVELOPER_USERNAME + DEVELOPER_PASS
 # (developer pages, raw data, review, runs, settings, docs) and every change (POST) is for the developer login only.
 # Client logins read on screen only: no CSV downloads (user rule, 2026-11-12); every *.csv / download path is refused below too.
 CLIENT_GET = {"/api/status", "/api/client", "/api/platform", "/api/report", "/api/labels/report", "/api/market_share", "/api/management", "/api/daily", "/api/shorts",
-              "/api/song/compare", "/api/tracks", "/api/track", "/api/search", "/api/insights/song", "/api/meta/detail"}  # Cast & featuring is developer only (2026-11-13)
+              "/api/song/compare", "/api/tracks", "/api/track", "/api/search", "/api/insights/song", "/api/meta/detail",
+              "/api/cast/detail"}  # person pages for everyone; the Cast & featuring list (/api/cast) stays developer only (2026-11-13)
 
 SORTS = {"song_date": "song_date", "release_date": "release_date", "title": "title", "artists": "artists",
          "yt_views": "yt_views", "yt_delta": "yt_delta", "yt_likes": "yt_likes", "yt_comments": "yt_comments",

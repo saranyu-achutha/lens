@@ -56,7 +56,7 @@ let STATUS = null;
 /* ---------- Router ---------- */
 const PAGES = ["overview", "dashboard", "mgmt", "share", "cast", "person", "dev", "status", "missed", "added", "crawl", "apis", "charts", "schedule", "platforms", "reports", "daily", "pdata", "catalogue", "explore", "insights", "review", "runs", "outputs", "sources", "settings"];
 // The client login sees only these pages (the server refuses everything else for it).
-const CLIENT_PAGES = ["dashboard", "mgmt", "share", "platforms", "reports", "daily", "catalogue"];  // Cast & featuring: developer only (2026-11-13)
+const CLIENT_PAGES = ["dashboard", "mgmt", "share", "person", "platforms", "reports", "daily", "catalogue"];  // Cast & featuring list: developer only; person pages: everyone (2026-11-13)
 // A developer can switch to "Client view" to see exactly what the client sees (menu, pages, header); not remembered.
 let CLIENT_VIEW = false;
 const isClient = () => STATUS?.role === "client" || CLIENT_VIEW;
@@ -1456,7 +1456,7 @@ document.addEventListener("click", (e) => {
   const m = e.target.closest("[data-meta-key]");
   if (!m || e.target.closest("[data-open], a[href^='http'], button")) return;
   e.preventDefault();
-  if (ROLE_NAMES[m.dataset.metaField] && !isClient()) {  // developer: anyone credited on a song opens their person page (clients: the simple metrics view)
+  if (ROLE_NAMES[m.dataset.metaField]) {  // anyone credited on a song opens their person page (client and developer)
     CA.from = $("#drawer").classList.contains("open") ? (window.__trackId || null) : null;
     closeDrawer();
     openPerson(m.dataset.metaField, m.dataset.metaKey);
@@ -2874,7 +2874,7 @@ async function openCast(key, keepScroll) {
     sa.yt != null ? hl("Share of all growth", `${sa.yt}% of YouTube`, `${sa.audio != null ? sa.audio + "% of audio streams · " : ""}of every song of the period`) : "",
     p.audio_per_100 != null ? hl("Audio vs video", `${p.audio_per_100} streams per 100 views`, `market ${e.market_per_100 ?? "–"} · ${e.market_per_100 ? (p.audio_per_100 / e.market_per_100 >= 1 ? (p.audio_per_100 / e.market_per_100).toFixed(1) + "× more audio-led" : (e.market_per_100 / Math.max(0.1, p.audio_per_100)).toFixed(1) + "× more video-led") : ""}`) : "",
   ].filter(Boolean).join("");
-  const crumb = field === "cast" ? `<a href="#cast" id="ca-all">Cast &amp; featuring</a>` : `<span>${esc(ROLE_NAMES[field] || role.title)}</span>`;
+  const crumb = field === "cast" && !isClient() ? `<a href="#cast" id="ca-all">Cast &amp; featuring</a>` : `<span>${esc(ROLE_NAMES[field] || role.title)}</span>`;
   const back = CA.from ? `<button class="small" id="ca-back-song">← Back to song</button>` : "";
   const MEAS = [["yt", "YouTube"], ["likes", "Likes"], ["comments", "Comments"], ["audio", "Audio"], ["sp", "Spotify"], ["ytm", "YT Music"], ["js", "JioSaavn"], ["shorts", "Shorts"]];
   const eg = e.engagement || {};
@@ -2887,7 +2887,7 @@ async function openCast(key, keepScroll) {
         <div class="ca-tags"><span class="pill ca-role">${esc(role.title === "Cast & featuring" ? "Cast" : role.title)}</span> ${p.labels.map(labelTag).join(" ")} ${p.languages.map((l) => `<span class="pill">${esc(l)}</span>`).join(" ")}
           <span class="pill">${fmt(p.songs)} song${p.songs === 1 ? "" : "s"}</span>${p.dz_best ? `<span class="pill">best Deezer rank ${fmt(p.dz_best)}</span>` : ""}<span class="pill">#${fmt(r.yt || 0)} of ${fmt(x.people)} ${esc(role.many)}</span></div>
         ${(e.films || []).length ? `<div class="muted ca-films">Films: ${esc(e.films.join(", "))}</div>` : ""}</div>
-      <div class="ca-hero-side"><div class="row" style="gap:8px;justify-content:flex-end">${back}<button class="small" id="ca-close">${field === "cast" ? "✕ All cast" : "✕ Close"}</button></div>
+      <div class="ca-hero-side"><div class="row" style="gap:8px;justify-content:flex-end">${back}<button class="small" id="ca-close">${field === "cast" && !isClient() && !location.hash.startsWith("#person") ? "✕ All cast" : "✕ Close"}</button></div>
         <div class="seg" id="cad-days">${[7, 14, 30, 60, 90].map((d) => `<button class="small${d === x.days ? " on" : ""}" data-d="${d}">${d} days</button>`).join("")}</div>
         <div class="muted" style="font-size:12px">growth ${esc(dayLabel(x.start))} – ${esc(dayLabel(x.end))}</div></div>
     </div>
@@ -2964,14 +2964,16 @@ async function openCast(key, keepScroll) {
       <div class="ca-mini-c" id="mini-${k}"></div></div>`).join("") +
     `<div class="ca-mini" style="--mc:${P.dz.color}"><div class="ca-mini-h"><span class="ca-dot" style="background:${P.dz.color}"></span>Deezer rank</div>
       <div class="ca-mini-v">${dzNow ? "#" + fmt(dzNow.y) : "–"}</div><div class="ca-mini-s">${p.dz_best ? `best ${fmt(p.dz_best)} · ` : ""}lower is better</div><div class="ca-mini-c" id="mini-dz"></div></div>`;
-  multi.forEach(([k]) => { const pts = (x.series[k] || []).map(day);
-    barChart($("#mini-" + k), pts, { height: 70, color: P[k].color, hover: P[k].color, tip: (b) => `<b>${esc(dayLabel(b.x))}</b><br>+${fmtK(k, b.value)}` }); });
-  multiLine($("#mini-dz"), [{ name: "Deezer rank", color: P.dz.color, points: (e.dz_trend || []).filter((q) => q.y) }], { height: 70, dots: false, empty: "No Deezer rank." });
+  multi.forEach(([k]) => sparkBars($("#mini-" + k), (x.series[k] || []).map((q) => ({ x: q.x, y: Math.max(0, q.y || 0) })), P[k].color, (v) => "+" + fmtK(k, v)));
+  sparkBars($("#mini-dz"), (e.dz_trend || []).filter((q) => q.y).map((q) => ({ x: q.x, y: q.y })), P.dz.color, (v) => "#" + fmt(v), true);
   $("#ca-multi").querySelectorAll(".ca-mini.click").forEach((c) => (c.onclick = () => {
     PSV.measure = c.dataset.k; PSV.view = "daily"; box.querySelectorAll("#gx-m button").forEach((b) => b.classList.toggle("on", b.dataset.k === PSV.measure));
     box.querySelectorAll("#gx-v button").forEach((b) => b.classList.toggle("on", b.dataset.k === "daily")); drawGX(); $("#gx-chart").scrollIntoView({ behavior: "smooth", block: "center" }); }));
   // first days after release: their average song vs the period's average song (songs read from their first days only)
-  const drawLF = () => { const k = PSV.life || "yt", L = (e.life || []).filter((q) => (q.mk_songs || 0) >= 20 || q[k] != null);
+  const drawLF = () => { const k = PSV.life || "yt", all = e.life || [];
+    // each line runs while at least half of its songs are still counted (young songs drop out of later days)
+    const maxMe = Math.max(0, ...all.map((q) => q.yt_songs || 0)), maxMk = Math.max(0, ...all.map((q) => q.mk_songs || 0));
+    const L = all.map((q) => ({ ...q, [k]: (q.yt_songs || 0) >= Math.max(1, maxMe / 2) ? q[k] : null, ["mk_" + k]: (q.mk_songs || 0) >= Math.max(20, maxMk / 2) ? q["mk_" + k] : null }));
     const pad = (n) => "D" + String(n).padStart(2, "0");
     multiLine($("#lf-chart"), [{ name: "Their songs", color: P[k].color, points: L.filter((q) => q[k] != null).map((q) => ({ x: pad(q.n), y: q[k] })) },
       { name: "Average song", color: "var(--text-muted)", points: L.filter((q) => q["mk_" + k] != null).map((q) => ({ x: pad(q.n), y: q["mk_" + k] })) }].filter((l) => l.points.length),
@@ -3052,6 +3054,17 @@ async function openCast(key, keepScroll) {
     `<button class="chip ca-collab-p" data-f="${f}" data-key="${esc(c.key)}" title="${fmt(c.songs)} songs together · +${compact(c.yt)} views, +${compact1(c.audio)} streams">${esc(c.name)} <span class="muted">${c.songs}</span></button>`).join("")}</div></div>` : ""; }).join("")
     || `<div class="empty">No other credits on these songs.</div>`;
   $("#cad-collab").querySelectorAll(".ca-collab-p").forEach((b) => (b.onclick = () => openPerson(b.dataset.f, b.dataset.key)));
+}
+// A tiny column chart for the platform cards: no axes, the peak marked, hover shows the day and value.
+function sparkBars(el, pts, color, vfmt, invert) {
+  if (!pts.length || !pts.some((q) => q.y)) { el.innerHTML = `<div class="empty">No figures yet.</div>`; return; }
+  const W = 200, H = 64, n = pts.length, bw = W / n, ys = pts.map((q) => q.y), max = Math.max(...ys), min = Math.min(...ys);
+  const h = (v) => invert ? 6 + (H - 10) * (max === min ? 1 : (max - v) / (max - min)) : (H - 4) * (v / (max || 1));
+  const peakI = invert ? ys.indexOf(min) : ys.indexOf(max);
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" width="100%" height="${H}" class="ca-spark">${pts.map((q, i) => {
+    const hh = Math.max(q.y ? 1.5 : 0, h(q.y));
+    return `<rect x="${i * bw + 0.6}" y="${H - hh}" width="${Math.max(1, bw - 1.2)}" height="${hh}" rx="1" fill="${color}" fill-opacity="${i === peakI ? 1 : 0.55}"><title>${esc(dayLabel(q.x))}: ${esc(vfmt(q.y))}</title></rect>`; }).join("")}</svg>
+    <div class="ca-spark-l"><span>${esc(dayLabel(pts[0].x))}</span><span>${invert ? "best" : "peak"} ${esc(vfmt(invert ? min : max))}</span><span>${esc(dayLabel(pts[n - 1].x))}</span></div>`;
 }
 // open anyone credited on songs (developer): the person page for that role
 function openPerson(field, key) {

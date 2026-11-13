@@ -1803,3 +1803,5 @@ body.role-client.ml-away::before { content: "Click anywhere to continue viewing.
 .ca-eg-track span { display: block; height: 100%; border-radius: 6px; }
 #lf-legend, #gx-legend, #cad-curve-lg { font-size: 12px; display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 6px; color: var(--text-secondary); }
 #lf-legend .ca-dot, #gx-legend .ca-dot { margin-right: 5px; }
+.ca-spark { display: block; } .ca-spark rect:hover { fill-opacity: 1; }
+.ca-spark-l { display: flex; justify-content: space-between; font-size: 10px; color: var(--text-muted); margin: 2px 2px 4px; }
